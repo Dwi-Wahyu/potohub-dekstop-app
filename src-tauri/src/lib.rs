@@ -1,89 +1,76 @@
-mod ccapi;
+mod gphoto;
 mod printer;
 
-use ccapi::{CcapiClient, CcapiError, DeviceInfo};
+use gphoto::{DeviceInfo, GphotoError};
+use gphoto2::Camera;
 use printer::{PrintOptions, PrinterError, PrinterStatus};
 use std::path::PathBuf;
-use std::sync::Mutex;
-use tauri::State;
+use tauri::{Manager, State};
+use tokio::sync::Mutex;
 
 pub struct AppState {
-    pub camera: Mutex<Option<CcapiClient>>,
+    pub camera: Mutex<Option<Camera>>,
 }
 
 #[tauri::command]
-async fn connect_camera(
-    state: State<'_, AppState>,
-    ip: String,
-    port: u16,
-) -> Result<DeviceInfo, CcapiError> {
-    let client = CcapiClient::new(&ip, port);
-    let info = client.device_information().await?;
-    *state.camera.lock().unwrap() = Some(client);
+async fn connect_camera(state: State<'_, AppState>) -> Result<DeviceInfo, GphotoError> {
+    let (camera, info) = gphoto::connect().await?;
+    *state.camera.lock().await = Some(camera);
     Ok(info)
 }
 
 #[tauri::command]
-fn disconnect_camera(state: State<'_, AppState>) {
-    *state.camera.lock().unwrap() = None;
+async fn disconnect_camera(state: State<'_, AppState>) -> Result<(), GphotoError> {
+    *state.camera.lock().await = None;
+    Ok(())
 }
 
 #[tauri::command]
-fn is_camera_connected(state: State<'_, AppState>) -> bool {
-    state.camera.lock().unwrap().is_some()
-}
-
-fn get_client(state: &State<'_, AppState>) -> Result<CcapiClient, CcapiError> {
-    state
-        .camera
-        .lock()
-        .unwrap()
-        .clone()
-        .ok_or(CcapiError::NotConnected)
+async fn is_camera_connected(state: State<'_, AppState>) -> Result<bool, GphotoError> {
+    Ok(state.camera.lock().await.is_some())
 }
 
 #[tauri::command]
-async fn get_camera_setting(
-    state: State<'_, AppState>,
-    key: String,
-) -> Result<serde_json::Value, CcapiError> {
-    let client = get_client(&state)?;
-    client.get_setting(&key).await
+async fn get_camera_setting(state: State<'_, AppState>, key: String) -> Result<serde_json::Value, GphotoError> {
+    let guard = state.camera.lock().await;
+    let camera = guard.as_ref().ok_or(GphotoError::NotConnected)?;
+    gphoto::get_setting(camera, &key).await
 }
 
 #[tauri::command]
-async fn set_camera_setting(
-    state: State<'_, AppState>,
-    key: String,
-    value: String,
-) -> Result<(), CcapiError> {
-    let client = get_client(&state)?;
-    client.put_setting(&key, &value).await
+async fn set_camera_setting(state: State<'_, AppState>, key: String, value: String) -> Result<(), GphotoError> {
+    let guard = state.camera.lock().await;
+    let camera = guard.as_ref().ok_or(GphotoError::NotConnected)?;
+    gphoto::set_setting(camera, &key, &value).await
 }
 
 #[tauri::command]
-async fn capture_photo(state: State<'_, AppState>) -> Result<(), CcapiError> {
-    let client = get_client(&state)?;
-    client.capture_photo().await
+async fn capture_photo(state: State<'_, AppState>, app: tauri::AppHandle) -> Result<Vec<u8>, GphotoError> {
+    let guard = state.camera.lock().await;
+    let camera = guard.as_ref().ok_or(GphotoError::NotConnected)?;
+    let save_dir = app.path().app_data_dir().unwrap_or_else(|_| PathBuf::from("."));
+    gphoto::capture_photo(camera, &save_dir.join("captures")).await
 }
 
 #[tauri::command]
-async fn start_liveview(state: State<'_, AppState>) -> Result<(), CcapiError> {
-    let client = get_client(&state)?;
-    client.start_liveview().await
+async fn start_liveview(state: State<'_, AppState>) -> Result<(), GphotoError> {
+    let guard = state.camera.lock().await;
+    let camera = guard.as_ref().ok_or(GphotoError::NotConnected)?;
+    gphoto::set_viewfinder(camera, true).await
 }
 
 #[tauri::command]
-async fn stop_liveview(state: State<'_, AppState>) -> Result<(), CcapiError> {
-    let client = get_client(&state)?;
-    client.stop_liveview().await
+async fn stop_liveview(state: State<'_, AppState>) -> Result<(), GphotoError> {
+    let guard = state.camera.lock().await;
+    let camera = guard.as_ref().ok_or(GphotoError::NotConnected)?;
+    gphoto::set_viewfinder(camera, false).await
 }
 
-/// Dipakai frontend untuk tahu base_url kamera (dibutuhkan untuk <img src> live preview langsung).
 #[tauri::command]
-fn get_camera_base_url(state: State<'_, AppState>) -> Result<String, CcapiError> {
-    let client = get_client(&state)?;
-    Ok(client.base_url.clone())
+async fn get_liveview_frame(state: State<'_, AppState>) -> Result<Vec<u8>, GphotoError> {
+    let guard = state.camera.lock().await;
+    let camera = guard.as_ref().ok_or(GphotoError::NotConnected)?;
+    gphoto::get_liveview_frame(camera).await
 }
 
 // ============================================================================
@@ -146,7 +133,7 @@ pub fn run() {
             capture_photo,
             start_liveview,
             stop_liveview,
-            get_camera_base_url,
+            get_liveview_frame,
             get_printer_list,
             get_printer_status,
             print_photo,

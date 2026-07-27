@@ -5,22 +5,25 @@ export type ConnectionStatus = "idle" | "connecting" | "connected" | "error";
 export type DeviceInfo = {
   manufacturer?: string;
   productname?: string;
+  serialnumber?: string;
+  firmwareversion?: string;
 };
 
 class CameraStore {
   status = $state<ConnectionStatus>("idle");
   errorMessage = $state<string | null>(null);
   device = $state<DeviceInfo | null>(null);
+  cameraBaseUrl = $state<string | null>(null);
 
   isCapturing = $state(false);
   isLiveviewActive = $state(false);
-  private currentLiveviewUrl: string | null = null;
 
-  async connect() {
+  async connect(ip: string, port: number) {
     this.status = "connecting";
     this.errorMessage = null;
     try {
-      this.device = await invoke<DeviceInfo>("connect_camera");
+      this.device = await invoke<DeviceInfo>("connect_camera", { ip, port });
+      this.cameraBaseUrl = await invoke<string>("get_camera_base_url");
       this.status = "connected";
     } catch (err) {
       this.status = "error";
@@ -32,20 +35,18 @@ class CameraStore {
     await invoke("disconnect_camera");
     this.status = "idle";
     this.device = null;
+    this.cameraBaseUrl = null;
     this.isLiveviewActive = false;
-    this.cleanupLiveviewUrl();
   }
 
-  async capture(): Promise<Uint8Array | null> {
-    if (this.status !== "connected" || this.isCapturing) return null;
+  async capture() {
+    if (this.status !== "connected" || this.isCapturing) return;
     this.isCapturing = true;
     this.errorMessage = null;
     try {
-      const bytes = await invoke<number[]>("capture_photo");
-      return new Uint8Array(bytes);
+      await invoke("capture_photo");
     } catch (err) {
       this.errorMessage = String(err);
-      return null;
     } finally {
       this.isCapturing = false;
     }
@@ -80,28 +81,6 @@ class CameraStore {
       await invoke("stop_liveview");
     } finally {
       this.isLiveviewActive = false;
-      this.cleanupLiveviewUrl();
-    }
-  }
-
-  async getLiveviewFrame(): Promise<string | null> {
-    if (this.status !== "connected") return null;
-    try {
-      const bytes = await invoke<number[]>("get_liveview_frame");
-      const blob = new Blob([new Uint8Array(bytes)], { type: "image/jpeg" });
-      const url = URL.createObjectURL(blob);
-      this.cleanupLiveviewUrl();
-      this.currentLiveviewUrl = url;
-      return url;
-    } catch {
-      return null;
-    }
-  }
-
-  private cleanupLiveviewUrl() {
-    if (this.currentLiveviewUrl) {
-      URL.revokeObjectURL(this.currentLiveviewUrl);
-      this.currentLiveviewUrl = null;
     }
   }
 }

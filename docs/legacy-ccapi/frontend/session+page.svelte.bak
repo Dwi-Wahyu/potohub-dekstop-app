@@ -9,19 +9,18 @@
   let printCopies = $state(1);
   let paperSize = $state<"4x6" | "6x8" | "2x6" | "6x6">("4x6");
   let autoPrint = $state(true);
-  let lastCapturedBytes = $state<Uint8Array | null>(null);
+  let lastCaptured = $state(false);
 
   onMount(async () => {
     printerStore.loadPrinters();
 
     if (cameraStore.status !== "connected") return;
     await cameraStore.startLiveview();
-    intervalId = setInterval(async () => {
-      const url = await cameraStore.getLiveviewFrame();
-      if (url) {
-        frameSrc = url;
-      }
-    }, 150);
+    intervalId = setInterval(() => {
+      if (!cameraStore.cameraBaseUrl) return;
+      // cache-buster supaya browser tidak nge-cache frame lama
+      frameSrc = `${cameraStore.cameraBaseUrl}/ccapi/ver100/shooting/liveview/flip?_=${Date.now()}`;
+    }, 150); // ~6-7 fps, sesuaikan setelah tes nyata di kamera
   });
 
   onDestroy(() => {
@@ -30,22 +29,24 @@
   });
 
   async function handleCapture() {
-    const bytes = await cameraStore.capture();
-    if (bytes) {
-      lastCapturedBytes = bytes;
-      if (autoPrint && printerStore.selectedPrinter) {
-        await printerStore.printFromBuffer(bytes, {
-          copies: printCopies,
-          paper_size: paperSize,
-          quality: "standard",
-        });
-      }
+    await cameraStore.capture();
+    lastCaptured = true;
+
+    if (autoPrint && printerStore.selectedPrinter) {
+      // Direct print simulation buffer / demo frame
+      const dummyBuffer = new Uint8Array([255, 216, 255, 224]); // JPEG magic header byte demo
+      await printerStore.printFromBuffer(dummyBuffer, {
+        copies: printCopies,
+        paper_size: paperSize,
+        quality: "standard",
+      });
     }
   }
 
   async function handleManualPrint() {
-    if (!printerStore.selectedPrinter || !lastCapturedBytes) return;
-    await printerStore.printFromBuffer(lastCapturedBytes, {
+    if (!printerStore.selectedPrinter) return;
+    const dummyBuffer = new Uint8Array([255, 216, 255, 224]);
+    await printerStore.printFromBuffer(dummyBuffer, {
       copies: printCopies,
       paper_size: paperSize,
       quality: "standard",
@@ -128,7 +129,7 @@
         </div>
       </div>
 
-      {#if lastCapturedBytes}
+      {#if lastCaptured}
         <button
           class="px-4 py-2 bg-neutral-800 hover:bg-neutral-700 rounded text-xs font-medium text-white transition border border-neutral-700 flex items-center gap-2 disabled:opacity-50"
           onclick={handleManualPrint}

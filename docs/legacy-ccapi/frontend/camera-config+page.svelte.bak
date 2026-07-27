@@ -3,6 +3,9 @@
   import { cameraStore } from "$lib/camera.svelte";
   import { printerStore } from "$lib/printer.svelte";
 
+  let ip = $state("192.168.1.50");
+  let port = $state(8080);
+
   let isoOptions = $state<string[]>([]);
   let currentIso = $state("");
 
@@ -20,7 +23,7 @@
   });
 
   async function handleConnect() {
-    await cameraStore.connect();
+    await cameraStore.connect(ip, port);
     if (cameraStore.status === "connected") {
       try {
         const iso = await cameraStore.getSetting("iso");
@@ -79,19 +82,21 @@
 
   <!-- SECTION KAMERA -->
   <section class="flex flex-col gap-3">
-    <h2 class="text-lg font-medium text-neutral-200 border-b border-neutral-800 pb-2">📷 Kamera (USB / libgphoto2)</h2>
+    <h2 class="text-lg font-medium text-neutral-200 border-b border-neutral-800 pb-2">📷 Kamera (CCAPI)</h2>
 
     <div class="flex flex-col gap-2">
-      <p class="text-xs text-neutral-400">
-        Pastikan kamera terhubung via kabel USB dan tidak sedang dimount oleh aplikasi lain.
-      </p>
+      <label class="text-sm text-neutral-400" for="ip">IP Kamera</label>
+      <input id="ip" class="bg-neutral-900 border border-neutral-700 rounded px-3 py-2" bind:value={ip} />
+
+      <label class="text-sm text-neutral-400" for="port">Port</label>
+      <input id="port" type="number" class="bg-neutral-900 border border-neutral-700 rounded px-3 py-2" bind:value={port} />
 
       <button
         class="mt-2 bg-blue-600 hover:bg-blue-500 rounded px-4 py-2 disabled:opacity-50 font-medium transition"
         onclick={handleConnect}
         disabled={cameraStore.status === "connecting"}
       >
-        {cameraStore.status === "connecting" ? "Menghubungkan..." : "Hubungkan Kamera (Autodetect USB)"}
+        {cameraStore.status === "connecting" ? "Menghubungkan..." : "Hubungkan Kamera"}
       </button>
 
       {#if cameraStore.errorMessage}
@@ -103,7 +108,7 @@
       <div class="bg-neutral-900 border border-neutral-800 p-4 rounded-lg flex flex-col gap-3 mt-2">
         <p class="text-xs text-neutral-400">Kamera terhubung:</p>
         <p class="font-mono text-sm text-green-400">
-          {cameraStore.device?.productname || cameraStore.device?.manufacturer || "Digital Camera (USB)"}
+          {cameraStore.device?.productname || "Canon Camera"} {cameraStore.device?.serialnumber ? `(${cameraStore.device?.serialnumber})` : ""}
         </p>
 
         {#if isoOptions.length > 0}

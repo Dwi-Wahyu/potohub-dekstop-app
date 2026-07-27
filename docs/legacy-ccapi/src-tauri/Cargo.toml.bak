@@ -22,10 +22,10 @@ tauri = { version = "2", features = [] }
 tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+reqwest = { version = "0.12", features = ["json", "stream"] }
 tokio = { version = "1", features = ["full"] }
 thiserror = "2"
 image = "0.25"
-gphoto2 = "3.4.1"
 
 [target.'cfg(windows)'.dependencies]
 winapi = { version = "0.3", features = ["winspool", "wingdi", "winuser"] }

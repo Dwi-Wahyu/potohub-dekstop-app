@@ -4,6 +4,7 @@
   import { printerStore } from "$lib/printer.svelte";
 
   let frameSrc = $state("");
+  let videoEl = $state<HTMLVideoElement | null>(null);
   let intervalId: ReturnType<typeof setInterval> | undefined;
 
   let printCopies = $state(1);
@@ -15,13 +16,15 @@
     printerStore.loadPrinters();
 
     if (cameraStore.status !== "connected") return;
-    await cameraStore.startLiveview();
-    intervalId = setInterval(async () => {
-      const url = await cameraStore.getLiveviewFrame();
-      if (url) {
-        frameSrc = url;
-      }
-    }, 150);
+    await cameraStore.startLiveview(videoEl);
+    if (cameraStore.cameraMode === "usb" || cameraStore.cameraMode === "demo") {
+      intervalId = setInterval(async () => {
+        const url = await cameraStore.getLiveviewFrame();
+        if (url) {
+          frameSrc = url;
+        }
+      }, 150);
+    }
   });
 
   onDestroy(() => {
@@ -61,7 +64,15 @@
   {:else}
     <!-- LIVE VIEW DISPLAY -->
     <div class="w-full max-w-2xl aspect-video bg-neutral-900 rounded-lg overflow-hidden flex items-center justify-center border border-neutral-800 relative shadow-2xl">
-      {#if frameSrc}
+      {#if cameraStore.cameraMode === "webcam"}
+        <video
+          bind:this={videoEl}
+          autoplay
+          playsinline
+          muted
+          class="w-full h-full object-contain scale-x-[-1]"
+        ></video>
+      {:else if frameSrc}
         <img src={frameSrc} alt="Live preview kamera" class="w-full h-full object-contain" />
       {:else}
         <p class="text-neutral-500">Menunggu live view...</p>

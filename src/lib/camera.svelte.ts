@@ -11,25 +11,64 @@ class CameraStore {
   status = $state<ConnectionStatus>("idle");
   errorMessage = $state<string | null>(null);
   device = $state<DeviceInfo | null>(null);
+  cameraMode = $state<"usb" | "webcam" | "demo">("usb");
+  cameraBaseUrl = $state<string>("http://192.168.1.100:8080");
 
   isCapturing = $state(false);
   isLiveviewActive = $state(false);
   private currentLiveviewUrl: string | null = null;
+  stream = $state<MediaStream | null>(null);
+  private videoElement: HTMLVideoElement | null = null;
 
-  async connect() {
+  async connect(mode: "usb" | "webcam" | "demo" = "usb") {
     this.status = "connecting";
     this.errorMessage = null;
-    try {
-      this.device = await invoke<DeviceInfo>("connect_camera");
+    this.cameraMode = mode;
+
+    if (mode === "usb") {
+      try {
+        this.device = await invoke<DeviceInfo>("connect_camera");
+        this.status = "connected";
+      } catch (err) {
+        this.status = "error";
+        this.errorMessage = String(err);
+      }
+    } else if (mode === "webcam") {
+      try {
+        const testStream = await navigator.mediaDevices.getUserMedia({ video: true });
+        testStream.getTracks().forEach(t => t.stop());
+        
+        this.device = {
+          manufacturer: "Internal/USB Webcam",
+          productname: "Webcam Perangkat Laptop"
+        };
+        this.status = "connected";
+      } catch (err) {
+        this.status = "error";
+        this.errorMessage = "Gagal mengakses kamera laptop: " + String(err);
+      }
+    } else if (mode === "demo") {
+      this.device = {
+        manufacturer: "PotoHub",
+        productname: "Demo / Mock Camera Mode"
+      };
       this.status = "connected";
-    } catch (err) {
-      this.status = "error";
-      this.errorMessage = String(err);
     }
   }
 
   async disconnect() {
-    await invoke("disconnect_camera");
+    this.errorMessage = null;
+    if (this.cameraMode === "usb") {
+      try {
+        await invoke("disconnect_camera");
+      } catch {}
+    } else {
+      if (this.stream) {
+        this.stream.getTracks().forEach(t => t.stop());
+        this.stream = null;
+      }
+      this.videoElement = null;
+    }
     this.status = "idle";
     this.device = null;
     this.isLiveviewActive = false;
@@ -41,8 +80,19 @@ class CameraStore {
     this.isCapturing = true;
     this.errorMessage = null;
     try {
-      const bytes = await invoke<number[]>("capture_photo");
-      return new Uint8Array(bytes);
+      if (this.cameraMode === "usb") {
+        const bytes = await invoke<number[]>("capture_photo");
+        return new Uint8Array(bytes);
+      } else if (this.cameraMode === "webcam") {
+        if (!this.videoElement) {
+          throw new Error("Liveview video element tidak aktif");
+        }
+        const bytes = await this.captureWebcamFrame(this.videoElement);
+        return bytes;
+      } else {
+        const bytes = await this.captureDemoFrame();
+        return bytes;
+      }
     } catch (err) {
       this.errorMessage = String(err);
       return null;
@@ -52,6 +102,7 @@ class CameraStore {
   }
 
   async setSetting(key: string, value: string) {
+    if (this.cameraMode !== "usb") return;
     try {
       await invoke("set_camera_setting", { key, value });
     } catch (err) {
@@ -60,42 +111,85 @@ class CameraStore {
   }
 
   async getSetting(key: string) {
+    if (this.cameraMode !== "usb") {
+      return { value: "", ability: [] };
+    }
     return invoke<{ value: string; ability: string[] }>("get_camera_setting", {
       key,
     });
   }
 
-  async startLiveview() {
+  async startLiveview(videoEl?: HTMLVideoElement | null) {
     if (this.status !== "connected") return;
-    try {
-      await invoke("start_liveview");
+    this.errorMessage = null;
+    if (this.cameraMode === "usb") {
+      try {
+        await invoke("start_liveview");
+        this.isLiveviewActive = true;
+      } catch (err) {
+        this.errorMessage = String(err);
+      }
+    } else if (this.cameraMode === "webcam") {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { width: { ideal: 1280 }, height: { ideal: 960 } },
+          audio: false
+        });
+        this.stream = stream;
+        this.isLiveviewActive = true;
+        if (videoEl) {
+          videoEl.srcObject = stream;
+          videoEl.muted = true;
+          videoEl.playsInline = true;
+          await videoEl.play();
+          this.videoElement = videoEl;
+        }
+      } catch (err) {
+        this.errorMessage = "Gagal memulai liveview kamera laptop: " + String(err);
+      }
+    } else if (this.cameraMode === "demo") {
       this.isLiveviewActive = true;
-    } catch (err) {
-      this.errorMessage = String(err);
     }
   }
 
   async stopLiveview() {
-    try {
-      await invoke("stop_liveview");
-    } finally {
-      this.isLiveviewActive = false;
-      this.cleanupLiveviewUrl();
+    this.errorMessage = null;
+    if (this.cameraMode === "usb") {
+      try {
+        await invoke("stop_liveview");
+      } catch {}
+    } else {
+      if (this.stream) {
+        this.stream.getTracks().forEach(t => t.stop());
+        this.stream = null;
+      }
+      if (this.videoElement) {
+        this.videoElement.srcObject = null;
+        this.videoElement = null;
+      }
     }
+    this.isLiveviewActive = false;
+    this.cleanupLiveviewUrl();
   }
 
   async getLiveviewFrame(): Promise<string | null> {
     if (this.status !== "connected") return null;
-    try {
-      const bytes = await invoke<number[]>("get_liveview_frame");
-      const blob = new Blob([new Uint8Array(bytes)], { type: "image/jpeg" });
-      const url = URL.createObjectURL(blob);
-      this.cleanupLiveviewUrl();
-      this.currentLiveviewUrl = url;
+    if (this.cameraMode === "usb") {
+      try {
+        const bytes = await invoke<number[]>("get_liveview_frame");
+        const blob = new Blob([new Uint8Array(bytes)], { type: "image/jpeg" });
+        const url = URL.createObjectURL(blob);
+        this.cleanupLiveviewUrl();
+        this.currentLiveviewUrl = url;
+        return url;
+      } catch {
+        return null;
+      }
+    } else if (this.cameraMode === "demo") {
+      const url = await this.getDemoLiveviewFrame();
       return url;
-    } catch {
-      return null;
     }
+    return null;
   }
 
   private cleanupLiveviewUrl() {
@@ -103,6 +197,103 @@ class CameraStore {
       URL.revokeObjectURL(this.currentLiveviewUrl);
       this.currentLiveviewUrl = null;
     }
+  }
+
+  private async captureWebcamFrame(video: HTMLVideoElement): Promise<Uint8Array | null> {
+    const canvas = document.createElement("canvas");
+    canvas.width = video.videoWidth || 1280;
+    canvas.height = video.videoHeight || 960;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return null;
+    
+    ctx.translate(canvas.width, 0);
+    ctx.scale(-1, 1);
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    
+    return new Promise((resolve) => {
+      canvas.toBlob((blob) => {
+        if (!blob) {
+          resolve(null);
+          return;
+        }
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          resolve(new Uint8Array(reader.result as ArrayBuffer));
+        };
+        reader.readAsArrayBuffer(blob);
+      }, "image/jpeg", 0.92);
+    });
+  }
+
+  private async captureDemoFrame(): Promise<Uint8Array | null> {
+    const canvas = document.createElement("canvas");
+    canvas.width = 1280;
+    canvas.height = 960;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return null;
+    
+    const gradient = ctx.createLinearGradient(0, 0, 1280, 960);
+    gradient.addColorStop(0, "#1e3a8a");
+    gradient.addColorStop(1, "#3b82f6");
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, 1280, 960);
+    
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "bold 48px sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText("PotoHub Demo Camera Frame", 640, 480);
+    
+    ctx.font = "24px sans-serif";
+    ctx.fillText(new Date().toLocaleString(), 640, 540);
+    
+    return new Promise((resolve) => {
+      canvas.toBlob((blob) => {
+        if (!blob) {
+          resolve(null);
+          return;
+        }
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          resolve(new Uint8Array(reader.result as ArrayBuffer));
+        };
+        reader.readAsArrayBuffer(blob);
+      }, "image/jpeg", 0.92);
+    });
+  }
+
+  private async getDemoLiveviewFrame(): Promise<string | null> {
+    const canvas = document.createElement("canvas");
+    canvas.width = 640;
+    canvas.height = 480;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return null;
+    
+    ctx.fillStyle = "#1e293b";
+    ctx.fillRect(0, 0, 640, 480);
+    
+    ctx.fillStyle = "#3b82f6";
+    ctx.beginPath();
+    const time = Date.now() * 0.005;
+    ctx.arc(320 + Math.sin(time) * 100, 240 + Math.cos(time) * 50, 40, 0, Math.PI * 2);
+    ctx.fill();
+    
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "16px sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText("Liveview Demo Active...", 320, 240);
+    
+    return new Promise((resolve) => {
+      canvas.toBlob((blob) => {
+        if (!blob) {
+          resolve(null);
+          return;
+        }
+        const url = URL.createObjectURL(blob);
+        this.cleanupLiveviewUrl();
+        this.currentLiveviewUrl = url;
+        resolve(url);
+      }, "image/jpeg", 0.7);
+    });
   }
 }
 

@@ -3,6 +3,8 @@
   import { cameraStore } from "$lib/camera.svelte";
   import { printerStore } from "$lib/printer.svelte";
 
+  let selectedMode = $state<"usb" | "webcam" | "demo">("usb");
+
   let isoOptions = $state<string[]>([]);
   let currentIso = $state("");
 
@@ -17,11 +19,12 @@
 
   onMount(() => {
     printerStore.loadPrinters();
+    selectedMode = cameraStore.cameraMode;
   });
 
   async function handleConnect() {
-    await cameraStore.connect();
-    if (cameraStore.status === "connected") {
+    await cameraStore.connect(selectedMode);
+    if (cameraStore.status === "connected" && selectedMode === "usb") {
       try {
         const iso = await cameraStore.getSetting("iso");
         isoOptions = iso.ability ?? [];
@@ -79,19 +82,42 @@
 
   <!-- SECTION KAMERA -->
   <section class="flex flex-col gap-3">
-    <h2 class="text-lg font-medium text-neutral-200 border-b border-neutral-800 pb-2">📷 Kamera (USB / libgphoto2)</h2>
+    <h2 class="text-lg font-medium text-neutral-200 border-b border-neutral-800 pb-2">📷 Kamera & Viewfinder</h2>
 
-    <div class="flex flex-col gap-2">
-      <p class="text-xs text-neutral-400">
-        Pastikan kamera terhubung via kabel USB dan tidak sedang dimount oleh aplikasi lain.
-      </p>
+    <div class="flex flex-col gap-3">
+      <div class="flex flex-col gap-1">
+        <label class="text-xs text-neutral-400" for="camera-mode-select">Pilih Jenis Kamera</label>
+        <select
+          id="camera-mode-select"
+          class="bg-neutral-800 border border-neutral-700 rounded px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+          bind:value={selectedMode}
+        >
+          <option value="usb">Kamera DSLR USB (libgphoto2)</option>
+          <option value="webcam">Webcam Laptop (WebRTC)</option>
+          <option value="demo">Demo / Mock Camera</option>
+        </select>
+      </div>
+
+      {#if selectedMode === "usb"}
+        <p class="text-xs text-neutral-400">
+          Pastikan DSLR terhubung via kabel USB dan tidak sedang dimount oleh aplikasi lain.
+        </p>
+      {:else if selectedMode === "webcam"}
+        <p class="text-xs text-neutral-400">
+          Menggunakan kamera bawaan laptop Anda via WebRTC.
+        </p>
+      {:else}
+        <p class="text-xs text-neutral-400">
+          Mode simulasi / demo. Menghasilkan frame buatan untuk testing tanpa hardware.
+        </p>
+      {/if}
 
       <button
-        class="mt-2 bg-blue-600 hover:bg-blue-500 rounded px-4 py-2 disabled:opacity-50 font-medium transition"
+        class="mt-1 bg-blue-600 hover:bg-blue-500 rounded px-4 py-2 disabled:opacity-50 font-medium transition text-sm"
         onclick={handleConnect}
         disabled={cameraStore.status === "connecting"}
       >
-        {cameraStore.status === "connecting" ? "Menghubungkan..." : "Hubungkan Kamera (Autodetect USB)"}
+        {cameraStore.status === "connecting" ? "Menghubungkan..." : "Hubungkan Perangkat"}
       </button>
 
       {#if cameraStore.errorMessage}
@@ -106,48 +132,50 @@
           {cameraStore.device?.productname || cameraStore.device?.manufacturer || "Digital Camera (USB)"}
         </p>
 
-        {#if isoOptions.length > 0}
-          <div class="flex flex-col gap-1">
-            <label class="text-xs text-neutral-400" for="iso">ISO</label>
-            <select id="iso" class="bg-neutral-800 border border-neutral-700 rounded px-3 py-2 text-sm" value={currentIso} onchange={handleIsoChange}>
-              {#each isoOptions as opt}
-                <option value={opt}>{opt}</option>
-              {/each}
-            </select>
-          </div>
-        {/if}
+        {#if cameraStore.cameraMode === "usb"}
+          {#if isoOptions.length > 0}
+            <div class="flex flex-col gap-1">
+              <label class="text-xs text-neutral-400" for="iso">ISO</label>
+              <select id="iso" class="bg-neutral-800 border border-neutral-700 rounded px-3 py-2 text-sm" value={currentIso} onchange={handleIsoChange}>
+                {#each isoOptions as opt}
+                  <option value={opt}>{opt}</option>
+                {/each}
+              </select>
+            </div>
+          {/if}
 
-        {#if tvOptions.length > 0}
-          <div class="flex flex-col gap-1">
-            <label class="text-xs text-neutral-400" for="tv">Shutter Speed (Tv)</label>
-            <select id="tv" class="bg-neutral-800 border border-neutral-700 rounded px-3 py-2 text-sm" value={currentTv} onchange={handleTvChange}>
-              {#each tvOptions as opt}
-                <option value={opt}>{opt}</option>
-              {/each}
-            </select>
-          </div>
-        {/if}
+          {#if tvOptions.length > 0}
+            <div class="flex flex-col gap-1">
+              <label class="text-xs text-neutral-400" for="tv">Shutter Speed (Tv)</label>
+              <select id="tv" class="bg-neutral-800 border border-neutral-700 rounded px-3 py-2 text-sm" value={currentTv} onchange={handleTvChange}>
+                {#each tvOptions as opt}
+                  <option value={opt}>{opt}</option>
+                {/each}
+              </select>
+            </div>
+          {/if}
 
-        {#if avOptions.length > 0}
-          <div class="flex flex-col gap-1">
-            <label class="text-xs text-neutral-400" for="av">Aperture (Av)</label>
-            <select id="av" class="bg-neutral-800 border border-neutral-700 rounded px-3 py-2 text-sm" value={currentAv} onchange={handleAvChange}>
-              {#each avOptions as opt}
-                <option value={opt}>{opt}</option>
-              {/each}
-            </select>
-          </div>
-        {/if}
+          {#if avOptions.length > 0}
+            <div class="flex flex-col gap-1">
+              <label class="text-xs text-neutral-400" for="av">Aperture (Av)</label>
+              <select id="av" class="bg-neutral-800 border border-neutral-700 rounded px-3 py-2 text-sm" value={currentAv} onchange={handleAvChange}>
+                {#each avOptions as opt}
+                  <option value={opt}>{opt}</option>
+                {/each}
+              </select>
+            </div>
+          {/if}
 
-        {#if exposureOptions.length > 0}
-          <div class="flex flex-col gap-1">
-            <label class="text-xs text-neutral-400" for="exposure">Exposure Compensation</label>
-            <select id="exposure" class="bg-neutral-800 border border-neutral-700 rounded px-3 py-2 text-sm" value={currentExposure} onchange={handleExposureChange}>
-              {#each exposureOptions as opt}
-                <option value={opt}>{opt}</option>
-              {/each}
-            </select>
-          </div>
+          {#if exposureOptions.length > 0}
+            <div class="flex flex-col gap-1">
+              <label class="text-xs text-neutral-400" for="exposure">Exposure Compensation</label>
+              <select id="exposure" class="bg-neutral-800 border border-neutral-700 rounded px-3 py-2 text-sm" value={currentExposure} onchange={handleExposureChange}>
+                {#each exposureOptions as opt}
+                  <option value={opt}>{opt}</option>
+                {/each}
+              </select>
+            </div>
+          {/if}
         {/if}
 
         <button class="mt-2 bg-neutral-800 hover:bg-neutral-700 rounded px-4 py-2 text-xs text-neutral-300 transition" onclick={() => cameraStore.disconnect()}>

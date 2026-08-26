@@ -16,7 +16,7 @@ function svelteEmptyStyleFallbackPlugin() {
   };
 }
 
-// @ts-expect-error process is a nodejs global
+// @ts-ignore process is a nodejs global
 const host = process.env.TAURI_DEV_HOST;
 
 // https://vite.dev/config/

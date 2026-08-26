@@ -1,9 +1,9 @@
 <script lang="ts">
+  import { goto } from '$app/navigation';
   import { boothFlow } from '$lib/stores/booth.svelte';
   import { boothConfig } from '$lib/stores/boothConfig.svelte';
   import { uiConfig } from '$lib/stores/uiConfig.svelte';
   import V1Landing from './V1Landing.svelte';
-  import V1ConfigDashboard from './V1ConfigDashboard.svelte';
   import V1Tutorial from './V1Tutorial.svelte';
   import V1PaymentMethod from './V1PaymentMethod.svelte';
   import V1CategoryFrame from './V1CategoryFrame.svelte';
@@ -14,12 +14,11 @@
   import V1Complete from './V1Complete.svelte';
 
   let currentSubStep = $state<
-    'welcome' | 'config' | 'tutorial' | 'method_select' | 'category_frame' | 'print_qty' | 'payment' | 'camera' | 'customize' | 'complete'
+    'welcome' | 'tutorial' | 'method_select' | 'category_frame' | 'print_qty' | 'payment' | 'camera' | 'customize' | 'complete'
   >('welcome');
 
   const SUBSTEP_TO_UI_STEP: Record<typeof currentSubStep, string> = {
     welcome: 'start',
-    config: 'start',
     tutorial: 'tutorial',
     method_select: 'payment',
     category_frame: 'frame',
@@ -38,15 +37,7 @@
   }
 
   function handleOpenConfig() {
-    currentSubStep = 'config';
-  }
-
-  function handleConfigBack() {
-    currentSubStep = 'welcome';
-  }
-
-  function handleLogout() {
-    currentSubStep = 'welcome';
+    goto('/settings');
   }
 
   function handleTutorialNext() {
@@ -101,8 +92,6 @@
 >
   {#if currentSubStep === 'welcome'}
     <V1Landing onStart={handleStart} onOpenConfig={handleOpenConfig} />
-  {:else if currentSubStep === 'config'}
-    <V1ConfigDashboard onBack={handleConfigBack} onLogout={handleLogout} />
   {:else if currentSubStep === 'tutorial'}
     <V1Tutorial onNext={handleTutorialNext} onBack={() => (currentSubStep = 'welcome')} />
   {:else if currentSubStep === 'category_frame'}

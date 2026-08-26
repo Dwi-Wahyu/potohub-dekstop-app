@@ -42,8 +42,8 @@
     try {
       const res = await syncBoothSettings();
       syncStatus = res?.last_sync_at ? `Tersinkron ${res.last_sync_at}` : 'Tersinkronisasi';
-    } catch {
-      syncStatus = 'Sync gagal';
+    } catch (e) {
+      syncStatus = e instanceof Error ? e.message : 'Sync gagal';
     }
     setTimeout(() => {
       syncStatus = null;

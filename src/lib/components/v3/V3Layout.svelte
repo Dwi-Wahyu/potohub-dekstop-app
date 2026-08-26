@@ -1,9 +1,9 @@
 <script lang="ts">
+  import { goto } from '$app/navigation';
   import { boothFlow } from '$lib/stores/booth.svelte';
   import { uiConfig } from '$lib/stores/uiConfig.svelte';
   import type { StoreCategory } from '$lib/stores/uiConfig.svelte';
   import V3Start from './V3Start.svelte';
-  import V1ConfigDashboard from '$lib/components/v1/V1ConfigDashboard.svelte';
   import V3Tutorial from './V3Tutorial.svelte';
   import V3Package from './V3Package.svelte';
   import V3Payment from './V3Payment.svelte';
@@ -16,7 +16,6 @@
 
   type V3Step =
     | 'start'
-    | 'config'
     | 'tutorial'
     | 'package'
     | 'payment'
@@ -36,11 +35,7 @@
   }
 
   function handleOpenConfig() {
-    step = 'config';
-  }
-
-  function handleConfigBack() {
-    step = 'start';
+    goto('/settings');
   }
 
   function handleTutorialNext() {
@@ -90,12 +85,10 @@
 
 <div
   class="w-screen h-screen overflow-hidden bg-[#0a0a0f]"
-  style:background={uiConfig.getStepStyle(step === 'config' ? 'start' : step).background ?? undefined}
+  style:background={uiConfig.getStepStyle(step).background ?? undefined}
 >
   {#if step === 'start'}
     <V3Start onStart={handleStart} onOpenConfig={handleOpenConfig} />
-  {:else if step === 'config'}
-    <V1ConfigDashboard onBack={handleConfigBack} onLogout={handleConfigBack} />
   {:else if step === 'tutorial'}
     <V3Tutorial onNext={handleTutorialNext} onBack={() => (step = 'start')} />
   {:else if step === 'package'}

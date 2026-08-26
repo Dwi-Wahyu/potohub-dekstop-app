@@ -1,6 +1,10 @@
 import { uiConfig, DEFAULT_UI_CONFIG, type TextStyle, type BoothUIConfig } from '$lib/stores/uiConfig.svelte';
+import { boothConfig } from '$lib/stores/boothConfig.svelte';
+import { getActivation, saveActivation } from '$lib/db/local';
 
-const API_BASE = (import.meta.env as Record<string, string>).VITE_API_BASE_URL ?? 'http://localhost:8080/api';
+const envs = import.meta.env as Record<string, string>;
+const rawBase = envs.VITE_API_BASE_URL || envs.PUBLIC_API_BASE_URL || 'http://localhost:8080/api';
+const API_BASE = rawBase.replace(/\/+$/, '');
 
 export interface PublicUIConfigResponse {
   booth_id: string;
@@ -76,32 +80,56 @@ function mapPublicConfigToBoothUIConfig(data: PublicUIConfigResponse): Partial<B
   };
 }
 
+export function isValidUUID(str: string | null | undefined): boolean {
+  if (!str) return false;
+  return /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(str);
+}
+
+export async function getActiveBoothId(): Promise<string | null> {
+  const activation = await getActivation();
+  return activation?.boothId ?? null;
+}
+
 export async function activateBooth(activationCode: string) {
   const res = await fetch(`${API_BASE}/booths/activate`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ activation_code: activationCode })
   });
-  if (!res.ok) throw new Error('Aktivasi gagal');
-  const data = await res.json();
-  // data: { booth_id, name, branch_id, status, settings, ui_template_variant }
-  localStorage.setItem('booth_id', data.booth_id);
-  if (data.ui_template_variant) {
-    localStorage.setItem('ui_template_variant', data.ui_template_variant);
-    uiConfig.save({ templateVariant: data.ui_template_variant });
+  if (!res.ok) {
+    const msg = res.status === 404 ? 'Kode aktivasi tidak valid.' : 'Aktivasi gagal, coba lagi.';
+    throw new Error(msg);
   }
+  const json = await res.json();
+  const data = json.data ?? json;
+
+  await saveActivation({
+    boothId: data.booth_id,
+    activationCode,
+    boothName: data.name ?? data.booth_name ?? 'Booth',
+    organizationId: data.organization_id ?? null,
+    templateVariant: data.ui_template_variant ?? 'v1',
+    activatedAt: new Date().toISOString()
+  });
+
+  uiConfig.save({ templateVariant: data.ui_template_variant ?? 'v1' });
   return data;
 }
 
 export async function fetchAndCacheUiConfig() {
-  const boothId = localStorage.getItem('booth_id') || 'default';
+  const boothId = await getActiveBoothId();
+  if (!boothId || !isValidUUID(boothId)) {
+    uiConfig.init('default');
+    return;
+  }
   try {
     const res = await fetch(`${API_BASE}/booths/${boothId}/ui-customize/public`);
     if (!res.ok) {
       uiConfig.init(boothId);
       return;
     }
-    const data: PublicUIConfigResponse = await res.json();
+    const json = await res.json();
+    const data: PublicUIConfigResponse = json.data ?? json;
     uiConfig.save(mapPublicConfigToBoothUIConfig(data));
   } catch {
     // offline fallback to local cache / default v1
@@ -130,32 +158,62 @@ export interface BoothTemplate {
   is_active: boolean;
 }
 
-export async function fetchCategories(boothId: string): Promise<BoothCategory[]> {
-  const res = await fetch(`${API_BASE}/booths/${boothId}/categories`);
+export async function fetchCategories(boothId?: string): Promise<BoothCategory[]> {
+  const targetBoothId = boothId || (await getActiveBoothId());
+  if (!targetBoothId || !isValidUUID(targetBoothId)) {
+    throw new Error('Booth belum teraktivasi (ID tidak valid)');
+  }
+  const res = await fetch(`${API_BASE}/booths/${targetBoothId}/categories`);
   if (!res.ok) throw new Error('Gagal memuat kategori');
-  return res.json();
+  const json = await res.json();
+  return Array.isArray(json) ? json : (json.data ?? json.categories ?? []);
 }
 
-export async function fetchTemplates(boothId: string, categoryId?: string): Promise<BoothTemplate[]> {
+export async function fetchTemplates(boothId?: string, categoryId?: string): Promise<BoothTemplate[]> {
+  const targetBoothId = boothId || (await getActiveBoothId());
+  if (!targetBoothId || !isValidUUID(targetBoothId)) {
+    throw new Error('Booth belum teraktivasi (ID tidak valid)');
+  }
   const qs = categoryId ? `?category_id=${categoryId}&is_active=true` : '?is_active=true';
-  const res = await fetch(`${API_BASE}/booths/${boothId}/templates${qs}`);
+  const res = await fetch(`${API_BASE}/booths/${targetBoothId}/templates${qs}`);
   if (!res.ok) throw new Error('Gagal memuat template');
-  return res.json();
+  const json = await res.json();
+  return Array.isArray(json) ? json : (json.data ?? json.templates ?? []);
+}
+
+const CAMERA_ROTATE_MAP: Record<number, string> = {
+  0: '0° (Default)',
+  90: '90° CW',
+  180: '180°',
+  270: '90° CCW'
+};
+
+function applyRemoteSettings(settings: Record<string, any>) {
+  const general = settings?.general ?? {};
+  const timer = settings?.timer ?? {};
+  boothConfig.save({
+    pin: general.pin ?? boothConfig.config.pin,
+    cameraRotate: CAMERA_ROTATE_MAP[general.camera_rotate] ?? boothConfig.config.cameraRotate,
+    mirrorOn: general.mirror ?? boothConfig.config.mirrorOn,
+    paymentPage: general.payment_page ?? boothConfig.config.paymentPage,
+    photoFilter: general.photo_filter ?? boothConfig.config.photoFilter,
+    countdownSecs: timer.first_countdown_time ?? boothConfig.config.countdownSecs
+  });
 }
 
 export async function syncBoothSettings() {
-  const boothId = localStorage.getItem('booth_id') || 'default';
+  const boothId = await getActiveBoothId();
+  if (!boothId) throw new Error('Booth belum teraktivasi.');
   try {
     const res = await fetch(`${API_BASE}/booths/${boothId}/settings/sync`, {
       method: 'POST'
     });
     if (!res.ok) throw new Error('Sync gagal');
     const data = await res.json();
+    applyRemoteSettings(data.settings ?? {});
     await fetchAndCacheUiConfig();
     return data;
-  } catch {
-    // Graceful offline mock sync timestamp
-    const now = new Date().toLocaleTimeString();
-    return { booth_id: boothId, last_sync_at: now, settings: {} };
+  } catch (e) {
+    throw e instanceof Error ? e : new Error('Sync gagal');
   }
 }

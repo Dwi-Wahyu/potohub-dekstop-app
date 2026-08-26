@@ -1,8 +1,8 @@
 <script lang="ts">
+  import { goto } from '$app/navigation';
   import { boothFlow } from '$lib/stores/booth.svelte';
   import { uiConfig } from '$lib/stores/uiConfig.svelte';
   import V2Landing from './V2Landing.svelte';
-  import V1ConfigDashboard from '$lib/components/v1/V1ConfigDashboard.svelte';
   import V2Tutorial from './V2Tutorial.svelte';
   import V2Payment from './V2Payment.svelte';
   import V2Qris from './V2Qris.svelte';
@@ -14,7 +14,6 @@
 
   type V2Step =
     | 'landing'
-    | 'config'
     | 'tutorial'
     | 'payment'
     | 'qris'
@@ -26,7 +25,6 @@
 
   const V2_STEP_TO_UI_STEP: Record<V2Step, string> = {
     landing: 'start',
-    config: 'start',
     tutorial: 'tutorial',
     payment: 'payment',
     qris: 'payment',
@@ -45,11 +43,7 @@
   }
 
   function handleOpenConfig() {
-    step = 'config';
-  }
-
-  function handleConfigBack() {
-    step = 'landing';
+    goto('/settings');
   }
 
   function handleTutorialNext() {
@@ -98,8 +92,6 @@
 >
   {#if step === 'landing'}
     <V2Landing onStart={handleStart} onOpenConfig={handleOpenConfig} />
-  {:else if step === 'config'}
-    <V1ConfigDashboard onBack={handleConfigBack} onLogout={handleConfigBack} />
   {:else if step === 'tutorial'}
     <V2Tutorial onNext={handleTutorialNext} onBack={() => (step = 'landing')} />
   {:else if step === 'payment'}

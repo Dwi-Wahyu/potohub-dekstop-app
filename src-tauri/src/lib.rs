@@ -121,6 +121,27 @@ async fn print_photo_from_buffer(
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(
+            tauri_plugin_sql::Builder::default()
+                .add_migrations(
+                    "sqlite:booth.db",
+                    vec![tauri_plugin_sql::Migration {
+                        version: 1,
+                        description: "create booth_activation table",
+                        sql: "CREATE TABLE IF NOT EXISTS booth_activation (
+                            id INTEGER PRIMARY KEY CHECK (id = 1),
+                            booth_id TEXT NOT NULL,
+                            activation_code TEXT NOT NULL,
+                            booth_name TEXT NOT NULL,
+                            organization_id TEXT,
+                            template_variant TEXT NOT NULL DEFAULT 'v1',
+                            activated_at TEXT NOT NULL
+                        );",
+                        kind: tauri_plugin_sql::MigrationKind::Up,
+                    }],
+                )
+                .build(),
+        )
         .manage(AppState {
             camera: Mutex::new(None),
         })

@@ -1,5 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { goto } from '$app/navigation';
+  import { getActivation } from '$lib/db/local';
   import { uiConfig } from '$lib/stores/uiConfig.svelte';
   import { boothConfig } from '$lib/stores/boothConfig.svelte';
   import { cameraStore } from '$lib/camera.svelte';
@@ -8,23 +10,30 @@
   import V2Layout from '$lib/components/v2/V2Layout.svelte';
   import V3Layout from '$lib/components/v3/V3Layout.svelte';
 
-  onMount(async () => {
-    boothConfig.init('default');
-    uiConfig.init('default');
-    // Best-effort: fetch UI config, fallback to local cache/default if offline
-    await fetchAndCacheUiConfig();
+  let ready = $state(false);
 
-    // Auto-connect camera on startup using saved setting
+  onMount(async () => {
+    const activation = await getActivation();
+    if (!activation) {
+      await goto('/onboarding');
+      return;
+    }
+    boothConfig.init(activation.boothId);
+    uiConfig.init(activation.boothId);
+    await fetchAndCacheUiConfig();
     if (boothConfig.config.cameraMode) {
       await cameraStore.connect(boothConfig.config.cameraMode);
     }
+    ready = true;
   });
 </script>
 
-{#if uiConfig.templateVariant === 'v2'}
-  <V2Layout />
-{:else if uiConfig.templateVariant === 'v3'}
-  <V3Layout />
-{:else}
-  <V1Layout />
+{#if ready}
+  {#if uiConfig.templateVariant === 'v2'}
+    <V2Layout />
+  {:else if uiConfig.templateVariant === 'v3'}
+    <V3Layout />
+  {:else}
+    <V1Layout />
+  {/if}
 {/if}

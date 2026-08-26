@@ -108,6 +108,8 @@
         }
       }
     } catch (err) {
+      console.log(err);
+      
       catalogError = 'Gagal memuat katalog. Periksa koneksi ke server.';
     } finally {
       loadingCatalog = false;

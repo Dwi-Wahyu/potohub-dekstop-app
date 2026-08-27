@@ -6,6 +6,7 @@
   import { boothConfig } from '$lib/stores/boothConfig.svelte';
   import { runCaptureSequence } from '$lib/utils/capture';
   import { formatTime } from '$lib/utils/shared';
+  import { fetchTemplates, type BoothTemplate } from '$lib/api/boothClient';
 
   interface Props {
     onComplete: (photos: string[]) => void;
@@ -13,30 +14,59 @@
     frameConfigId?: string;
   }
 
-  let { onComplete, onBack, frameConfigId = 'strip4' }: Props = $props();
+  let { onComplete, onBack, frameConfigId = '' }: Props = $props();
 
-  const FRAME_LAYOUTS: Record<string, { cols: number; rows: number }> = {
-    strip2: { cols: 1, rows: 2 },
-    strip4: { cols: 1, rows: 4 },
-    grid4: { cols: 2, rows: 2 },
-    grid6: { cols: 2, rows: 3 },
-    grid8: { cols: 2, rows: 4 },
-    love4: { cols: 2, rows: 2 },
-    wide3: { cols: 3, rows: 1 }
-  };
-
-  let layout = $derived(FRAME_LAYOUTS[frameConfigId] ?? FRAME_LAYOUTS['strip4']);
-  let totalPhotos = $derived(layout.cols * layout.rows);
+  let selectedTemplate = $state<BoothTemplate | null>(null);
+  let photoSlots = $derived(selectedTemplate?.design_data?.filter((l) => !l.isBackground && !l.isQr) ?? []);
+  let totalPhotos = $derived(photoSlots.length > 0 ? photoSlots.length : 4);
+  let bgLayer = $derived(selectedTemplate?.design_data?.find((l) => l.isBackground));
+  let bgUrl = $derived(bgLayer?.imageUrl || selectedTemplate?.frame_image_url || '');
 
   let sessionSecs = $state(5 * 60);
   let isRunning = $state(false);
-  let selectedIdx = $state<number | null>(null);
   let timer: any = null;
   let liveviewInterval: any = null;
   let frameSrc = $state('');
   let videoEl = $state<HTMLVideoElement | null>(null);
 
+  function playStream(node: HTMLVideoElement, stream: MediaStream | null) {
+    if (stream) {
+      node.srcObject = stream;
+      node.muted = true;
+      node.playsInline = true;
+      node.play().catch(() => {});
+    }
+    return {
+      update(newStream: MediaStream | null) {
+        if (newStream) {
+          node.srcObject = newStream;
+          node.muted = true;
+          node.playsInline = true;
+          node.play().catch(() => {});
+        } else {
+          node.srcObject = null;
+        }
+      },
+      destroy() {
+        node.srcObject = null;
+      }
+    };
+  }
+
   onMount(async () => {
+    const boothId = localStorage.getItem('booth_id') || 'default';
+    try {
+      const templates = await fetchTemplates(boothId);
+      const matched = templates.find((t) => t.id === frameConfigId);
+      if (matched) {
+        selectedTemplate = matched;
+      } else if (templates[0]) {
+        selectedTemplate = templates[0];
+      }
+    } catch (err) {
+      console.error('Failed to load template:', err);
+    }
+
     await cameraStore.startLiveview(videoEl);
     timer = setInterval(() => {
       if (sessionSecs > 0) sessionSecs--;
@@ -62,20 +92,13 @@
     if (isRunning) return;
     isRunning = true;
     boothFlow.photosTaken = [];
-    selectedIdx = null;
 
     await runCaptureSequence(totalPhotos, boothConfig.config.countdownSecs);
 
     isRunning = false;
-    if (boothFlow.photosTaken.length > 0) {
-      selectedIdx = 0;
-    }
   }
 
   let allDone = $derived(boothFlow.photosTaken.length === totalPhotos);
-  let previewPhoto = $derived(
-    allDone && !isRunning && selectedIdx !== null ? boothFlow.photosTaken[selectedIdx] : null
-  );
 </script>
 
 <div
@@ -99,9 +122,7 @@
         box-shadow: 0 0 0 1px rgba(255,255,255,0.06), 0 64px 140px rgba(0,0,0,0.95);
       "
     >
-      {#if previewPhoto}
-        <img src={previewPhoto} alt="Preview" class="w-full h-full object-cover block" />
-      {:else if cameraStore.isLiveviewActive}
+      {#if cameraStore.isLiveviewActive}
         {#if cameraStore.cameraMode === 'webcam'}
           <video
             bind:this={videoEl}
@@ -134,18 +155,18 @@
       {/if}
 
       {#if isRunning}
-        <div class="absolute top-5 left-1/2 -translate-x-1/2 flex items-center gap-2 bg-[#06060a]/80 backdrop-blur-md border border-red-500/30 px-[18px] py-2 rounded-full">
+        <div class="absolute top-5 left-1/2 -translate-x-1/2 flex items-center gap-2 bg-[#06060a]/80 backdrop-blur-md border border-red-500/30 px-[18px] py-2 rounded-full z-20">
           <span class="w-[7px] h-[7px] rounded-full bg-red-500 inline-block animate-pulse"></span>
           <span class="text-[11px] font-extrabold text-white tracking-[0.15em]">REKAM</span>
         </div>
 
-        <div class="absolute bottom-[116px] left-1/2 -translate-x-1/2 bg-[#06060a]/75 backdrop-blur-md border border-white/10 px-[22px] py-[7px] rounded-full text-[13px] text-white/75 font-semibold">
+        <div class="absolute bottom-[116px] left-1/2 -translate-x-1/2 bg-[#06060a]/75 backdrop-blur-md border border-white/10 px-[22px] py-[7px] rounded-full text-[13px] text-white/75 font-semibold z-20">
           Foto {boothFlow.photosTaken.length + 1} dari {totalPhotos}
         </div>
       {/if}
 
       {#if boothFlow.countdown !== null && boothFlow.countdown > 0}
-        <div class="absolute inset-0 flex items-center justify-center pointer-events-none">
+        <div class="absolute inset-0 flex items-center justify-center pointer-events-none z-30">
           <div class="w-36 h-36 rounded-full bg-black/60 border-4 border-white flex items-center justify-center text-6xl font-extrabold text-white">
             {boothFlow.countdown}
           </div>
@@ -153,7 +174,7 @@
       {/if}
 
       {#if !isRunning && !allDone}
-        <div class="absolute bottom-9 left-0 right-0 flex flex-col items-center gap-4">
+        <div class="absolute bottom-9 left-0 right-0 flex flex-col items-center gap-4 z-20">
           <button
             onclick={handleStartSession}
             class="px-[60px] py-5 rounded-full font-extrabold text-[21px] border-none cursor-pointer tracking-[-0.01em] transition-transform duration-150 active:scale-95"
@@ -172,7 +193,7 @@
       {/if}
     </div>
 
-    <!-- Film strip side card -->
+    <!-- Template preview card (Side card) -->
     <div
       class="shrink-0 flex flex-col items-stretch gap-3.5 w-[35vw]"
       style="height: calc(100vh - 48px);"
@@ -184,37 +205,86 @@
         <span class="tabular-nums">{formatTime(sessionSecs)}</span>
       </div>
 
-      <div class="flex-1 min-h-0 bg-white rounded-[22px] p-[20px_18px_18px] flex flex-col gap-4 shadow-[0_40px_100px_rgba(0,0,0,0.75)]">
+      <div class="flex-1 min-h-0 bg-white rounded-[22px] p-[20px_18px_18px] flex flex-col gap-4 shadow-[0_40px_100px_rgba(0,0,0,0.75)] overflow-hidden">
         <div class="flex items-center justify-between shrink-0">
-          <span class="text-[15px] font-black text-[#111]">{uiConfig.config.boothName}</span>
-          <span class="text-[11px] font-semibold text-[#ccc]">
+          <span class="text-[15px] font-black text-[#111]">{selectedTemplate?.name || uiConfig.config.boothName}</span>
+          <span class="text-[11px] font-semibold text-[#888]">
             {boothFlow.photosTaken.length}/{totalPhotos} foto
           </span>
         </div>
 
-        <div class="flex-1 min-h-0 bg-[#141412] rounded-xl flex flex-row overflow-hidden p-3.5">
-          <div class="flex-1 grid gap-2" style="grid-template-columns: repeat({layout.cols}, 1fr); grid-template-rows: repeat({layout.rows}, 1fr);">
-            {#each Array(totalPhotos) as _, i}
-              {@const filled = !!boothFlow.photosTaken[i]}
-              {@const selected = selectedIdx === i && filled}
-              <button
-                type="button"
-                onclick={() => filled && (selectedIdx = i)}
-                class={`rounded-md overflow-hidden bg-[#2a2825] relative transition-all border-0 p-0 ${
-                  filled ? 'cursor-pointer' : 'cursor-default'
-                }`}
-                style="outline: {selected ? `2.5px solid ${uiConfig.config.primaryColor}` : 'none'};"
-              >
-                {#if filled}
-                  <img src={boothFlow.photosTaken[i]} alt={`Foto ${i + 1}`} class="w-full h-full object-cover block" />
-                {:else}
-                  <div class="absolute inset-0 flex items-center justify-center text-white/30 text-xs">
-                    {i + 1}
+        <div class="flex-1 min-h-0 bg-[#141412] rounded-xl flex items-center justify-center p-2 relative overflow-hidden">
+          {#if selectedTemplate}
+            {@const tWidth = selectedTemplate.width || 1200}
+            {@const tHeight = selectedTemplate.height || 1800}
+            <div
+              class="relative h-full max-w-full overflow-hidden rounded-lg bg-black/40 shadow-md"
+              style="aspect-ratio: {tWidth} / {tHeight};"
+            >
+              {#if selectedTemplate.design_data}
+                {#each selectedTemplate.design_data as layer, idx (layer.id ?? idx)}
+                  {@const layerZIndex = selectedTemplate.design_data.length - idx}
+                  <div
+                    class="absolute overflow-hidden"
+                    style="
+                      left: {((layer.x || 0) / tWidth) * 100}%;
+                      top: {((layer.y || 0) / tHeight) * 100}%;
+                      width: {((layer.w || 200) / tWidth) * 100}%;
+                      height: {((layer.h || 200) / tHeight) * 100}%;
+                      transform: rotate({layer.rot || 0}deg);
+                      z-index: {layerZIndex};
+                    "
+                  >
+                    {#if layer.isBackground}
+                      {#if bgUrl}
+                        <img
+                          src={bgUrl}
+                          alt="Frame Overlay"
+                          class="w-full h-full object-fill pointer-events-none block"
+                        />
+                      {/if}
+                    {:else if layer.isQr}
+                      <div class="w-full h-full bg-white flex items-center justify-center text-[#111] text-[9px] font-bold border border-gray-300 p-0.5">
+                        QR Code
+                      </div>
+                    {:else}
+                      {@const slotIdx = photoSlots.findIndex((s) => s.id === layer.id || s === layer)}
+                      {@const targetIdx = slotIdx >= 0 ? slotIdx : 0}
+                      {@const capturedPhoto = boothFlow.photosTaken[targetIdx]}
+                      <div class="w-full h-full bg-black/40 relative">
+                        {#if capturedPhoto}
+                          <img src={capturedPhoto} alt={`Photo ${targetIdx + 1}`} class="w-full h-full object-cover block" />
+                        {:else if cameraStore.isLiveviewActive}
+                          {#if cameraStore.cameraMode === 'webcam'}
+                            <video
+                              use:playStream={cameraStore.stream}
+                              autoplay
+                              playsinline
+                              muted
+                              class="w-full h-full object-cover"
+                              style="transform: scaleX(-1);"
+                            ></video>
+                          {:else if frameSrc}
+                            <img src={frameSrc} alt="Live view" class="w-full h-full object-cover block" />
+                          {:else}
+                            <div class="w-full h-full flex items-center justify-center text-white/40 text-[9px] animate-pulse">
+                              {targetIdx + 1}
+                            </div>
+                          {/if}
+                        {:else}
+                          <div class="w-full h-full flex items-center justify-center text-white/40 text-[9px]">
+                            {targetIdx + 1}
+                          </div>
+                        {/if}
+                      </div>
+                    {/if}
                   </div>
-                {/if}
-              </button>
-            {/each}
-          </div>
+                {/each}
+              {/if}
+            </div>
+          {:else}
+            <div class="text-white/40 text-xs">Loading Template...</div>
+          {/if}
         </div>
 
         <button
@@ -242,3 +312,7 @@
     </div>
   </div>
 </div>
+
+{#if boothFlow.isFlashActive}
+  <div class="fixed inset-0 bg-white z-[9999] pointer-events-none transition-opacity duration-150"></div>
+{/if}

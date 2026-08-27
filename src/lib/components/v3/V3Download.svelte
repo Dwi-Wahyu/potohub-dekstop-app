@@ -6,11 +6,21 @@
   import { sendSoftFile, generateSessionCode } from '$lib/utils/shared';
   import { Delete } from '@lucide/svelte';
 
+  import { compositeTemplateImage } from '$lib/utils/templateComposite';
+  import { saveSessionAssets } from '$lib/utils/sessionAssets';
+  import {
+    fetchTemplates,
+    createTransactionSession,
+    getActiveBoothId,
+    type BoothTemplate
+  } from '$lib/api/boothClient';
+
   interface Props {
+    selectedFrame?: string;
     onDone: () => void;
   }
 
-  let { onDone }: Props = $props();
+  let { selectedFrame = '', onDone }: Props = $props();
 
   let email = $state('');
   let sent = $state(false);
@@ -21,27 +31,67 @@
   let numMode = $state(false);
   let interval: any = null;
   let qrDataUrl = $state('');
+  let isSaving = $state(false);
+  let compositeUrl = $state<string | null>(null);
+  let selectedTemplate = $state<BoothTemplate | null>(null);
 
   const ADMIN_DASHBOARD_PUBLIC_URL = (import.meta.env as Record<string, string>).VITE_ADMIN_DASHBOARD_URL ?? 'http://localhost:5173';
 
-  $effect(() => {
-    const sessionId = boothFlow.sessionId || 'demo-session';
-    const softfileUrl = `${ADMIN_DASHBOARD_PUBLIC_URL}/s/${sessionId}`;
-    QRCode.toDataURL(softfileUrl, { margin: 1, width: 200 })
-      .then((url) => {
-        qrDataUrl = url;
-      })
-      .catch((err) => {
-        console.error('Failed to generate QR code:', err);
-      });
-  });
-
-  onMount(() => {
+  onMount(async () => {
     interval = setInterval(() => {
       if (sent && timer > 0) {
         timer--;
       }
     }, 1000);
+
+    const boothId = (await getActiveBoothId()) || localStorage.getItem('booth_id') || 'default';
+
+    try {
+      const templates = await fetchTemplates(boothId);
+      const matched = templates.find((t) => t.id === selectedFrame) || templates[0];
+      if (matched) {
+        selectedTemplate = matched;
+        compositeUrl = await compositeTemplateImage(
+          matched,
+          boothFlow.photosTaken,
+          boothFlow.selectedFilterId
+        );
+      }
+    } catch (err) {
+      console.error('Failed to composite template in V3Download:', err);
+    }
+
+    try {
+      isSaving = true;
+      const session = await createTransactionSession(
+        boothId,
+        selectedTemplate?.category_id,
+        boothFlow.printQty,
+        'cashless',
+        selectedFrame
+      );
+      const sessId = session.session_id || session.id || 'demo-session';
+      boothFlow.sessionId = sessId;
+
+      const softfileUrl = `${ADMIN_DASHBOARD_PUBLIC_URL}/s/${sessId}`;
+      qrDataUrl = await QRCode.toDataURL(softfileUrl, { margin: 1, width: 200 });
+
+      await saveSessionAssets(
+        boothId,
+        sessId,
+        compositeUrl,
+        selectedTemplate?.width || 1200,
+        selectedTemplate?.height || 1800,
+        (selectedTemplate?.design_data || []).filter((l) => !l.isBackground && !l.isQr),
+        selectedTemplate?.frame_image_url || selectedTemplate?.design_data?.find((l) => l.isBackground)?.imageUrl
+      );
+    } catch (err) {
+      console.error('Failed to create session / save assets in V3Download:', err);
+      const fallbackUrl = `${ADMIN_DASHBOARD_PUBLIC_URL}/s/${boothFlow.sessionId || 'demo-session'}`;
+      qrDataUrl = await QRCode.toDataURL(fallbackUrl, { margin: 1, width: 200 }).catch(() => '');
+    } finally {
+      isSaving = false;
+    }
   });
 
   onDestroy(() => {
@@ -120,10 +170,30 @@
 
   <!-- Content -->
   <div
-    class="relative z-10 flex-1 flex flex-col items-center justify-center max-w-md mx-auto w-full my-auto transition-transform duration-300"
+    class="relative z-10 flex-1 flex items-center justify-center gap-10 max-w-4xl mx-auto w-full my-auto px-6 transition-transform duration-300"
     style="transform: {kbOpen ? 'translateY(-60px)' : 'translateY(0)'};"
   >
-    <div class="border border-white/10 rounded-3xl bg-white/5 p-8 w-full flex flex-col items-center gap-6 backdrop-blur-xl">
+    <!-- Left: composited frame mockup -->
+    <div class="flex flex-col items-center shrink-0">
+      <div
+        class="flex flex-col overflow-hidden bg-white/5 border border-white/20 rounded-[24px] w-[240px] shadow-[0_16px_40px_rgba(0,0,0,0.6)] p-3 backdrop-blur-md"
+      >
+        {#if compositeUrl}
+          <img
+            src={compositeUrl}
+            alt="Hasil Foto Template"
+            class="w-full h-auto max-h-[52vh] object-contain rounded-xl block"
+          />
+        {:else}
+          <div class="w-[200px] h-[300px] flex items-center justify-center text-white/30 text-xs animate-pulse font-mono">
+            Memproses Foto...
+          </div>
+        {/if}
+      </div>
+    </div>
+
+    <!-- Right: QR & Action card -->
+    <div class="border border-white/10 rounded-3xl bg-white/5 p-8 max-w-md w-full flex flex-col items-center gap-6 backdrop-blur-xl">
       {#if !sent}
         <div class="text-center">
           <span class="text-xs font-black uppercase tracking-[0.3em] text-[#FFC107] mb-1 block">

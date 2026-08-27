@@ -107,6 +107,6 @@
   {:else if step === 'filter'}
     <V2Filter onNext={handleFilterNext} onBack={() => (step = 'session')} />
   {:else if step === 'download'}
-    <V2Download onDone={handleDone} />
+    <V2Download selectedFrame={selectedFrameId} onDone={handleDone} />
   {/if}
 </div>

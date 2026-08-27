@@ -6,11 +6,21 @@
   import { sendSoftFile, generateSessionCode } from '$lib/utils/shared';
   import { Delete } from '@lucide/svelte';
 
+  import { compositeTemplateImage } from '$lib/utils/templateComposite';
+  import { saveSessionAssets } from '$lib/utils/sessionAssets';
+  import {
+    fetchTemplates,
+    createTransactionSession,
+    getActiveBoothId,
+    type BoothTemplate
+  } from '$lib/api/boothClient';
+
   interface Props {
+    selectedFrame?: string;
     onDone: () => void;
   }
 
-  let { onDone }: Props = $props();
+  let { selectedFrame = '', onDone }: Props = $props();
 
   let email = $state('');
   let sent = $state(false);
@@ -21,27 +31,67 @@
   let numMode = $state(false);
   let interval: any = null;
   let qrDataUrl = $state('');
+  let isSaving = $state(false);
+  let compositeUrl = $state<string | null>(null);
+  let selectedTemplate = $state<BoothTemplate | null>(null);
 
   const ADMIN_DASHBOARD_PUBLIC_URL = (import.meta.env as Record<string, string>).VITE_ADMIN_DASHBOARD_URL ?? 'http://localhost:5173';
 
-  $effect(() => {
-    const sessionId = boothFlow.sessionId || 'demo-session';
-    const softfileUrl = `${ADMIN_DASHBOARD_PUBLIC_URL}/s/${sessionId}`;
-    QRCode.toDataURL(softfileUrl, { margin: 1, width: 200 })
-      .then((url) => {
-        qrDataUrl = url;
-      })
-      .catch((err) => {
-        console.error('Failed to generate QR code:', err);
-      });
-  });
-
-  onMount(() => {
+  onMount(async () => {
     interval = setInterval(() => {
       if (sent && timer > 0) {
         timer--;
       }
     }, 1000);
+
+    const boothId = (await getActiveBoothId()) || localStorage.getItem('booth_id') || 'default';
+
+    try {
+      const templates = await fetchTemplates(boothId);
+      const matched = templates.find((t) => t.id === selectedFrame) || templates[0];
+      if (matched) {
+        selectedTemplate = matched;
+        compositeUrl = await compositeTemplateImage(
+          matched,
+          boothFlow.photosTaken,
+          boothFlow.selectedFilterId
+        );
+      }
+    } catch (err) {
+      console.error('Failed to composite template in V2Download:', err);
+    }
+
+    try {
+      isSaving = true;
+      const session = await createTransactionSession(
+        boothId,
+        selectedTemplate?.category_id,
+        boothFlow.printQty,
+        'cashless',
+        selectedFrame
+      );
+      const sessId = session.session_id || session.id || 'demo-session';
+      boothFlow.sessionId = sessId;
+
+      const softfileUrl = `${ADMIN_DASHBOARD_PUBLIC_URL}/s/${sessId}`;
+      qrDataUrl = await QRCode.toDataURL(softfileUrl, { margin: 1, width: 200 });
+
+      await saveSessionAssets(
+        boothId,
+        sessId,
+        compositeUrl,
+        selectedTemplate?.width || 1200,
+        selectedTemplate?.height || 1800,
+        (selectedTemplate?.design_data || []).filter((l) => !l.isBackground && !l.isQr),
+        selectedTemplate?.frame_image_url || selectedTemplate?.design_data?.find((l) => l.isBackground)?.imageUrl
+      );
+    } catch (err) {
+      console.error('Failed to create session / save assets in V2Download:', err);
+      const fallbackUrl = `${ADMIN_DASHBOARD_PUBLIC_URL}/s/${boothFlow.sessionId || 'demo-session'}`;
+      qrDataUrl = await QRCode.toDataURL(fallbackUrl, { margin: 1, width: 200 }).catch(() => '');
+    } finally {
+      isSaving = false;
+    }
   });
 
   onDestroy(() => {
@@ -147,6 +197,25 @@
       >
         {sent ? 'Selesai' : 'Lewati →'}
       </button>
+    </div>
+
+    <!-- Center: composited frame mockup -->
+    <div class="flex flex-col items-center shrink-0">
+      <div
+        class="flex flex-col overflow-hidden bg-white border-[3px] border-black rounded-[24px] w-[240px] shadow-[10px_10px_0_0_rgba(0,0,0,1)] p-3"
+      >
+        {#if compositeUrl}
+          <img
+            src={compositeUrl}
+            alt="Hasil Foto Template"
+            class="w-full h-auto max-h-[52vh] object-contain rounded-xl block"
+          />
+        {:else}
+          <div class="w-[200px] h-[300px] flex items-center justify-center text-black/30 text-xs animate-pulse font-['Nunito',sans-serif]">
+            Memproses Foto...
+          </div>
+        {/if}
+      </div>
     </div>
 
     <!-- Right card -->

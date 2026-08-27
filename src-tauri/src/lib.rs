@@ -1,4 +1,5 @@
 mod gphoto;
+mod media;
 mod printer;
 
 use gphoto::{DeviceInfo, GphotoError};
@@ -10,6 +11,7 @@ use tokio::sync::Mutex;
 
 pub struct AppState {
     pub camera: Mutex<Option<Camera>>,
+    pub liveview_buffer: Mutex<gphoto::LiveviewBuffer>,
 }
 
 #[tauri::command]
@@ -70,7 +72,26 @@ async fn stop_liveview(state: State<'_, AppState>) -> Result<(), GphotoError> {
 async fn get_liveview_frame(state: State<'_, AppState>) -> Result<Vec<u8>, GphotoError> {
     let guard = state.camera.lock().await;
     let camera = guard.as_ref().ok_or(GphotoError::NotConnected)?;
-    gphoto::get_liveview_frame(camera).await
+    let bytes = gphoto::get_liveview_frame(camera).await?;
+    state.liveview_buffer.lock().await.push(bytes.clone());
+    Ok(bytes)
+}
+
+#[tauri::command]
+async fn get_liveview_clip_frames(
+    state: State<'_, AppState>,
+    capture_ts_ms: u64,
+    pre_ms: u64,
+    post_ms: u64,
+) -> Result<Vec<Vec<u8>>, GphotoError> {
+    let buf = state.liveview_buffer.lock().await;
+    Ok(buf.extract_window(capture_ts_ms as u128, pre_ms as u128, post_ms as u128))
+}
+
+#[tauri::command]
+async fn clear_liveview_buffer(state: State<'_, AppState>) -> Result<(), GphotoError> {
+    state.liveview_buffer.lock().await.frames.clear();
+    Ok(())
 }
 
 // ============================================================================
@@ -121,6 +142,7 @@ async fn print_photo_from_buffer(
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_shell::init())
         .plugin(
             tauri_plugin_sql::Builder::default()
                 .add_migrations(
@@ -144,6 +166,23 @@ pub fn run() {
         )
         .manage(AppState {
             camera: Mutex::new(None),
+            liveview_buffer: Mutex::new(gphoto::LiveviewBuffer::new(8000)),
+        })
+        .setup(|app| {
+            #[cfg(target_os = "linux")]
+            {
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.with_webview(|webview| {
+                        use webkit2gtk::{PermissionRequestExt, WebViewExt};
+                        let gtk_webview = webview.inner();
+                        gtk_webview.connect_permission_request(|_wv, req| {
+                            req.allow();
+                            true
+                        });
+                    });
+                }
+            }
+            Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             connect_camera,
@@ -155,6 +194,12 @@ pub fn run() {
             start_liveview,
             stop_liveview,
             get_liveview_frame,
+            get_liveview_clip_frames,
+            clear_liveview_buffer,
+            media::fetch_image_as_data_url,
+            media::encode_photos_to_gif,
+            media::encode_jpeg_frames_to_video,
+            media::compose_template_video,
             get_printer_list,
             get_printer_status,
             print_photo,

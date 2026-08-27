@@ -1,22 +1,31 @@
 <script lang="ts">
   import { uiConfig } from '$lib/stores/uiConfig.svelte';
+  import { validateAndRedeemQrTicket } from '$lib/api/boothClient';
 
   interface Props {
+    boothId?: string;
     onConfirm: () => void;
     onBack: () => void;
   }
 
-  let { onConfirm, onBack }: Props = $props();
+  let { boothId = '', onConfirm, onBack }: Props = $props();
 
   let code = $state('');
-  let error = $state(false);
+  let errorMsg = $state('');
+  let verifying = $state(false);
 
-  function verify() {
-    if (code.trim().length >= 4) {
+  async function verify() {
+    if (!code.trim()) return;
+    verifying = true;
+    errorMsg = '';
+    try {
+      await validateAndRedeemQrTicket(code.trim(), boothId);
       onConfirm();
-    } else {
-      error = true;
-      setTimeout(() => (error = false), 1500);
+    } catch (e) {
+      errorMsg = e instanceof Error ? e.message : 'Kode tiket tidak valid';
+      setTimeout(() => (errorMsg = ''), 2500);
+    } finally {
+      verifying = false;
     }
   }
 </script>
@@ -48,14 +57,14 @@
         onkeydown={(e) => e.key === 'Enter' && verify()}
         placeholder="XXXX-XXXX-XXXX"
         class={`w-full text-center text-xl font-black tracking-[0.25em] border-[2.5px] rounded-2xl px-4 py-3 outline-none transition-colors ${
-          error ? 'border-red-500 bg-red-50' : 'border-black bg-white'
+          errorMsg ? 'border-red-500 bg-red-50' : 'border-black bg-white'
         }`}
         style="font-family: 'Courier New', monospace;"
       />
 
-      {#if error}
-        <p class="text-xs text-red-500 font-bold tracking-wider font-['Nunito',sans-serif] m-0">
-          Kode tidak valid
+      {#if errorMsg}
+        <p class="text-xs text-red-500 font-bold tracking-wider font-['Nunito',sans-serif] m-0 text-center">
+          {errorMsg}
         </p>
       {/if}
 

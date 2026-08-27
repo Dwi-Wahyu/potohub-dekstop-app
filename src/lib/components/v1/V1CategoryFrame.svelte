@@ -277,11 +277,13 @@
             <div class="grid grid-cols-3 gap-3.5 content-start">
               {#each visibleTemplatesForCategory as f, index}
                 {@const sel = f.id === frameId}
-                {@const grid = getGridSize(f.design_data)}
-                {@const accent = getTemplateAccent(f.name, index)}
+                {@const bgLayer = f.design_data?.find((l) => l.isBackground)}
+                {@const bgUrl = bgLayer?.imageUrl || f.frame_image_url}
+                {@const photoSlots = f.design_data?.filter((l) => !l.isBackground) ?? []}
+                {@const count = photoSlots.length || 1}
                 <button
                   onclick={() => (frameId = f.id)}
-                  class={`flex flex-col items-center gap-2.5 p-4 rounded-2xl cursor-pointer transition-colors duration-150 ${
+                  class={`flex flex-col items-center gap-2.5 p-3 rounded-2xl cursor-pointer transition-colors duration-150 ${
                     sel ? '' : 'bg-[#1a1824] hover:bg-[#22202a]'
                   }`}
                   style="
@@ -289,18 +291,48 @@
                     border: 1.5px solid {sel ? uiConfig.config.primaryColor : 'transparent'};
                   "
                 >
-                  <div class="w-[88px] h-[88px] rounded-xl p-2 flex flex-col justify-between" style="background-color: {accent}">
-                    <div class="grid gap-1 h-full" style="grid-template-columns: repeat({grid.cols}, 1fr); grid-template-rows: repeat({grid.rows}, 1fr);">
-                      {#each Array(grid.count) as _}
-                        <div class="bg-white/80 rounded-sm"></div>
+                  <div
+                    class="w-[100px] h-[130px] rounded-xl overflow-hidden relative shadow-md bg-black/40 flex items-center justify-center p-1"
+                    style="aspect-ratio: {f.width || 1200} / {f.height || 1800};"
+                  >
+                    {#if f.preview_image_url}
+                      <img src={f.preview_image_url} alt={f.name} class="w-full h-full object-contain block rounded-lg" />
+                    {:else if f.design_data && f.design_data.length > 0}
+                      {#each f.design_data as layer, idx (layer.id ?? idx)}
+                        {@const layerZIndex = f.design_data.length - idx}
+                        <div
+                          class="absolute overflow-hidden"
+                          style="
+                            left: {((layer.x || 0) / (f.width || 1200)) * 100}%;
+                            top: {((layer.y || 0) / (f.height || 1800)) * 100}%;
+                            width: {((layer.w || 200) / (f.width || 1200)) * 100}%;
+                            height: {((layer.h || 200) / (f.height || 1800)) * 100}%;
+                            transform: rotate({layer.rot || 0}deg);
+                            z-index: {layerZIndex};
+                          "
+                        >
+                          {#if layer.isBackground}
+                            {#if bgUrl}
+                              <img src={bgUrl} alt="Template Frame" class="w-full h-full object-fill pointer-events-none block" />
+                            {/if}
+                          {:else}
+                            <div class="w-full h-full bg-white/20 rounded-[2px] flex items-center justify-center text-[8px] text-white/50">
+                              📷
+                            </div>
+                          {/if}
+                        </div>
                       {/each}
-                    </div>
+                    {:else if bgUrl}
+                      <img src={bgUrl} alt="Template Frame" class="w-full h-full object-contain block" />
+                    {:else}
+                      <div class="text-white/30 text-[10px]">No Preview</div>
+                    {/if}
                   </div>
                   <div class="text-center">
                     <div class="text-[13px] font-semibold" style="color: {sel ? uiConfig.config.primaryColor : '#f0edf8'}">
                       {f.name}
                     </div>
-                    <div class="text-[11px] text-white/[0.35] mt-0.5">{grid.count} foto</div>
+                    <div class="text-[11px] text-white/[0.35] mt-0.5">{count} foto</div>
                   </div>
                 </button>
               {/each}
@@ -318,43 +350,75 @@
 
         <div class="flex-1 min-h-0 flex flex-col pt-4 px-5">
           {#if selectedFrame}
-            {@const grid = getGridSize(selectedFrame.design_data)}
-            {@const accent = getTemplateAccent(selectedFrame.name, templatesData.indexOf(selectedFrame))}
-            <div class="w-full flex-1 min-h-0 rounded-2xl overflow-hidden flex flex-col p-3.5 gap-2.5 relative" style="background-color: {accent};">
-              <div class="flex-1 grid gap-1.5" style="grid-template-columns: repeat({grid.cols}, 1fr); grid-template-rows: repeat({grid.rows}, 1fr);">
-                {#each Array(grid.count) as _}
-                  <div class="rounded-lg overflow-hidden bg-black/25 relative">
-                    {#if cameraStore.isLiveviewActive}
-                      {#if cameraStore.cameraMode === 'webcam'}
-                        <video
-                          use:playStream={cameraStore.stream}
-                          autoplay
-                          playsinline
-                          muted
-                          class="w-full h-full object-cover"
-                          style="transform: scaleX(-1);"
-                        ></video>
-                      {:else if frameSrc}
-                        <img
-                          src={frameSrc}
-                          alt="Live view"
-                          class="w-full h-full object-cover"
-                        />
+            {@const bgLayer = selectedFrame.design_data?.find((l) => l.isBackground)}
+            {@const bgUrl = bgLayer?.imageUrl || selectedFrame.frame_image_url}
+            {@const tWidth = selectedFrame.width || 1200}
+            {@const tHeight = selectedFrame.height || 1800}
+
+            <div class="w-full flex-1 min-h-0 flex items-center justify-center p-1">
+              <div
+                class="relative h-full max-w-full overflow-hidden rounded-xl bg-black/40 shadow-xl"
+                style="aspect-ratio: {tWidth} / {tHeight};"
+              >
+                {#if selectedFrame.design_data && selectedFrame.design_data.length > 0}
+                  {#each selectedFrame.design_data as layer, idx (layer.id ?? idx)}
+                    {@const layerZIndex = selectedFrame.design_data.length - idx}
+                    <div
+                      class="absolute overflow-hidden"
+                      style="
+                        left: {((layer.x || 0) / tWidth) * 100}%;
+                        top: {((layer.y || 0) / tHeight) * 100}%;
+                        width: {((layer.w || 200) / tWidth) * 100}%;
+                        height: {((layer.h || 200) / tHeight) * 100}%;
+                        transform: rotate({layer.rot || 0}deg);
+                        z-index: {layerZIndex};
+                      "
+                    >
+                      {#if layer.isBackground}
+                        {#if bgUrl}
+                          <img
+                            src={bgUrl}
+                            alt="Frame Overlay"
+                            class="w-full h-full object-fill pointer-events-none block"
+                          />
+                        {/if}
                       {:else}
-                        <div class="w-full h-full flex items-center justify-center text-white/40 text-xs animate-pulse">
-                          Loading...
+                        <div class="w-full h-full bg-black/40 relative">
+                          {#if cameraStore.isLiveviewActive}
+                            {#if cameraStore.cameraMode === 'webcam'}
+                              <video
+                                use:playStream={cameraStore.stream}
+                                autoplay
+                                playsinline
+                                muted
+                                class="w-full h-full object-cover"
+                                style="transform: scaleX(-1);"
+                              ></video>
+                            {:else if frameSrc}
+                              <img
+                                src={frameSrc}
+                                alt="Live view"
+                                class="w-full h-full object-cover block"
+                              />
+                            {:else}
+                              <div class="w-full h-full flex items-center justify-center text-white/40 text-[10px] animate-pulse">
+                                Live View...
+                              </div>
+                            {/if}
+                          {:else}
+                            <div class="w-full h-full flex items-center justify-center text-white/40 text-[10px]">
+                              Live View
+                            </div>
+                          {/if}
                         </div>
                       {/if}
-                    {:else}
-                      <div class="w-full h-full flex items-center justify-center text-white/40 text-xs">
-                        Live View
-                      </div>
-                    {/if}
+                    </div>
+                  {/each}
+                {:else}
+                  <div class="w-full h-full flex items-center justify-center text-white/40 text-xs">
+                    Format template tidak valid
                   </div>
-                {/each}
-              </div>
-              <div class="shrink-0 text-center text-[10px] font-extrabold tracking-widest text-black/30 lowercase">
-                {uiConfig.config.boothName}
+                {/if}
               </div>
             </div>
           {:else}

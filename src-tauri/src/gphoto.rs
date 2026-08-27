@@ -1,7 +1,58 @@
 use gphoto2::{widget::Widget, Camera, Context};
 use serde::{Deserialize, Serialize};
+use std::collections::VecDeque;
 use std::path::PathBuf;
+use std::time::{SystemTime, UNIX_EPOCH};
 use thiserror::Error;
+
+pub struct LiveviewFrame {
+    pub data: Vec<u8>,
+    pub timestamp_ms: u128,
+}
+
+pub struct LiveviewBuffer {
+    pub frames: VecDeque<LiveviewFrame>,
+    pub max_age_ms: u128,
+}
+
+impl LiveviewBuffer {
+    pub fn new(max_age_ms: u128) -> Self {
+        Self {
+            frames: VecDeque::new(),
+            max_age_ms,
+        }
+    }
+
+    pub fn push(&mut self, data: Vec<u8>) {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_millis();
+        self.frames.push_back(LiveviewFrame {
+            data,
+            timestamp_ms: now,
+        });
+        let cutoff = now.saturating_sub(self.max_age_ms);
+        while let Some(front) = self.frames.front() {
+            if front.timestamp_ms < cutoff {
+                self.frames.pop_front();
+            } else {
+                break;
+            }
+        }
+    }
+
+    /// Ambil semua frame dalam window [capture_ts_ms - pre_ms, capture_ts_ms + post_ms]
+    pub fn extract_window(&self, capture_ts_ms: u128, pre_ms: u128, post_ms: u128) -> Vec<Vec<u8>> {
+        let from = capture_ts_ms.saturating_sub(pre_ms);
+        let to = capture_ts_ms + post_ms;
+        self.frames
+            .iter()
+            .filter(|f| f.timestamp_ms >= from && f.timestamp_ms <= to)
+            .map(|f| f.data.clone())
+            .collect()
+    }
+}
 
 #[derive(Error, Debug, Serialize)]
 pub enum GphotoError {
@@ -40,6 +91,10 @@ pub async fn connect() -> Result<(Camera, DeviceInfo), GphotoError> {
         manufacturer: Some(abilities.model().to_string()),
         productname: Some(summary.lines().next().unwrap_or_default().to_string()),
     };
+
+    // Enable viewfinder and liveview output for Canon DSLR
+    let _ = set_viewfinder(&camera, true).await;
+
     Ok((camera, info))
 }
 
@@ -107,7 +162,16 @@ pub async fn set_setting(camera: &Camera, frontend_key: &str, value: &str) -> Re
     Ok(())
 }
 
+pub async fn trigger_popup_flash(camera: &Camera) {
+    if let Ok(toggle) = camera.config_key::<gphoto2::widget::ToggleWidget>("popupflash").wait() {
+        toggle.set_toggled(true);
+        let _ = camera.set_config(&toggle).wait();
+    }
+}
+
 pub async fn capture_photo(camera: &Camera, save_dir: &std::path::Path) -> Result<Vec<u8>, GphotoError> {
+    trigger_popup_flash(camera).await;
+
     let file_path = camera.capture_image().wait().map_err(|e| GphotoError::Operation(e.to_string()))?;
     let camera_file = camera
         .fs()
@@ -122,11 +186,20 @@ pub async fn capture_photo(camera: &Camera, save_dir: &std::path::Path) -> Resul
     let local_path: PathBuf = save_dir.join(file_path.name().as_ref());
     let _ = std::fs::write(&local_path, &bytes);
 
+    // Re-enable viewfinder after photo capture
+    let _ = set_viewfinder(camera, true).await;
+
     Ok(bytes)
 }
 
 pub async fn get_liveview_frame(camera: &Camera) -> Result<Vec<u8>, GphotoError> {
-    let preview = camera.capture_preview().wait().map_err(|e| GphotoError::Operation(e.to_string()))?;
+    let preview = match camera.capture_preview().wait() {
+        Ok(p) => p,
+        Err(_) => {
+            let _ = set_viewfinder(camera, true).await;
+            camera.capture_preview().wait().map_err(|e| GphotoError::Operation(e.to_string()))?
+        }
+    };
     let data = preview.get_data(camera).wait().map_err(|e| GphotoError::Operation(e.to_string()))?;
     Ok(data.to_vec())
 }
@@ -140,5 +213,50 @@ pub async fn set_viewfinder(camera: &Camera, active: bool) -> Result<(), GphotoE
         let _ = radio.set_choice(val);
         let _ = camera.set_config(&radio).wait();
     }
+
+    if active {
+        if let Ok(radio) = camera.config_key::<gphoto2::widget::RadioWidget>("output").wait() {
+            let _ = radio.set_choice("TFT + PC")
+                .or_else(|_| radio.set_choice("PC"))
+                .or_else(|_| radio.set_choice("1"))
+                .or_else(|_| radio.set_choice("2"));
+            let _ = camera.set_config(&radio).wait();
+        } else if let Ok(radio) = camera.config_key::<gphoto2::widget::RadioWidget>("evf_output").wait() {
+            let _ = radio.set_choice("TFT + PC")
+                .or_else(|_| radio.set_choice("PC"))
+                .or_else(|_| radio.set_choice("1"))
+                .or_else(|_| radio.set_choice("2"));
+            let _ = camera.set_config(&radio).wait();
+        }
+    } else {
+        if let Ok(radio) = camera.config_key::<gphoto2::widget::RadioWidget>("output").wait() {
+            let _ = radio.set_choice("Off");
+            let _ = camera.set_config(&radio).wait();
+        }
+    }
+
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_liveview_buffer() {
+        let mut buf = LiveviewBuffer::new(5000);
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_millis();
+
+        buf.push(vec![1, 2, 3]);
+        buf.push(vec![4, 5, 6]);
+
+        let window = buf.extract_window(now, 1000, 1000);
+        assert_eq!(window.len(), 2);
+        assert_eq!(window[0], vec![1, 2, 3]);
+        assert_eq!(window[1], vec![4, 5, 6]);
+    }
+}
+

@@ -25,6 +25,11 @@
       }, 1500);
     }
   }
+
+  let startBtnPos = $derived(uiConfig.getElementPosition('start', 'start_button', { x: 50, y: 78 }));
+  let startBtnStyle = $derived(uiConfig.getElementStyle('start', 'start_button', {
+    bgColor: '#000000', textColor: '#ffffff', fontSize: 'Besar', fontFamily: 'Sans Serif',
+  }));
 </script>
 
 <div
@@ -76,14 +81,22 @@
     <p class="text-xl italic text-black/60 max-w-md mb-10 font-normal">
       "{uiConfig.config.tagline}"
     </p>
-
-    <button
-      onclick={onStart}
-      class="px-14 py-5 bg-black text-white text-lg font-['Nunito',sans-serif] font-black uppercase tracking-[0.25em] rounded-full hover:bg-gray-900 transition-all shadow-[8px_8px_0_0_rgba(0,0,0,0.2)] active:scale-95 cursor-pointer border-none"
-    >
-      Mulai Sesi →
-    </button>
   </div>
+
+  <button
+    onclick={onStart}
+    style="
+      position: absolute;
+      left: {startBtnPos.x}%;
+      top: {startBtnPos.y}%;
+      transform: translate(-50%, -50%);
+      background-color: {startBtnStyle.bgColor};
+      color: {startBtnStyle.textColor};
+    "
+    class="px-14 py-5 text-lg font-['Nunito',sans-serif] font-black uppercase tracking-[0.25em] rounded-full hover:opacity-90 transition-all shadow-[8px_8px_0_0_rgba(0,0,0,0.2)] active:scale-95 cursor-pointer border-none z-20"
+  >
+    Mulai Sesi →
+  </button>
 
   <!-- Footer bar -->
   <div class="w-full flex justify-between items-center relative z-10 text-xs font-['Nunito',sans-serif] font-bold text-black/40 tracking-widest">

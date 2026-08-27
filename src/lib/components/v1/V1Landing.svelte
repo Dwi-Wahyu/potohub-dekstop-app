@@ -31,6 +31,9 @@
     showPinModal = true;
   }
   let startBtnPos = $derived(uiConfig.getElementPosition('start', 'start_button', { x: 50, y: 82 }));
+  let startBtnStyle = $derived(uiConfig.getElementStyle('start', 'start_button', {
+    bgColor: '#f5d9cc', textColor: '#1a0a00', fontSize: 'Sedang', fontFamily: 'Sans Serif',
+  }));
 </script>
 
 <div
@@ -101,9 +104,9 @@
   <button
     onclick={onStart}
     style="
-      background-color: {uiConfig.config.primaryColor};
-      color: #1a0a00;
-      box-shadow: 0 8px 32px {uiConfig.config.primaryColor}50, 0 2px 8px rgba(0,0,0,0.4);
+      background-color: {startBtnStyle.bgColor};
+      color: {startBtnStyle.textColor};
+      box-shadow: 0 8px 32px {startBtnStyle.bgColor}50, 0 2px 8px rgba(0,0,0,0.4);
       position: absolute;
       left: {startBtnPos.x}%;
       top: {startBtnPos.y}%;

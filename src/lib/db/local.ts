@@ -5,7 +5,7 @@ export interface BoothActivation {
   activationCode: string;
   boothName: string;
   organizationId: string | null;
-  templateVariant: 'v1' | 'v2' | 'v3';
+  templateVariant: 'v1' | 'v2' | 'v3' | 'custom';
   activatedAt: string;
 }
 

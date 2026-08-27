@@ -15,6 +15,10 @@ export interface BoothCfg {
   paymentPage: boolean;
   cameraMode: 'usb' | 'webcam' | 'demo';
   bootScreen: 'welcome' | 'pin';
+  liveviewClipPreSecs: number;
+  liveviewClipPostSecs: number;
+  enableLiveviewVideo: boolean;
+  enableSessionGif: boolean;
 }
 
 export const DEFAULT_CFG: BoothCfg = {
@@ -33,7 +37,11 @@ export const DEFAULT_CFG: BoothCfg = {
   flipVertical: false,
   paymentPage: true,
   cameraMode: 'usb',
-  bootScreen: 'welcome'
+  bootScreen: 'welcome',
+  liveviewClipPreSecs: 1.0,
+  liveviewClipPostSecs: 1.5,
+  enableLiveviewVideo: true,
+  enableSessionGif: true
 };
 
 class BoothConfigStore {

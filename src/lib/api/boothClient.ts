@@ -8,7 +8,7 @@ const API_BASE = rawBase.replace(/\/+$/, '');
 
 export interface PublicUIConfigResponse {
   booth_id: string;
-  template_variant: 'v1' | 'v2' | 'v3';
+  template_variant: 'v1' | 'v2' | 'v3' | 'custom';
   general: {
     booth_name: string;
     tagline: string | null;
@@ -31,6 +31,14 @@ export interface PublicUIConfigResponse {
     element_key: string;
     x_percent: number;
     y_percent: number;
+  }>;
+  element_styles?: Array<{
+    screen_key: string;
+    element_key: string;
+    bg_color: string | null;
+    text_color: string | null;
+    font_size: 'kecil' | 'sedang' | 'besar' | null;
+    font_family: 'sans_serif' | 'serif' | 'monospace' | null;
   }>;
   step_styles?: Array<{
     step: string;
@@ -71,6 +79,14 @@ function mapPublicConfigToBoothUIConfig(data: PublicUIConfigResponse): Partial<B
       elementKey: p.element_key,
       xPercent: p.x_percent,
       yPercent: p.y_percent,
+    })),
+    elementStyles: (data.element_styles ?? []).map((s) => ({
+      screenKey: s.screen_key,
+      elementKey: s.element_key,
+      bgColor: s.bg_color,
+      textColor: s.text_color,
+      fontSize: s.font_size ? SIZE_MAP[s.font_size] : null,
+      fontFamily: s.font_family ? FONT_MAP[s.font_family] : null,
     })),
     stepStyles: (data.step_styles ?? []).map((s) => ({
       step: s.step,
@@ -153,8 +169,23 @@ export interface BoothTemplate {
   width: number;
   height: number;
   paper_size: string;
+  preview_image_url?: string | null;
   frame_image_url: string | null;
-  design_data: Array<{ x: number; y: number; w: number; h: number }>;
+  design_data: Array<{
+    id?: number;
+    order?: number;
+    layer?: number;
+    x: number;
+    y: number;
+    w: number;
+    h: number;
+    rot?: number;
+    isBackground?: boolean;
+    imageUrl?: string;
+    name?: string;
+    camera?: number;
+    isQr?: boolean;
+  }>;
   is_active: boolean;
 }
 
@@ -216,4 +247,212 @@ export async function syncBoothSettings() {
   } catch (e) {
     throw e instanceof Error ? e : new Error('Sync gagal');
   }
+}
+
+export interface CreateSessionResponse {
+  id?: string;
+  session_id: string;
+  order_id: string;
+  session_code?: string;
+  total_price: number | string;
+  status: string;
+  qris_url?: string | null;
+}
+
+export async function createTransactionSession(
+  boothId: string,
+  categoryId?: string | null,
+  totalPrint: number = 1,
+  paymentMethod: string = 'Cashless',
+  frameId?: string | null
+): Promise<CreateSessionResponse> {
+  let method = 'Cashless';
+  const pm = (paymentMethod || '').toLowerCase();
+  if (pm.includes('ticket')) {
+    method = 'Ticket';
+  } else if (pm.includes('cash') && !pm.includes('cashless')) {
+    method = 'Cash';
+  } else if (pm.includes('voucher')) {
+    method = 'Voucher';
+  } else {
+    method = 'Cashless';
+  }
+
+  const res = await fetch(`${API_BASE}/booths/${boothId}/transactions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      category_id: categoryId || null,
+      frame_id: frameId || null,
+      total_print: totalPrint,
+      payment_method: method,
+    }),
+  });
+  if (!res.ok) {
+    const errText = await res.text().catch(() => '');
+    console.error('createTransactionSession failed:', res.status, errText);
+    throw new Error(`Gagal membuat sesi transaksi: ${errText || res.statusText}`);
+  }
+  const json = await res.json();
+  const data = json.data ?? json;
+  return {
+    ...data,
+    session_id: data.session_id || data.id,
+  };
+}
+
+export type GalleryFileType = 'photo' | 'thumbnail' | 'video' | 'gif';
+
+export interface RequestUploadUrlResponse {
+  upload_url: string;
+  file_url: string;
+  object_key: string;
+  expires_in: number;
+}
+
+export async function requestUploadUrl(
+  boothId: string,
+  sessionId: string,
+  fileType: GalleryFileType,
+  fileExtension: string,
+  contentType: string
+): Promise<RequestUploadUrlResponse> {
+  const res = await fetch(`${API_BASE}/booths/${boothId}/gallery/upload-url`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      session_id: sessionId,
+      file_type: fileType,
+      file_extension: fileExtension,
+      content_type: contentType
+    })
+  });
+  if (!res.ok) {
+    const errText = await res.text().catch(() => '');
+    throw new Error(`Gagal request presigned upload URL: ${errText || res.statusText}`);
+  }
+  const json = await res.json();
+  return json.data ?? json;
+}
+
+/**
+ * Upload 1 aset biner (foto/gif/video) ke R2 via presigned PUT, lalu register
+ * metadata-nya ke database. Menerima Blob atau data:/blob: URL (akan dikonversi ke Blob).
+ */
+export async function uploadGalleryAsset(
+  boothId: string,
+  sessionId: string,
+  fileType: GalleryFileType,
+  blobOrDataUrl: Blob | string,
+  fileExtension: string,
+  contentType: string,
+  width: number,
+  height: number
+) {
+  const blob =
+    typeof blobOrDataUrl === 'string'
+      ? await (await fetch(blobOrDataUrl)).blob()
+      : blobOrDataUrl;
+
+  const { upload_url, file_url } = await requestUploadUrl(
+    boothId,
+    sessionId,
+    fileType,
+    fileExtension,
+    contentType
+  );
+
+  const putRes = await fetch(upload_url, {
+    method: 'PUT',
+    headers: { 'Content-Type': contentType },
+    body: blob
+  });
+  if (!putRes.ok) {
+    throw new Error(`Gagal PUT ${fileType} ke R2 (status ${putRes.status})`);
+  }
+
+  return uploadSessionMedia(
+    boothId,
+    sessionId,
+    file_url,
+    fileType,
+    width,
+    height,
+    blob.size
+  );
+}
+
+export async function uploadSessionMedia(
+  boothId: string,
+  sessionId: string,
+  fileUrl: string,
+  fileType: GalleryFileType | 'animation' = 'photo',
+  width: number = 1200,
+  height: number = 1800,
+  fileSize: number = 0
+) {
+  const res = await fetch(`${API_BASE}/booths/${boothId}/gallery/upload`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      session_id: sessionId,
+      file_url: fileUrl,
+      file_type: fileType,
+      width,
+      height,
+      file_size: fileSize,
+    }),
+  });
+  if (!res.ok) {
+    console.error('Failed to upload session media');
+  }
+  return res.json();
+}
+
+export interface RedeemQrTicketResponse {
+  valid: boolean;
+  success?: boolean;
+  message: string;
+  ticket?: {
+    id: string;
+    token: string;
+    ticket_type: string;
+    category_id: string | null;
+    status: string;
+    used: boolean;
+  } | null;
+}
+
+export async function validateAndRedeemQrTicket(
+  token: string,
+  boothId?: string
+): Promise<RedeemQrTicketResponse> {
+  const cleanToken = token.includes('token=') ? token.split('token=')[1].split('&')[0] : token.trim();
+  const cleanBoothId = boothId && boothId.trim() !== '' ? boothId.trim() : null;
+
+  const res = await fetch(`${API_BASE}/qr-tickets/redeem`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      token: cleanToken,
+      booth_id: cleanBoothId,
+    }),
+  });
+
+  if (!res.ok) {
+    const errJson = await res.json().catch(() => null);
+    throw new Error(errJson?.message || 'Tiket QR tidak valid atau telah digunakan');
+  }
+
+  const json = await res.json();
+  const isValid = Boolean(json.valid ?? json.success);
+  if (!isValid) {
+    throw new Error(json.message || 'Tiket QR tidak dapat digunakan');
+  }
+
+  return {
+    ...json,
+    valid: true,
+    success: true,
+  };
 }

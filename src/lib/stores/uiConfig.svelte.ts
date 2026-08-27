@@ -25,6 +25,15 @@ export interface ElementPosition {
   yPercent: number;
 }
 
+export interface ElementStyle {
+  screenKey: string;
+  elementKey: string;
+  bgColor: string | null;
+  textColor: string | null;
+  fontSize: 'Kecil' | 'Sedang' | 'Besar' | null;
+  fontFamily: 'Sans Serif' | 'Serif' | 'Monospace' | null;
+}
+
 export interface StepStyle {
   step: string;
   bgType: 'color' | 'gradient' | 'none';
@@ -34,7 +43,7 @@ export interface StepStyle {
 export interface BoothUIConfig {
   boothName: string;
   tagline: string;
-  templateVariant: 'v1' | 'v2' | 'v3';
+  templateVariant: 'v1' | 'v2' | 'v3' | 'custom';
   primaryColor: string;
   paymentMethods: PaymentMethod[];
   frameCategories: string[];
@@ -45,6 +54,7 @@ export interface BoothUIConfig {
   paymentTitleStyle: TextStyle;
   categories: StoreCategory[];
   elementPositions: ElementPosition[];
+  elementStyles: ElementStyle[];
   stepStyles: StepStyle[];
 }
 
@@ -75,6 +85,7 @@ export const DEFAULT_UI_CONFIG: BoothUIConfig = {
   paymentTitleStyle: { ...DEFAULT_TEXT_STYLE, size: 'Sedang', font: 'Serif', color: '#ffffff' },
   categories: DEFAULT_CATEGORIES,
   elementPositions: [],
+  elementStyles: [],
   stepStyles: []
 };
 
@@ -99,6 +110,20 @@ class UIConfigStore {
     return { x: pos?.xPercent ?? fallback.x, y: pos?.yPercent ?? fallback.y };
   }
 
+  getElementStyle(screenKey: string, elementKey: string, fallback: {
+    bgColor: string; textColor: string; fontSize: TextStyle['size']; fontFamily: TextStyle['font'];
+  }) {
+    const s = this.config.elementStyles?.find(
+      (x) => x.screenKey === screenKey && x.elementKey === elementKey
+    );
+    return {
+      bgColor: s?.bgColor ?? fallback.bgColor,
+      textColor: s?.textColor ?? fallback.textColor,
+      fontSize: s?.fontSize ?? fallback.fontSize,
+      fontFamily: s?.fontFamily ?? fallback.fontFamily,
+    };
+  }
+
   init(boothId: string = 'default') {
     this.boothId = boothId;
     this.load();
@@ -106,11 +131,11 @@ class UIConfigStore {
 
   load() {
     try {
-      const storedVariant = localStorage.getItem('ui_template_variant') as 'v1' | 'v2' | 'v3' | null;
+      const storedVariant = localStorage.getItem('ui_template_variant') as 'v1' | 'v2' | 'v3' | 'custom' | null;
       const raw = localStorage.getItem(`potohub_ui_config_${this.boothId}`);
       let parsedCfg = raw ? JSON.parse(raw) : {};
       
-      if (storedVariant && ['v1', 'v2', 'v3'].includes(storedVariant)) {
+      if (storedVariant && ['v1', 'v2', 'v3', 'custom'].includes(storedVariant)) {
         parsedCfg.templateVariant = storedVariant;
       }
 

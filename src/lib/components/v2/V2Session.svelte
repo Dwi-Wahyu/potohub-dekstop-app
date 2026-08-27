@@ -6,6 +6,7 @@
   import { boothConfig } from '$lib/stores/boothConfig.svelte';
   import { runCaptureSequence } from '$lib/utils/capture';
   import { formatTime } from '$lib/utils/shared';
+  import { fetchTemplates, type BoothTemplate } from '$lib/api/boothClient';
 
   interface Props {
     selectedFrame: string;
@@ -15,6 +16,10 @@
 
   let { selectedFrame, onComplete, onBack }: Props = $props();
 
+  let selectedTemplate = $state<BoothTemplate | null>(null);
+  let photoSlots = $derived(selectedTemplate?.design_data?.filter((l) => !l.isBackground) ?? []);
+  let totalPhotos = $derived(photoSlots.length > 0 ? photoSlots.length : 4);
+
   let isRunning = $state(false);
   let sessionSecs = $state(5 * 60);
   let timer: any = null;
@@ -22,9 +27,20 @@
   let frameSrc = $state('');
   let videoEl = $state<HTMLVideoElement | null>(null);
 
-  const totalPhotos = 4;
-
   onMount(async () => {
+    const boothId = localStorage.getItem('booth_id') || 'default';
+    try {
+      const templates = await fetchTemplates(boothId);
+      const matched = templates.find((t) => t.id === selectedFrame);
+      if (matched) {
+        selectedTemplate = matched;
+      } else if (templates[0]) {
+        selectedTemplate = templates[0];
+      }
+    } catch (err) {
+      console.error('Failed to fetch template in V2Session:', err);
+    }
+
     await cameraStore.startLiveview(videoEl);
     timer = setInterval(() => {
       if (sessionSecs > 0) sessionSecs--;
@@ -99,7 +115,7 @@
       {/if}
 
       {#if boothFlow.countdown !== null && boothFlow.countdown > 0}
-        <div class="absolute inset-0 bg-black/40 flex items-center justify-center">
+        <div class="absolute inset-0 bg-black/40 flex items-center justify-center z-20">
           <div class="text-8xl font-black text-white font-['Nunito',sans-serif]">
             {boothFlow.countdown}
           </div>
@@ -109,7 +125,7 @@
       {#if !isRunning && !allDone}
         <button
           onclick={startCapture}
-          class="absolute bottom-8 px-10 py-4 bg-white border-2 border-black rounded-full text-black font-['Nunito',sans-serif] font-black uppercase tracking-widest shadow-[4px_4px_0_0_rgba(0,0,0,1)] hover:bg-black hover:text-white transition-all cursor-pointer"
+          class="absolute bottom-8 px-10 py-4 bg-white border-2 border-black rounded-full text-black font-['Nunito',sans-serif] font-black uppercase tracking-widest shadow-[4px_4px_0_0_rgba(0,0,0,1)] hover:bg-black hover:text-white transition-all cursor-pointer z-20"
         >
           Ambil Foto! 📸
         </button>
@@ -119,7 +135,7 @@
     <!-- Side strip preview -->
     <div class="w-72 border-[3px] border-black rounded-3xl bg-white p-6 flex flex-col justify-between shadow-[8px_8px_0_0_rgba(0,0,0,1)]">
       <div>
-        <h4 class="text-lg font-black uppercase text-black mb-4">Hasil Foto</h4>
+        <h4 class="text-lg font-black uppercase text-black mb-4">{selectedTemplate?.name || 'Hasil Foto'}</h4>
         <div class="grid grid-cols-2 gap-2">
           {#each Array(totalPhotos) as _, i}
             <div class="aspect-[3/4] bg-gray-100 border-2 border-black rounded-lg overflow-hidden flex items-center justify-center">
@@ -139,15 +155,22 @@
           disabled={!allDone}
           class="w-full py-3.5 bg-black text-white font-['Nunito',sans-serif] font-black uppercase tracking-widest rounded-full disabled:opacity-30 cursor-pointer border-none"
         >
-          Lanjut Filter →
+          Lanjut →
         </button>
-        <button
-          onclick={onBack}
-          class="text-xs font-['Nunito',sans-serif] font-bold text-black/50 hover:text-black uppercase tracking-widest bg-transparent border-none cursor-pointer"
-        >
-          ← Kembali
-        </button>
+
+        {#if !isRunning}
+          <button
+            onclick={onBack}
+            class="w-full py-2.5 text-xs font-['Nunito',sans-serif] font-black uppercase tracking-widest text-black/50 hover:text-black transition-colors cursor-pointer bg-transparent border-none"
+          >
+            ← Kembali
+          </button>
+        {/if}
       </div>
     </div>
   </div>
 </div>
+
+{#if boothFlow.isFlashActive}
+  <div class="fixed inset-0 bg-white z-[9999] pointer-events-none transition-opacity duration-150"></div>
+{/if}

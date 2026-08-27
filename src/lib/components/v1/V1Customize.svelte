@@ -7,6 +7,7 @@
   import StickerCanvas from '$lib/components/shared/StickerCanvas.svelte';
   import type { Sticker } from '$lib/utils/stickers';
   import { formatTime } from '$lib/utils/shared';
+  import { fetchTemplates, type BoothTemplate } from '$lib/api/boothClient';
 
   interface Props {
     photos: string[];
@@ -15,27 +16,41 @@
     onNext: () => void;
   }
 
-  let { photos, frameConfigId = 'strip4', onBack, onNext }: Props = $props();
+  let { photos, frameConfigId = '', onBack, onNext }: Props = $props();
 
-  const FRAME_LAYOUTS: Record<string, { cols: number; rows: number }> = {
-    strip2: { cols: 1, rows: 2 },
-    strip4: { cols: 1, rows: 4 },
-    grid4: { cols: 2, rows: 2 },
-    grid6: { cols: 2, rows: 3 },
-    grid8: { cols: 2, rows: 4 },
-    love4: { cols: 2, rows: 2 },
-    wide3: { cols: 3, rows: 1 }
-  };
-
-  let layout = $derived(FRAME_LAYOUTS[frameConfigId] ?? FRAME_LAYOUTS['strip4']);
-  let total = $derived(layout.cols * layout.rows);
+  let selectedTemplate = $state<BoothTemplate | null>(null);
+  let photoSlots = $derived(
+    selectedTemplate?.design_data
+      ?.filter((l) => !l.isBackground && !l.isQr)
+      ?.slice()
+      ?.sort((a, b) => {
+        const orderA = typeof a.order === 'number' ? a.order : typeof a.id === 'number' ? a.id : 0;
+        const orderB = typeof b.order === 'number' ? b.order : typeof b.id === 'number' ? b.id : 0;
+        return orderA - orderB;
+      }) ?? []
+  );
+  let bgLayer = $derived(selectedTemplate?.design_data?.find((l) => l.isBackground));
+  let bgUrl = $derived(bgLayer?.imageUrl || selectedTemplate?.frame_image_url || '');
 
   let stickers = $state<Sticker[]>([]);
   let stickerCounter = $state(0);
   let secs = $state(5 * 60);
   let timer: any = null;
 
-  onMount(() => {
+  onMount(async () => {
+    const boothId = localStorage.getItem('booth_id') || 'default';
+    try {
+      const templates = await fetchTemplates(boothId);
+      const matched = templates.find((t) => t.id === frameConfigId);
+      if (matched) {
+        selectedTemplate = matched;
+      } else if (templates[0]) {
+        selectedTemplate = templates[0];
+      }
+    } catch (err) {
+      console.error('Failed to load template in customize:', err);
+    }
+
     timer = setInterval(() => {
       if (secs > 0) secs--;
       else {
@@ -152,9 +167,9 @@
         <span class="tabular-nums">{formatTime(secs)}</span>
       </div>
 
-      <div class="flex-1 min-h-0 bg-white rounded-[22px] p-5 pb-[18px] flex flex-col gap-3.5 shadow-[0_40px_100px_rgba(0,0,0,0.7)]">
+      <div class="flex-1 min-h-0 bg-white rounded-[22px] p-5 pb-[18px] flex flex-col gap-3.5 shadow-[0_40px_100px_rgba(0,0,0,0.7)] overflow-hidden">
         <div class="shrink-0 flex items-center justify-between">
-          <span class="text-sm font-black text-[#111]">{uiConfig.config.boothName}</span>
+          <span class="text-sm font-black text-[#111]">{selectedTemplate?.name || uiConfig.config.boothName}</span>
           <span class="text-[10px] font-semibold text-[#ccc] uppercase">Preview</span>
         </div>
 
@@ -164,25 +179,61 @@
           onRemove={removeSticker}
           class="flex-1 min-h-0 rounded-xl overflow-hidden"
         >
-          <div class="w-full h-full bg-[#141412] rounded-xl flex flex-row overflow-hidden">
-            <div class="flex-1 grid gap-1.5 px-1.5 py-3" style="grid-template-columns: repeat({layout.cols}, 1fr); grid-template-rows: repeat({layout.rows}, 1fr);">
-              {#each Array(total) as _, i}
-                <div class="rounded-md overflow-hidden bg-[#2a2825] relative">
-                  {#if photos[i]}
-                    <img
-                      src={photos[i]}
-                      alt={`Foto ${i + 1}`}
-                      class="w-full h-full object-cover block"
-                      style="filter: {currentFilterCss === 'none' ? 'none' : currentFilterCss};"
-                    />
-                  {:else}
-                    <div class="absolute inset-0 flex items-center justify-center text-white/20 text-[8px]">
-                      {i + 1}
+          <div class="w-full h-full bg-[#141412] rounded-xl flex items-center justify-center p-2 relative overflow-hidden">
+            {#if selectedTemplate}
+              {@const tWidth = selectedTemplate.width || 1200}
+              {@const tHeight = selectedTemplate.height || 1800}
+              <div
+                class="relative h-full max-w-full overflow-hidden rounded-lg bg-black/40 shadow-md"
+                style="aspect-ratio: {tWidth} / {tHeight};"
+              >
+                {#if selectedTemplate.design_data}
+                  {#each selectedTemplate.design_data as layer, idx (layer.id ?? idx)}
+                    {@const layerZIndex = selectedTemplate.design_data.length - idx}
+                    <div
+                      class="absolute overflow-hidden"
+                      style="
+                        left: {((layer.x || 0) / tWidth) * 100}%;
+                        top: {((layer.y || 0) / tHeight) * 100}%;
+                        width: {((layer.w || 200) / tWidth) * 100}%;
+                        height: {((layer.h || 200) / tHeight) * 100}%;
+                        transform: rotate({layer.rot || 0}deg);
+                        z-index: {layerZIndex};
+                      "
+                    >
+                      {#if layer.isBackground}
+                        {#if bgUrl}
+                          <img
+                            src={bgUrl}
+                            alt="Frame Overlay"
+                            class="w-full h-full object-fill pointer-events-none block"
+                          />
+                        {/if}
+                      {:else}
+                        {@const slotIdx = photoSlots.findIndex((s) => s === layer)}
+                        {@const capturedPhoto = photos[slotIdx]}
+                        <div class="w-full h-full bg-black/40 relative">
+                          {#if capturedPhoto}
+                            <img
+                              src={capturedPhoto}
+                              alt={`Photo ${slotIdx + 1}`}
+                              class="w-full h-full object-cover block"
+                              style="filter: {currentFilterCss === 'none' ? 'none' : currentFilterCss};"
+                            />
+                          {:else}
+                            <div class="w-full h-full flex items-center justify-center text-white/40 text-[9px]">
+                              {slotIdx + 1}
+                            </div>
+                          {/if}
+                        </div>
+                      {/if}
                     </div>
-                  {/if}
-                </div>
-              {/each}
-            </div>
+                  {/each}
+                {/if}
+              </div>
+            {:else}
+              <div class="text-white/40 text-xs">Loading Template...</div>
+            {/if}
           </div>
         </StickerCanvas>
 

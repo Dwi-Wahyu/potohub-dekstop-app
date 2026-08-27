@@ -9,6 +9,7 @@
   import V1Layout from '$lib/components/v1/V1Layout.svelte';
   import V2Layout from '$lib/components/v2/V2Layout.svelte';
   import V3Layout from '$lib/components/v3/V3Layout.svelte';
+  import CustomLayout from '$lib/components/custom/CustomLayout.svelte';
 
   let ready = $state(false);
 
@@ -33,6 +34,8 @@
     <V2Layout />
   {:else if uiConfig.templateVariant === 'v3'}
     <V3Layout />
+  {:else if uiConfig.templateVariant === 'custom'}
+    <CustomLayout />
   {:else}
     <V1Layout />
   {/if}

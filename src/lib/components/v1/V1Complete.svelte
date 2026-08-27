@@ -5,13 +5,22 @@
   import { uiConfig } from '$lib/stores/uiConfig.svelte';
   import { boothFlow } from '$lib/stores/booth.svelte';
   import { sendSoftFile, formatTime } from '$lib/utils/shared';
+  import { compositeTemplateImage } from '$lib/utils/templateComposite';
+  import { saveSessionAssets } from '$lib/utils/sessionAssets';
+  import {
+    fetchTemplates,
+    createTransactionSession,
+    getActiveBoothId,
+    type BoothTemplate
+  } from '$lib/api/boothClient';
 
   interface Props {
     photos?: string[];
+    frameConfigId?: string;
     onNewSession: () => void;
   }
 
-  let { photos = [], onNewSession }: Props = $props();
+  let { photos = [], frameConfigId = '', onNewSession }: Props = $props();
 
   let email = $state('');
   let sent = $state(false);
@@ -21,25 +30,13 @@
   let numMode = $state(false);
   let timer: any = null;
   let qrDataUrl = $state('');
+  let compositeUrl = $state<string | null>(null);
+  let isSavingSession = $state(false);
+  let selectedTemplate = $state<BoothTemplate | null>(null);
 
   const ADMIN_DASHBOARD_PUBLIC_URL = (import.meta.env as Record<string, string>).VITE_ADMIN_DASHBOARD_URL ?? 'http://localhost:5173';
 
-  $effect(() => {
-    const sessionId = boothFlow.sessionId || 'demo-session';
-    const softfileUrl = `${ADMIN_DASHBOARD_PUBLIC_URL}/s/${sessionId}`;
-    QRCode.toDataURL(softfileUrl, { margin: 1, width: 200 })
-      .then((url) => {
-        qrDataUrl = url;
-      })
-      .catch((err) => {
-        console.error('Failed to generate QR code:', err);
-      });
-  });
-
-  const PLACEHOLDER = 'https://images.unsplash.com/photo-1531746020798-e6953c6e8e04?w=400&h=500&fit=crop&auto=format';
-  let displayPhotos = $derived(photos.length > 0 ? photos.slice(0, 4) : Array(4).fill(PLACEHOLDER));
-
-  onMount(() => {
+  onMount(async () => {
     timer = setInterval(() => {
       if (secs > 0) secs--;
       else {
@@ -47,16 +44,65 @@
         onNewSession();
       }
     }, 1000);
+
+    const boothId = (await getActiveBoothId()) || localStorage.getItem('booth_id') || 'default';
+
+    // 1. Fetch template & composite photos into high-res frame image
+    try {
+      const templates = await fetchTemplates(boothId);
+      const matched = templates.find((t) => t.id === frameConfigId) || templates[0];
+      if (matched) {
+        selectedTemplate = matched;
+        const resUrl = await compositeTemplateImage(matched, photos, boothFlow.selectedFilterId);
+        compositeUrl = resUrl;
+      }
+    } catch (err) {
+      console.error('Failed to composite template image:', err);
+    }
+
+    // 2. Create session in database & upload composited media file
+    try {
+      isSavingSession = true;
+      const session = await createTransactionSession(
+        boothId,
+        selectedTemplate?.category_id,
+        boothFlow.printQty,
+        'cashless',
+        frameConfigId
+      );
+      const sessId = session.session_id || session.id || 'demo-session';
+      boothFlow.sessionId = sessId;
+
+      // Generate QR Code with session URL
+      const softfileUrl = `${ADMIN_DASHBOARD_PUBLIC_URL}/s/${sessId}`;
+      qrDataUrl = await QRCode.toDataURL(softfileUrl, { margin: 1, width: 200 });
+
+      // Save all session assets to R2 and register metadata in database
+      await saveSessionAssets(
+        boothId,
+        sessId,
+        compositeUrl,
+        selectedTemplate?.width || 1200,
+        selectedTemplate?.height || 1800,
+        (selectedTemplate?.design_data || []).filter((l) => !l.isBackground && !l.isQr),
+        selectedTemplate?.frame_image_url || selectedTemplate?.design_data?.find((l) => l.isBackground)?.imageUrl
+      );
+    } catch (err) {
+      console.error('Failed to create & save session in database:', err);
+      // Fallback QR code if offline / backend error
+      const fallbackUrl = `${ADMIN_DASHBOARD_PUBLIC_URL}/s/${boothFlow.sessionId || 'demo-session'}`;
+      qrDataUrl = await QRCode.toDataURL(fallbackUrl, { margin: 1, width: 200 }).catch(() => '');
+    } finally {
+      isSavingSession = false;
+    }
   });
 
   onDestroy(() => {
     if (timer) clearInterval(timer);
   });
 
-  // Stub softfile send implementation - see §0 item 5
   async function handleSend() {
     if (!email.trim() || sent) return;
-    // TODO: integrasikan ke API pembayaran/softfile setelah gap backend selesai
     await sendSoftFile(email, () => {
       sent = true;
       kbOpen = false;
@@ -116,33 +162,25 @@
     class="flex items-center gap-10 transition-transform duration-300"
     style="transform: {kbOpen ? 'translateY(-120px)' : 'translateY(0)'};"
   >
-    <!-- Left: film strip mockup -->
+    <!-- Left: composited photo frame mockup -->
     <div class="flex flex-col items-center shrink-0">
       <div
-        class="flex flex-col overflow-hidden bg-[#1a1a1a] border-[3px] border-[#e8e8e8] rounded-[24px] w-[200px] shadow-[0_24px_64px_rgba(0,0,0,0.7)]"
+        class="flex flex-col overflow-hidden bg-[#1a1a1a] border-[3px] border-[#e8e8e8] rounded-[24px] w-[260px] shadow-[0_24px_64px_rgba(0,0,0,0.7)]"
       >
-        <div class="flex flex-col gap-[3px] p-2.5 bg-[#111]">
-          <div class="flex gap-2">
-            <div class="flex flex-col justify-evenly py-2 shrink-0 w-2.5 gap-[6px]">
-              {#each Array(displayPhotos.length * 2) as _, i}
-                <div class="w-2 h-2 rounded-full bg-white/70 shrink-0"></div>
-              {/each}
+        <div class="p-3 bg-[#111] flex items-center justify-center">
+          {#if compositeUrl}
+            <img
+              src={compositeUrl}
+              alt="Hasil Foto Template"
+              class="w-full h-auto max-h-[60vh] object-contain rounded-xl block shadow-md"
+            />
+          {:else}
+            <div class="w-[200px] h-[300px] flex items-center justify-center text-white/30 text-xs animate-pulse">
+              Memproses Foto...
             </div>
-            <div class="flex flex-col gap-1.5 flex-1">
-              {#each displayPhotos as src, i}
-                <div class="rounded-md overflow-hidden bg-[#2a2825] h-[80px]">
-                  <img {src} alt={`Foto ${i + 1}`} class="w-full h-full object-cover block" />
-                </div>
-              {/each}
-            </div>
-            <div class="flex flex-col justify-evenly py-2 shrink-0 w-2.5 gap-[6px]">
-              {#each Array(displayPhotos.length * 2) as _, i}
-                <div class="w-2 h-2 rounded-full bg-white/70 shrink-0"></div>
-              {/each}
-            </div>
-          </div>
+          {/if}
         </div>
-        <div class="flex flex-col items-center gap-2 py-3 px-3 bg-[#111]">
+        <div class="flex flex-col items-center gap-1.5 py-3 px-3 bg-[#111]">
           <span class="text-white/80 text-[11px] font-black tracking-[0.25em] uppercase">
             {uiConfig.config.boothName}
           </span>
@@ -170,13 +208,7 @@
               {#if qrDataUrl}
                 <img src={qrDataUrl} alt="Softfile QR Code" class="w-[140px] h-[140px] object-contain" />
               {:else}
-                <svg width="140" height="140" viewBox="0 0 100 100" fill="none">
-                  <rect width="100" height="100" fill="white" />
-                  <rect x="5" y="5" width="25" height="25" fill="black" />
-                  <rect x="70" y="5" width="25" height="25" fill="black" />
-                  <rect x="5" y="70" width="25" height="25" fill="black" />
-                  <rect x="40" y="40" width="20" height="20" fill="black" />
-                </svg>
+                <div class="w-[140px] h-[140px] flex items-center justify-center text-gray-400 text-xs">Loading QR...</div>
               {/if}
             </div>
             <p class="text-[10px] text-gray-400 text-center m-0">
@@ -210,7 +242,6 @@
             {email || 'nama@email.com'}
           </button>
 
-          <!-- TODO: integrasikan ke API pembayaran/softfile setelah gap backend selesai -->
           <button
             type="button"
             onclick={handleSend}
@@ -222,7 +253,7 @@
               cursor: {email.trim() ? 'pointer' : 'default'};
             "
           >
-            Kirim Softfile (Local State)
+            Kirim Softfile
           </button>
         {/if}
       </div>

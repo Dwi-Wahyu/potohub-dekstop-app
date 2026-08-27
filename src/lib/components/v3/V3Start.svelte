@@ -25,6 +25,11 @@
       }, 1500);
     }
   }
+
+  let startBtnPos = $derived(uiConfig.getElementPosition('start', 'start_button', { x: 50, y: 78 }));
+  let startBtnStyle = $derived(uiConfig.getElementStyle('start', 'start_button', {
+    bgColor: '#FFC107', textColor: '#000000', fontSize: 'Besar', fontFamily: 'Sans Serif',
+  }));
 </script>
 
 <div
@@ -72,14 +77,22 @@
     <p class="text-xl text-white/60 max-w-lg mb-10 font-medium">
       {uiConfig.config.tagline}
     </p>
-
-    <button
-      onclick={onStart}
-      class="px-14 py-5 bg-[#FFC107] text-black text-xl font-black uppercase tracking-[0.2em] rounded-full hover:bg-yellow-300 transition-all shadow-[0_0_30px_rgba(255,193,7,0.5)] active:scale-95 cursor-pointer border-none"
-    >
-      START BOOTH ★
-    </button>
   </div>
+
+  <button
+    onclick={onStart}
+    style="
+      position: absolute;
+      left: {startBtnPos.x}%;
+      top: {startBtnPos.y}%;
+      transform: translate(-50%, -50%);
+      background-color: {startBtnStyle.bgColor};
+      color: {startBtnStyle.textColor};
+    "
+    class="px-14 py-5 text-xl font-black uppercase tracking-[0.2em] rounded-full hover:bg-yellow-300 transition-all shadow-[0_0_30px_rgba(255,193,7,0.5)] active:scale-95 cursor-pointer border-none z-20"
+  >
+    START BOOTH ★
+  </button>
 
   <!-- Footer -->
   <div class="w-full flex justify-between items-center relative z-10 text-xs font-bold text-white/30 tracking-widest">

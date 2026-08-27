@@ -3,19 +3,18 @@
   import { boothFlow } from '$lib/stores/booth.svelte';
   import { boothConfig } from '$lib/stores/boothConfig.svelte';
   import { uiConfig } from '$lib/stores/uiConfig.svelte';
-  import V1Landing from './V1Landing.svelte';
-  import V1Tutorial from './V1Tutorial.svelte';
-  import V1PaymentMethod from './V1PaymentMethod.svelte';
-  import V1CategoryFrame from './V1CategoryFrame.svelte';
-  import V1PrintQty from './V1PrintQty.svelte';
-  import V1QRISPayment from './V1QRISPayment.svelte';
-  import V1Camera from './V1Camera.svelte';
-  import V1Customize from './V1Customize.svelte';
-  import V1Complete from './V1Complete.svelte';
-  import V1TicketScan from './V1TicketScan.svelte';
+  import CustomLanding from './CustomLanding.svelte';
+  import V1Tutorial from '$lib/components/v1/V1Tutorial.svelte';
+  import V1PaymentMethod from '$lib/components/v1/V1PaymentMethod.svelte';
+  import V1CategoryFrame from '$lib/components/v1/V1CategoryFrame.svelte';
+  import V1PrintQty from '$lib/components/v1/V1PrintQty.svelte';
+  import V1QRISPayment from '$lib/components/v1/V1QRISPayment.svelte';
+  import V1Camera from '$lib/components/v1/V1Camera.svelte';
+  import V1Customize from '$lib/components/v1/V1Customize.svelte';
+  import V1Complete from '$lib/components/v1/V1Complete.svelte';
 
   let currentSubStep = $state<
-    'welcome' | 'tutorial' | 'method_select' | 'category_frame' | 'print_qty' | 'ticket' | 'payment' | 'camera' | 'customize' | 'complete'
+    'welcome' | 'tutorial' | 'method_select' | 'category_frame' | 'print_qty' | 'payment' | 'camera' | 'customize' | 'complete'
   >('welcome');
 
   const SUBSTEP_TO_UI_STEP: Record<typeof currentSubStep, string> = {
@@ -24,7 +23,6 @@
     method_select: 'payment',
     category_frame: 'frame',
     print_qty: 'frame',
-    ticket: 'ticket',
     payment: 'payment',
     camera: 'session',
     customize: 'filter',
@@ -63,7 +61,7 @@
 
   function handleMethodSelect(method: 'ticket' | 'cashless') {
     if (method === 'ticket') {
-      currentSubStep = 'ticket';
+      currentSubStep = 'camera';
     } else {
       currentSubStep = 'payment';
     }
@@ -93,7 +91,7 @@
   style:background={uiConfig.getStepStyle(SUBSTEP_TO_UI_STEP[currentSubStep]).background ?? undefined}
 >
   {#if currentSubStep === 'welcome'}
-    <V1Landing onStart={handleStart} onOpenConfig={handleOpenConfig} />
+    <CustomLanding onStart={handleStart} onOpenConfig={handleOpenConfig} />
   {:else if currentSubStep === 'tutorial'}
     <V1Tutorial onNext={handleTutorialNext} onBack={() => (currentSubStep = 'welcome')} />
   {:else if currentSubStep === 'category_frame'}
@@ -106,11 +104,6 @@
     />
   {:else if currentSubStep === 'method_select'}
     <V1PaymentMethod onSelect={handleMethodSelect} onBack={() => (currentSubStep = 'print_qty')} />
-  {:else if currentSubStep === 'ticket'}
-    <V1TicketScan
-      onSuccess={() => (currentSubStep = 'camera')}
-      onBack={() => (currentSubStep = 'method_select')}
-    />
   {:else if currentSubStep === 'payment'}
     <V1QRISPayment
       totalPrice={selectedPrice * boothFlow.printQty}
@@ -131,6 +124,6 @@
       onNext={handleCustomizeNext}
     />
   {:else if currentSubStep === 'complete'}
-    <V1Complete photos={boothFlow.photosTaken} frameConfigId={selectedFrameConfigId} onNewSession={handleNewSession} />
+    <V1Complete photos={boothFlow.photosTaken} onNewSession={handleNewSession} />
   {/if}
 </div>

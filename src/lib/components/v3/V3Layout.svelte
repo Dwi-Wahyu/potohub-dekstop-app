@@ -106,6 +106,6 @@
   {:else if step === 'loading'}
     <V3Loading onDone={handleLoadingDone} />
   {:else if step === 'download'}
-    <V3Download onDone={handleDone} />
+    <V3Download selectedFrame={selectedFrameId} onDone={handleDone} />
   {/if}
 </div>

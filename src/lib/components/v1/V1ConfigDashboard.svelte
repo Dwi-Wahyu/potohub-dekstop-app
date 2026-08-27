@@ -411,6 +411,24 @@
                   <div style="width: 14px; height: 14px; border-radius: 50%; border: 2px solid {boothConfig.config.flipVertical ? '#22c55e' : '#c8d2e0'}; background: {boothConfig.config.flipVertical ? '#22c55e' : 'transparent'}; flex-shrink: 0;"></div>
                   <span style="font-size: 12px; font-weight: 500; color: #334155;">Flip Vertikal</span>
                 </button>
+
+                <button
+                  type="button"
+                  onclick={() => update('enableLiveviewVideo', !boothConfig.config.enableLiveviewVideo)}
+                  style="display: flex; align-items: center; gap: 10px; background: {NEU_BG}; box-shadow: {neuCfg.inset}; border-radius: 10px; padding: 7px 12px; border: none; cursor: pointer; text-align: left;"
+                >
+                  <div style="width: 14px; height: 14px; border-radius: 50%; border: 2px solid {boothConfig.config.enableLiveviewVideo ? '#22c55e' : '#c8d2e0'}; background: {boothConfig.config.enableLiveviewVideo ? '#22c55e' : 'transparent'}; flex-shrink: 0;"></div>
+                  <span style="font-size: 12px; font-weight: 500; color: #334155;">Video Liveview Clip</span>
+                </button>
+
+                <button
+                  type="button"
+                  onclick={() => update('enableSessionGif', !boothConfig.config.enableSessionGif)}
+                  style="display: flex; align-items: center; gap: 10px; background: {NEU_BG}; box-shadow: {neuCfg.inset}; border-radius: 10px; padding: 7px 12px; border: none; cursor: pointer; text-align: left;"
+                >
+                  <div style="width: 14px; height: 14px; border-radius: 50%; border: 2px solid {boothConfig.config.enableSessionGif ? '#22c55e' : '#c8d2e0'}; background: {boothConfig.config.enableSessionGif ? '#22c55e' : 'transparent'}; flex-shrink: 0;"></div>
+                  <span style="font-size: 12px; font-weight: 500; color: #334155;">GIF Sesi Animasi</span>
+                </button>
               </div>
             </div>
           </div>

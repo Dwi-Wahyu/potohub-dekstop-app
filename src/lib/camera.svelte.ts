@@ -19,6 +19,9 @@ class CameraStore {
   private currentLiveviewUrl: string | null = null;
   stream = $state<MediaStream | null>(null);
   private videoElement: HTMLVideoElement | null = null;
+  private recorder: MediaRecorder | null = null;
+  private clipChunks: { blob: Blob; timestamp: number }[] = [];
+  private readonly RING_BUFFER_MS = 8000;
 
   async connect(mode: "usb" | "webcam" | "demo" = "usb") {
     this.status = "connecting";
@@ -58,6 +61,7 @@ class CameraStore {
 
   async disconnect() {
     this.errorMessage = null;
+    this.stopWebcamRecorder();
     if (this.cameraMode === "usb") {
       try {
         await invoke("disconnect_camera");
@@ -137,6 +141,7 @@ class CameraStore {
         });
         this.stream = stream;
         this.isLiveviewActive = true;
+        this.startWebcamRecorder(stream);
         if (videoEl) {
           videoEl.srcObject = stream;
           videoEl.muted = true;
@@ -154,6 +159,7 @@ class CameraStore {
 
   async stopLiveview() {
     this.errorMessage = null;
+    this.stopWebcamRecorder();
     if (this.cameraMode === "usb") {
       try {
         await invoke("stop_liveview");
@@ -197,6 +203,115 @@ class CameraStore {
       URL.revokeObjectURL(this.currentLiveviewUrl);
       this.currentLiveviewUrl = null;
     }
+  }
+
+  private startWebcamRecorder(stream: MediaStream) {
+    this.clipChunks = [];
+    const mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp8')
+      ? 'video/webm;codecs=vp8'
+      : 'video/webm';
+    this.recorder = new MediaRecorder(stream, { mimeType });
+    this.recorder.ondataavailable = (e) => {
+      if (e.data && e.data.size > 0) {
+        this.clipChunks.push({ blob: e.data, timestamp: Date.now() });
+        const cutoff = Date.now() - this.RING_BUFFER_MS;
+        this.clipChunks = this.clipChunks.filter((c) => c.timestamp >= cutoff);
+      }
+    };
+    this.recorder.start(250);
+  }
+
+  private stopWebcamRecorder() {
+    if (this.recorder && this.recorder.state !== 'inactive') {
+      try {
+        this.recorder.stop();
+      } catch {}
+    }
+    this.recorder = null;
+    this.clipChunks = [];
+  }
+
+  /**
+   * Dipanggil dari runCaptureSequence() tepat setelah shutter/capture terjadi.
+   * Menunggu `postSecs` detik supaya buffer terisi window "setelah" capture,
+   * lalu potong chunk yang timestamp-nya masuk window dan gabung jadi 1 Blob webm/mp4.
+   */
+  async extractLiveviewClip(captureTs: number, preSecs: number, postSecs: number): Promise<Blob | null> {
+    if (this.cameraMode !== 'webcam') {
+      return this.extractLiveviewClipNonWebcam(captureTs, preSecs, postSecs);
+    }
+    await new Promise((r) => setTimeout(r, postSecs * 1000 + 150));
+    const from = captureTs - preSecs * 1000;
+    const to = captureTs + postSecs * 1000;
+    const parts = this.clipChunks
+      .filter((c) => c.timestamp >= from && c.timestamp <= to)
+      .map((c) => c.blob);
+    if (parts.length === 0) return null;
+    return new Blob(parts, { type: 'video/webm' });
+  }
+
+  private async extractLiveviewClipNonWebcam(
+    captureTs: number,
+    preSecs: number,
+    postSecs: number
+  ): Promise<Blob | null> {
+    if (this.cameraMode === 'usb') {
+      await new Promise((r) => setTimeout(r, postSecs * 1000 + 150));
+      const frames = await invoke<number[][]>('get_liveview_clip_frames', {
+        captureTsMs: captureTs,
+        preMs: Math.round(preSecs * 1000),
+        postMs: Math.round(postSecs * 1000),
+      });
+      if (!frames || !frames.length) return null;
+      const encoded = await invoke<number[]>('encode_jpeg_frames_to_video', {
+        frames,
+        fps: 8,
+      });
+      return new Blob([new Uint8Array(encoded)], { type: 'video/mp4' });
+    }
+    if (this.cameraMode === 'demo') {
+      return this.extractDemoLiveviewClip();
+    }
+    return null;
+  }
+
+  private async extractDemoLiveviewClip(): Promise<Blob | null> {
+    const canvas = document.createElement('canvas');
+    canvas.width = 640;
+    canvas.height = 480;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return null;
+    const stream = (canvas as any).captureStream ? (canvas as any).captureStream(10) : null;
+    if (!stream) return null;
+    const mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp8')
+      ? 'video/webm;codecs=vp8'
+      : 'video/webm';
+    const recorder = new MediaRecorder(stream, { mimeType });
+    const chunks: Blob[] = [];
+    recorder.ondataavailable = (e) => {
+      if (e.data && e.data.size > 0) chunks.push(e.data);
+    };
+    const done = new Promise<Blob>((resolve) => {
+      recorder.onstop = () => resolve(new Blob(chunks, { type: 'video/webm' }));
+    });
+    recorder.start();
+    const start = Date.now();
+    const draw = () => {
+      ctx.fillStyle = '#1e293b';
+      ctx.fillRect(0, 0, 640, 480);
+      ctx.fillStyle = '#3b82f6';
+      const t = Date.now() * 0.005;
+      ctx.beginPath();
+      ctx.arc(320 + Math.sin(t) * 80, 240, 30, 0, Math.PI * 2);
+      ctx.fill();
+      if (Date.now() - start < 2500) {
+        requestAnimationFrame(draw);
+      } else {
+        if (recorder.state !== 'inactive') recorder.stop();
+      }
+    };
+    draw();
+    return done;
   }
 
   private async captureWebcamFrame(video: HTMLVideoElement): Promise<Uint8Array | null> {

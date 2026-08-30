@@ -6,7 +6,8 @@
   import { boothConfig } from '$lib/stores/boothConfig.svelte';
   import { runCaptureSequence } from '$lib/utils/capture';
   import { formatTime } from '$lib/utils/shared';
-  import { fetchTemplates, type BoothTemplate } from '$lib/api/boothClient';
+  import { fetchTemplates, requireActiveBoothId, type BoothTemplate } from '$lib/api/boothClient';
+  import { cachedFetch } from '$lib/utils/offlineCache';
 
   interface Props {
     onComplete: (photos: string[]) => void;
@@ -54,17 +55,23 @@
   }
 
   onMount(async () => {
-    const boothId = localStorage.getItem('booth_id') || 'default';
     try {
-      const templates = await fetchTemplates(boothId);
-      const matched = templates.find((t) => t.id === frameConfigId);
-      if (matched) {
-        selectedTemplate = matched;
-      } else if (templates[0]) {
-        selectedTemplate = templates[0];
-      }
+      const boothId = await requireActiveBoothId();
+      // Render instan dari cache SQLite bila ada, refresh di latar belakang
+      await cachedFetch(
+        `templates:${boothId}`,
+        () => fetchTemplates(boothId),
+        (templates) => {
+          const matched = templates.find((t) => t.id === frameConfigId);
+          if (matched) {
+            selectedTemplate = matched;
+          } else if (templates[0]) {
+            selectedTemplate = templates[0];
+          }
+        }
+      );
     } catch (err) {
-      console.error('Failed to load template:', err);
+      console.error('[V1Camera] Failed to load template:', err);
     }
 
     await cameraStore.startLiveview(videoEl);

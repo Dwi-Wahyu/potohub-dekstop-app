@@ -12,9 +12,10 @@
   import V1Camera from '$lib/components/v1/V1Camera.svelte';
   import V1Customize from '$lib/components/v1/V1Customize.svelte';
   import V1Complete from '$lib/components/v1/V1Complete.svelte';
+  import V1TicketScan from '$lib/components/v1/V1TicketScan.svelte';
 
   let currentSubStep = $state<
-    'welcome' | 'tutorial' | 'method_select' | 'category_frame' | 'print_qty' | 'payment' | 'camera' | 'customize' | 'complete'
+    'welcome' | 'tutorial' | 'method_select' | 'category_frame' | 'print_qty' | 'ticket' | 'payment' | 'camera' | 'customize' | 'complete'
   >('welcome');
 
   const SUBSTEP_TO_UI_STEP: Record<typeof currentSubStep, string> = {
@@ -23,6 +24,7 @@
     method_select: 'payment',
     category_frame: 'frame',
     print_qty: 'frame',
+    ticket: 'ticket',
     payment: 'payment',
     camera: 'session',
     customize: 'filter',
@@ -61,7 +63,7 @@
 
   function handleMethodSelect(method: 'ticket' | 'cashless') {
     if (method === 'ticket') {
-      currentSubStep = 'camera';
+      currentSubStep = 'ticket';
     } else {
       currentSubStep = 'payment';
     }
@@ -104,6 +106,11 @@
     />
   {:else if currentSubStep === 'method_select'}
     <V1PaymentMethod onSelect={handleMethodSelect} onBack={() => (currentSubStep = 'print_qty')} />
+  {:else if currentSubStep === 'ticket'}
+    <V1TicketScan
+      onSuccess={() => (currentSubStep = 'camera')}
+      onBack={() => (currentSubStep = 'method_select')}
+    />
   {:else if currentSubStep === 'payment'}
     <V1QRISPayment
       totalPrice={selectedPrice * boothFlow.printQty}
@@ -124,6 +131,7 @@
       onNext={handleCustomizeNext}
     />
   {:else if currentSubStep === 'complete'}
-    <V1Complete photos={boothFlow.photosTaken} onNewSession={handleNewSession} />
+    <V1Complete photos={boothFlow.photosTaken} frameConfigId={selectedFrameConfigId} onNewSession={handleNewSession} />
   {/if}
 </div>
+

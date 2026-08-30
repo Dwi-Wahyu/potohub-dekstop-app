@@ -50,7 +50,7 @@
     "
     class="px-10 py-4 rounded-2xl border-none font-semibold text-lg cursor-pointer active:shadow-[inset_5px_5px_10px_#c8d2e0,inset_-5px_-5px_10px_#ffffff] transition-shadow z-20"
   >
-    Mulai
+    {uiConfig.getElementLabel('start', 'start_button', 'Mulai')}
   </button>
 
   {#if showPinModal}

@@ -1,6 +1,9 @@
+mod cache;
 mod gphoto;
 mod media;
 mod printer;
+mod storage;
+use tauri_plugin_sql::{Migration, MigrationKind};
 
 use gphoto::{DeviceInfo, GphotoError};
 use gphoto2::Camera;
@@ -33,24 +36,37 @@ async fn is_camera_connected(state: State<'_, AppState>) -> Result<bool, GphotoE
 }
 
 #[tauri::command]
-async fn get_camera_setting(state: State<'_, AppState>, key: String) -> Result<serde_json::Value, GphotoError> {
+async fn get_camera_setting(
+    state: State<'_, AppState>,
+    key: String,
+) -> Result<serde_json::Value, GphotoError> {
     let guard = state.camera.lock().await;
     let camera = guard.as_ref().ok_or(GphotoError::NotConnected)?;
     gphoto::get_setting(camera, &key).await
 }
 
 #[tauri::command]
-async fn set_camera_setting(state: State<'_, AppState>, key: String, value: String) -> Result<(), GphotoError> {
+async fn set_camera_setting(
+    state: State<'_, AppState>,
+    key: String,
+    value: String,
+) -> Result<(), GphotoError> {
     let guard = state.camera.lock().await;
     let camera = guard.as_ref().ok_or(GphotoError::NotConnected)?;
     gphoto::set_setting(camera, &key, &value).await
 }
 
 #[tauri::command]
-async fn capture_photo(state: State<'_, AppState>, app: tauri::AppHandle) -> Result<Vec<u8>, GphotoError> {
+async fn capture_photo(
+    state: State<'_, AppState>,
+    app: tauri::AppHandle,
+) -> Result<Vec<u8>, GphotoError> {
     let guard = state.camera.lock().await;
     let camera = guard.as_ref().ok_or(GphotoError::NotConnected)?;
-    let save_dir = app.path().app_data_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let save_dir = app
+        .path()
+        .app_data_dir()
+        .unwrap_or_else(|_| PathBuf::from("."));
     gphoto::capture_photo(camera, &save_dir.join("captures")).await
 }
 
@@ -85,7 +101,17 @@ async fn get_liveview_clip_frames(
     post_ms: u64,
 ) -> Result<Vec<Vec<u8>>, GphotoError> {
     let buf = state.liveview_buffer.lock().await;
-    Ok(buf.extract_window(capture_ts_ms as u128, pre_ms as u128, post_ms as u128))
+    let total_in_buffer = buf.frames.len();
+    let result = buf.extract_window(capture_ts_ms as u128, pre_ms as u128, post_ms as u128);
+    println!(
+        "get_liveview_clip_frames: total_buffer={} matched_window={} capture_ts={} range=[{}, {}]",
+        total_in_buffer,
+        result.len(),
+        capture_ts_ms,
+        (capture_ts_ms as u128).saturating_sub(pre_ms as u128),
+        capture_ts_ms as u128 + post_ms as u128
+    );
+    Ok(result)
 }
 
 #[tauri::command]
@@ -138,35 +164,93 @@ async fn print_photo_from_buffer(
     printer::print_image_from_buffer(&printer_name, &image_data, &options)
 }
 
+// ============================================================================
+// QR SCAN COMMANDS
+// ============================================================================
+
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
+pub struct Point {
+    pub x: f64,
+    pub y: f64,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
+pub struct QRCodeData {
+    pub content: String,
+    pub corner_points: Vec<Point>,
+}
+
+#[tauri::command]
+async fn save_qr_result(data: QRCodeData) -> Result<String, String> {
+    println!(
+        "[QR Scanner] QR detected: content={}, corner_points_count={}",
+        data.content,
+        data.corner_points.len()
+    );
+    Ok("Saved".to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let migrations = vec![
+        Migration {
+            version: 1,
+            description: "create booth_activation table",
+            sql: "CREATE TABLE IF NOT EXISTS booth_activation (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                booth_id TEXT NOT NULL,
+                activation_code TEXT NOT NULL,
+                booth_name TEXT NOT NULL,
+                organization_id TEXT,
+                template_variant TEXT NOT NULL DEFAULT 'v1',
+                activated_at TEXT NOT NULL
+            );",
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 2,
+            description: "create api_cache table",
+            sql: "CREATE TABLE IF NOT EXISTS api_cache (
+                cache_key TEXT PRIMARY KEY,
+                payload TEXT NOT NULL,
+                fetched_at INTEGER NOT NULL
+            );",
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 3,
+            description: "create asset_cache table",
+            sql: "CREATE TABLE IF NOT EXISTS asset_cache (
+                url TEXT PRIMARY KEY,
+                cache_key TEXT NOT NULL,
+                mime TEXT,
+                size INTEGER NOT NULL DEFAULT 0,
+                fetched_at INTEGER NOT NULL
+            );",
+            kind: MigrationKind::Up,
+        },
+    ];
+
     tauri::Builder::default()
+        .plugin(
+            tauri_plugin_log::Builder::new()
+                .level(tauri_plugin_log::log::LevelFilter::Info)
+                .build(),
+        )
+        .plugin(tauri_plugin_sql::Builder::new().build())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(
             tauri_plugin_sql::Builder::default()
                 .add_migrations(
-                    "sqlite:booth.db",
-                    vec![tauri_plugin_sql::Migration {
-                        version: 1,
-                        description: "create booth_activation table",
-                        sql: "CREATE TABLE IF NOT EXISTS booth_activation (
-                            id INTEGER PRIMARY KEY CHECK (id = 1),
-                            booth_id TEXT NOT NULL,
-                            activation_code TEXT NOT NULL,
-                            booth_name TEXT NOT NULL,
-                            organization_id TEXT,
-                            template_variant TEXT NOT NULL DEFAULT 'v1',
-                            activated_at TEXT NOT NULL
-                        );",
-                        kind: tauri_plugin_sql::MigrationKind::Up,
-                    }],
+                    "sqlite:app.db",
+                    migrations
                 )
                 .build(),
         )
         .manage(AppState {
             camera: Mutex::new(None),
-            liveview_buffer: Mutex::new(gphoto::LiveviewBuffer::new(8000)),
+            liveview_buffer: Mutex::new(gphoto::LiveviewBuffer::new(12000)),
         })
         .setup(|app| {
             #[cfg(target_os = "linux")]
@@ -200,10 +284,15 @@ pub fn run() {
             media::encode_photos_to_gif,
             media::encode_jpeg_frames_to_video,
             media::compose_template_video,
+            cache::download_asset_to_cache,
+            cache::read_cached_asset,
+            storage::save_session_file,
+            storage::save_session_manifest,
             get_printer_list,
             get_printer_status,
             print_photo,
             print_photo_from_buffer,
+            save_qr_result,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

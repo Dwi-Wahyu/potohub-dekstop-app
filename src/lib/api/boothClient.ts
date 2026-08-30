@@ -1,22 +1,33 @@
-import { uiConfig, DEFAULT_UI_CONFIG, type TextStyle, type BoothUIConfig } from '$lib/stores/uiConfig.svelte';
-import { boothConfig } from '$lib/stores/boothConfig.svelte';
-import { getActivation, saveActivation } from '$lib/db/local';
+import {
+  uiConfig,
+  DEFAULT_UI_CONFIG,
+  type TextStyle,
+  type BoothUIConfig,
+} from "$lib/stores/uiConfig.svelte";
+import { boothConfig } from "$lib/stores/boothConfig.svelte";
+import { getActivation, saveActivation } from "$lib/db/local";
+import { cachedFetch } from "$lib/utils/offlineCache";
+import { prefetchBoothAssets } from "./prefetch";
 
 const envs = import.meta.env as Record<string, string>;
-const rawBase = envs.VITE_API_BASE_URL || envs.PUBLIC_API_BASE_URL || 'http://localhost:8080/api';
-const API_BASE = rawBase.replace(/\/+$/, '');
+const rawBase =
+  envs.VITE_API_BASE_URL ||
+  envs.PUBLIC_API_BASE_URL ||
+  "http://localhost:8080/api";
+const API_BASE = rawBase.replace(/\/+$/, "");
 
 export interface PublicUIConfigResponse {
   booth_id: string;
-  template_variant: 'v1' | 'v2' | 'v3' | 'custom';
+  template_variant: "v1" | "v2" | "v3" | "custom";
   general: {
     booth_name: string;
     tagline: string | null;
+    show_step_indicator: boolean;
   };
   text_styles: Array<{
     element_key: string;
-    font_size: 'kecil' | 'sedang' | 'besar';
-    font_family: 'sans_serif' | 'serif' | 'monospace';
+    font_size: "kecil" | "sedang" | "besar";
+    font_family: "sans_serif" | "serif" | "monospace";
     color: string;
   }>;
   payment_methods: Array<{
@@ -37,43 +48,75 @@ export interface PublicUIConfigResponse {
     element_key: string;
     bg_color: string | null;
     text_color: string | null;
-    font_size: 'kecil' | 'sedang' | 'besar' | null;
-    font_family: 'sans_serif' | 'serif' | 'monospace' | null;
+    font_size: "kecil" | "sedang" | "besar" | null;
+    font_family: "sans_serif" | "serif" | "monospace" | null;
+    label: string | null;
   }>;
   step_styles?: Array<{
     step: string;
-    bg_type: 'color' | 'gradient' | 'none';
+    bg_type: "color" | "gradient" | "image" | "none";
     bg_value: string | null;
   }>;
 }
 
-const SIZE_MAP: Record<string, TextStyle['size']> = { kecil: 'Kecil', sedang: 'Sedang', besar: 'Besar' };
-const FONT_MAP: Record<string, TextStyle['font']> = { sans_serif: 'Sans Serif', serif: 'Serif', monospace: 'Monospace' };
+const SIZE_MAP: Record<string, TextStyle["size"]> = {
+  kecil: "Kecil",
+  sedang: "Sedang",
+  besar: "Besar",
+};
+const FONT_MAP: Record<string, TextStyle["font"]> = {
+  sans_serif: "Sans Serif",
+  serif: "Serif",
+  monospace: "Monospace",
+};
 
 function mapTextStyle(
-  styles: PublicUIConfigResponse['text_styles'],
+  styles: PublicUIConfigResponse["text_styles"],
   elementKey: string,
-  fallback: TextStyle
+  fallback: TextStyle,
 ): TextStyle {
   const s = styles.find((x) => x.element_key === elementKey);
   if (!s) return fallback;
-  return { size: SIZE_MAP[s.font_size] ?? fallback.size, font: FONT_MAP[s.font_family] ?? fallback.font, color: s.color };
+  return {
+    size: SIZE_MAP[s.font_size] ?? fallback.size,
+    font: FONT_MAP[s.font_family] ?? fallback.font,
+    color: s.color,
+  };
 }
 
-function mapPublicConfigToBoothUIConfig(data: PublicUIConfigResponse): Partial<BoothUIConfig> {
+function mapPublicConfigToBoothUIConfig(
+  data: PublicUIConfigResponse,
+): Partial<BoothUIConfig> {
   return {
     boothName: data.general.booth_name,
-    tagline: data.general.tagline ?? '',
+    tagline: data.general.tagline ?? "",
+    showStepIndicator: data.general.show_step_indicator ?? true,
     templateVariant: data.template_variant,
     primaryColor: DEFAULT_UI_CONFIG.primaryColor,
-    boothNameStyle: mapTextStyle(data.text_styles, 'booth_name', DEFAULT_UI_CONFIG.boothNameStyle),
-    taglineStyle: mapTextStyle(data.text_styles, 'tagline', DEFAULT_UI_CONFIG.taglineStyle),
-    paymentTitleStyle: mapTextStyle(data.text_styles, 'payment_title', DEFAULT_UI_CONFIG.paymentTitleStyle),
-    frameTitleStyle: mapTextStyle(data.text_styles, 'frame_title', DEFAULT_UI_CONFIG.frameTitleStyle),
+    boothNameStyle: mapTextStyle(
+      data.text_styles,
+      "booth_name",
+      DEFAULT_UI_CONFIG.boothNameStyle,
+    ),
+    taglineStyle: mapTextStyle(
+      data.text_styles,
+      "tagline",
+      DEFAULT_UI_CONFIG.taglineStyle,
+    ),
+    paymentTitleStyle: mapTextStyle(
+      data.text_styles,
+      "payment_title",
+      DEFAULT_UI_CONFIG.paymentTitleStyle,
+    ),
+    frameTitleStyle: mapTextStyle(
+      data.text_styles,
+      "frame_title",
+      DEFAULT_UI_CONFIG.frameTitleStyle,
+    ),
     paymentMethods: data.payment_methods
       .filter((p) => p.is_active)
       .sort((a, b) => a.position - b.position)
-      .map((p) => ({ id: p.id, name: p.name, logoUrl: p.logo_asset_id ?? '' })),
+      .map((p) => ({ id: p.id, name: p.name, logoUrl: p.logo_asset_id ?? "" })),
     elementPositions: data.element_positions.map((p) => ({
       screenKey: p.screen_key,
       elementKey: p.element_key,
@@ -87,6 +130,7 @@ function mapPublicConfigToBoothUIConfig(data: PublicUIConfigResponse): Partial<B
       textColor: s.text_color,
       fontSize: s.font_size ? SIZE_MAP[s.font_size] : null,
       fontFamily: s.font_family ? FONT_MAP[s.font_family] : null,
+      label: s.label ?? null,
     })),
     stepStyles: (data.step_styles ?? []).map((s) => ({
       step: s.step,
@@ -98,7 +142,9 @@ function mapPublicConfigToBoothUIConfig(data: PublicUIConfigResponse): Partial<B
 
 export function isValidUUID(str: string | null | undefined): boolean {
   if (!str) return false;
-  return /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(str);
+  return /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(
+    str,
+  );
 }
 
 export async function getActiveBoothId(): Promise<string | null> {
@@ -106,14 +152,35 @@ export async function getActiveBoothId(): Promise<string | null> {
   return activation?.boothId ?? null;
 }
 
+/**
+ * Resolve boothId aktif untuk dipakai di layar manapun. Selalu pakai SQLite
+ * activation record sebagai source of truth — JANGAN pernah pakai
+ * localStorage.getItem('booth_id') (key ini tidak pernah di-set di codebase).
+ * Throw eksplisit bila belum ada aktivasi, supaya caller wajib menangani
+ * kondisi "booth belum aktivasi" alih-alih diam-diam pakai 'default'.
+ */
+export async function requireActiveBoothId(): Promise<string> {
+  const boothId = await getActiveBoothId();
+  if (!boothId || !isValidUUID(boothId)) {
+    throw new Error(
+      "Booth belum teraktivasi. Silakan aktivasi ulang booth ini.",
+    );
+  }
+  return boothId;
+}
+
+
 export async function activateBooth(activationCode: string) {
   const res = await fetch(`${API_BASE}/booths/activate`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ activation_code: activationCode })
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ activation_code: activationCode }),
   });
   if (!res.ok) {
-    const msg = res.status === 404 ? 'Kode aktivasi tidak valid.' : 'Aktivasi gagal, coba lagi.';
+    const msg =
+      res.status === 404
+        ? "Kode aktivasi tidak valid."
+        : "Aktivasi gagal, coba lagi.";
     throw new Error(msg);
   }
   const json = await res.json();
@@ -122,33 +189,38 @@ export async function activateBooth(activationCode: string) {
   await saveActivation({
     boothId: data.booth_id,
     activationCode,
-    boothName: data.name ?? data.booth_name ?? 'Booth',
+    boothName: data.name ?? data.booth_name ?? "Booth",
     organizationId: data.organization_id ?? null,
-    templateVariant: data.ui_template_variant ?? 'v1',
-    activatedAt: new Date().toISOString()
+    templateVariant: data.ui_template_variant ?? "v1",
+    activatedAt: new Date().toISOString(),
   });
 
-  uiConfig.save({ templateVariant: data.ui_template_variant ?? 'v1' });
+  uiConfig.save({ templateVariant: data.ui_template_variant ?? "v1" });
   return data;
 }
 
 export async function fetchAndCacheUiConfig() {
   const boothId = await getActiveBoothId();
   if (!boothId || !isValidUUID(boothId)) {
-    uiConfig.init('default');
+    uiConfig.init("default");
     return;
   }
   try {
-    const res = await fetch(`${API_BASE}/booths/${boothId}/ui-customize/public`);
-    if (!res.ok) {
-      uiConfig.init(boothId);
-      return;
-    }
-    const json = await res.json();
-    const data: PublicUIConfigResponse = json.data ?? json;
-    uiConfig.save(mapPublicConfigToBoothUIConfig(data));
+    await cachedFetch(
+      `uiConfig:${boothId}`,
+      async () => {
+        const res = await fetch(
+          `${API_BASE}/booths/${boothId}/ui-customize/public`,
+        );
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const json = await res.json();
+        const data: PublicUIConfigResponse = json.data ?? json;
+        return mapPublicConfigToBoothUIConfig(data);
+      },
+      (partial) => uiConfig.save(partial),
+    );
   } catch {
-    // offline fallback to local cache / default v1
+    // offline & tanpa cache → fallback ke local cache / default v1
     uiConfig.init(boothId);
   }
 }
@@ -189,34 +261,64 @@ export interface BoothTemplate {
   is_active: boolean;
 }
 
-export async function fetchCategories(boothId?: string): Promise<BoothCategory[]> {
+export async function fetchCategories(
+  boothId?: string,
+): Promise<BoothCategory[]> {
   const targetBoothId = boothId || (await getActiveBoothId());
   if (!targetBoothId || !isValidUUID(targetBoothId)) {
-    throw new Error('Booth belum teraktivasi (ID tidak valid)');
+    throw new Error("Booth belum teraktivasi (ID tidak valid)");
   }
   const res = await fetch(`${API_BASE}/booths/${targetBoothId}/categories`);
-  if (!res.ok) throw new Error('Gagal memuat kategori');
+  if (!res.ok) throw new Error("Gagal memuat kategori");
   const json = await res.json();
   return Array.isArray(json) ? json : (json.data ?? json.categories ?? []);
 }
 
-export async function fetchTemplates(boothId?: string, categoryId?: string): Promise<BoothTemplate[]> {
+export async function fetchTemplates(
+  boothId?: string,
+  categoryId?: string,
+): Promise<BoothTemplate[]> {
   const targetBoothId = boothId || (await getActiveBoothId());
   if (!targetBoothId || !isValidUUID(targetBoothId)) {
-    throw new Error('Booth belum teraktivasi (ID tidak valid)');
+    throw new Error("Booth belum teraktivasi (ID tidak valid)");
   }
-  const qs = categoryId ? `?category_id=${categoryId}&is_active=true` : '?is_active=true';
+  const qs = categoryId
+    ? `?category_id=${categoryId}&is_active=true`
+    : "?is_active=true";
   const res = await fetch(`${API_BASE}/booths/${targetBoothId}/templates${qs}`);
-  if (!res.ok) throw new Error('Gagal memuat template');
+  if (!res.ok) throw new Error("Gagal memuat template");
   const json = await res.json();
   return Array.isArray(json) ? json : (json.data ?? json.templates ?? []);
 }
 
+export interface BoothEmot {
+  id: string;
+  booth_id: string;
+  name: string;
+  emot_type: "emoji" | "image";
+  emoji_text: string | null;
+  file_url: string | null;
+  category?: string | null;
+  position?: number;
+  is_active: boolean;
+}
+
+export async function fetchEmots(boothId?: string): Promise<BoothEmot[]> {
+  const targetBoothId = boothId || (await getActiveBoothId());
+  if (!targetBoothId || !isValidUUID(targetBoothId)) {
+    throw new Error("Booth belum teraktivasi (ID tidak valid)");
+  }
+  const res = await fetch(`${API_BASE}/booths/${targetBoothId}/emots?is_active=true`);
+  if (!res.ok) throw new Error("Gagal memuat emot");
+  const json = await res.json();
+  return Array.isArray(json) ? json : (json.data ?? json.emots ?? []);
+}
+
 const CAMERA_ROTATE_MAP: Record<number, string> = {
-  0: '0° (Default)',
-  90: '90° CW',
-  180: '180°',
-  270: '90° CCW'
+  0: "0° (Default)",
+  90: "90° CW",
+  180: "180°",
+  270: "90° CCW",
 };
 
 function applyRemoteSettings(settings: Record<string, any>) {
@@ -224,28 +326,35 @@ function applyRemoteSettings(settings: Record<string, any>) {
   const timer = settings?.timer ?? {};
   boothConfig.save({
     pin: general.pin ?? boothConfig.config.pin,
-    cameraRotate: CAMERA_ROTATE_MAP[general.camera_rotate] ?? boothConfig.config.cameraRotate,
+    cameraRotate:
+      CAMERA_ROTATE_MAP[general.camera_rotate] ??
+      boothConfig.config.cameraRotate,
     mirrorOn: general.mirror ?? boothConfig.config.mirrorOn,
     paymentPage: general.payment_page ?? boothConfig.config.paymentPage,
     photoFilter: general.photo_filter ?? boothConfig.config.photoFilter,
-    countdownSecs: timer.first_countdown_time ?? boothConfig.config.countdownSecs
+    countdownSecs:
+      timer.first_countdown_time ?? boothConfig.config.countdownSecs,
   });
 }
 
 export async function syncBoothSettings() {
   const boothId = await getActiveBoothId();
-  if (!boothId) throw new Error('Booth belum teraktivasi.');
+  if (!boothId) throw new Error("Booth belum teraktivasi.");
   try {
     const res = await fetch(`${API_BASE}/booths/${boothId}/settings/sync`, {
-      method: 'POST'
+      method: "POST",
     });
-    if (!res.ok) throw new Error('Sync gagal');
+    if (!res.ok) throw new Error("Sync gagal");
     const data = await res.json();
     applyRemoteSettings(data.settings ?? {});
     await fetchAndCacheUiConfig();
+    // Prefetch aset booth di background (tidak memblokir sync)
+    void prefetchBoothAssets(boothId).catch((e) =>
+      console.warn("Prefetch aset booth gagal:", e),
+    );
     return data;
   } catch (e) {
-    throw e instanceof Error ? e : new Error('Sync gagal');
+    throw e instanceof Error ? e : new Error("Sync gagal");
   }
 }
 
@@ -263,24 +372,24 @@ export async function createTransactionSession(
   boothId: string,
   categoryId?: string | null,
   totalPrint: number = 1,
-  paymentMethod: string = 'Cashless',
-  frameId?: string | null
+  paymentMethod: string = "Cashless",
+  frameId?: string | null,
 ): Promise<CreateSessionResponse> {
-  let method = 'Cashless';
-  const pm = (paymentMethod || '').toLowerCase();
-  if (pm.includes('ticket')) {
-    method = 'Ticket';
-  } else if (pm.includes('cash') && !pm.includes('cashless')) {
-    method = 'Cash';
-  } else if (pm.includes('voucher')) {
-    method = 'Voucher';
+  let method = "Cashless";
+  const pm = (paymentMethod || "").toLowerCase();
+  if (pm.includes("ticket")) {
+    method = "Ticket";
+  } else if (pm.includes("cash") && !pm.includes("cashless")) {
+    method = "Cash";
+  } else if (pm.includes("voucher")) {
+    method = "Voucher";
   } else {
-    method = 'Cashless';
+    method = "Cashless";
   }
 
   const res = await fetch(`${API_BASE}/booths/${boothId}/transactions`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       category_id: categoryId || null,
       frame_id: frameId || null,
@@ -289,9 +398,11 @@ export async function createTransactionSession(
     }),
   });
   if (!res.ok) {
-    const errText = await res.text().catch(() => '');
-    console.error('createTransactionSession failed:', res.status, errText);
-    throw new Error(`Gagal membuat sesi transaksi: ${errText || res.statusText}`);
+    const errText = await res.text().catch(() => "");
+    console.error("createTransactionSession failed:", res.status, errText);
+    throw new Error(
+      `Gagal membuat sesi transaksi: ${errText || res.statusText}`,
+    );
   }
   const json = await res.json();
   const data = json.data ?? json;
@@ -301,7 +412,7 @@ export async function createTransactionSession(
   };
 }
 
-export type GalleryFileType = 'photo' | 'thumbnail' | 'video' | 'gif';
+export type GalleryFileType = "photo" | "thumbnail" | "video" | "gif";
 
 export interface RequestUploadUrlResponse {
   upload_url: string;
@@ -315,23 +426,31 @@ export async function requestUploadUrl(
   sessionId: string,
   fileType: GalleryFileType,
   fileExtension: string,
-  contentType: string
+  contentType: string,
 ): Promise<RequestUploadUrlResponse> {
   const res = await fetch(`${API_BASE}/booths/${boothId}/gallery/upload-url`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       session_id: sessionId,
       file_type: fileType,
       file_extension: fileExtension,
-      content_type: contentType
-    })
+      content_type: contentType,
+    }),
   });
   if (!res.ok) {
-    const errText = await res.text().catch(() => '');
-    throw new Error(`Gagal request presigned upload URL: ${errText || res.statusText}`);
+    console.log("Error status : " + res.statusText);
+
+    const errText = await res.text().catch(() => "");
+    throw new Error(
+      `Gagal request presigned upload URL: ${errText || res.statusText}`,
+    );
   }
+
   const json = await res.json();
+
+  console.log(json);
+
   return json.data ?? json;
 }
 
@@ -347,29 +466,43 @@ export async function uploadGalleryAsset(
   fileExtension: string,
   contentType: string,
   width: number,
-  height: number
+  height: number,
 ) {
   const blob =
-    typeof blobOrDataUrl === 'string'
+    typeof blobOrDataUrl === "string"
       ? await (await fetch(blobOrDataUrl)).blob()
       : blobOrDataUrl;
+  console.log(
+    `[uploadGalleryAsset] ${fileType} size=${blob.size} bytes, session=${sessionId}`,
+  );
 
   const { upload_url, file_url } = await requestUploadUrl(
     boothId,
     sessionId,
     fileType,
     fileExtension,
-    contentType
+    contentType,
+  );
+  console.log(
+    `[uploadGalleryAsset] presigned URL diterima untuk ${fileType}: ${file_url}`,
   );
 
   const putRes = await fetch(upload_url, {
-    method: 'PUT',
-    headers: { 'Content-Type': contentType },
-    body: blob
+    method: "PUT",
+    headers: { "Content-Type": contentType },
+    body: blob,
   });
   if (!putRes.ok) {
-    throw new Error(`Gagal PUT ${fileType} ke R2 (status ${putRes.status})`);
+    const errBody = await putRes.text().catch(() => "");
+    console.error(
+      `[uploadGalleryAsset] PUT ke R2 gagal (status ${putRes.status}) untuk ${fileType}:`,
+      errBody,
+    );
+    throw new Error(
+      `Gagal PUT ${fileType} ke R2 (status ${putRes.status}): ${errBody}`,
+    );
   }
+  console.log(`[uploadGalleryAsset] PUT ke R2 sukses untuk ${fileType}`);
 
   return uploadSessionMedia(
     boothId,
@@ -378,7 +511,7 @@ export async function uploadGalleryAsset(
     fileType,
     width,
     height,
-    blob.size
+    blob.size,
   );
 }
 
@@ -386,14 +519,14 @@ export async function uploadSessionMedia(
   boothId: string,
   sessionId: string,
   fileUrl: string,
-  fileType: GalleryFileType | 'animation' = 'photo',
+  fileType: GalleryFileType | "animation" = "photo",
   width: number = 1200,
   height: number = 1800,
-  fileSize: number = 0
+  fileSize: number = 0,
 ) {
   const res = await fetch(`${API_BASE}/booths/${boothId}/gallery/upload`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       session_id: sessionId,
       file_url: fileUrl,
@@ -403,10 +536,22 @@ export async function uploadSessionMedia(
       file_size: fileSize,
     }),
   });
+  const bodyText = await res.text();
   if (!res.ok) {
-    console.error('Failed to upload session media');
+    console.error(
+      `[uploadSessionMedia] Gagal daftar metadata (status ${res.status}) untuk session=${sessionId} type=${fileType}:`,
+      bodyText,
+    );
+    throw new Error(
+      `Gagal register metadata media (status ${res.status}): ${bodyText}`,
+    );
   }
-  return res.json();
+  try {
+    return JSON.parse(bodyText);
+  } catch {
+    console.error("[uploadSessionMedia] Response bukan JSON valid:", bodyText);
+    throw new Error("Response register metadata media tidak valid");
+  }
 }
 
 export interface RedeemQrTicketResponse {
@@ -425,14 +570,16 @@ export interface RedeemQrTicketResponse {
 
 export async function validateAndRedeemQrTicket(
   token: string,
-  boothId?: string
+  boothId?: string,
 ): Promise<RedeemQrTicketResponse> {
-  const cleanToken = token.includes('token=') ? token.split('token=')[1].split('&')[0] : token.trim();
-  const cleanBoothId = boothId && boothId.trim() !== '' ? boothId.trim() : null;
+  const cleanToken = token.includes("token=")
+    ? token.split("token=")[1].split("&")[0]
+    : token.trim();
+  const cleanBoothId = boothId && boothId.trim() !== "" ? boothId.trim() : null;
 
   const res = await fetch(`${API_BASE}/qr-tickets/redeem`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       token: cleanToken,
       booth_id: cleanBoothId,
@@ -441,13 +588,15 @@ export async function validateAndRedeemQrTicket(
 
   if (!res.ok) {
     const errJson = await res.json().catch(() => null);
-    throw new Error(errJson?.message || 'Tiket QR tidak valid atau telah digunakan');
+    throw new Error(
+      errJson?.message || "Tiket QR tidak valid atau telah digunakan",
+    );
   }
 
   const json = await res.json();
   const isValid = Boolean(json.valid ?? json.success);
   if (!isValid) {
-    throw new Error(json.message || 'Tiket QR tidak dapat digunakan');
+    throw new Error(json.message || "Tiket QR tidak dapat digunakan");
   }
 
   return {

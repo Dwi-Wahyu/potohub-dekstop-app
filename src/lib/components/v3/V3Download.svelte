@@ -4,14 +4,15 @@
   import { uiConfig } from '$lib/stores/uiConfig.svelte';
   import { boothFlow } from '$lib/stores/booth.svelte';
   import { sendSoftFile, generateSessionCode } from '$lib/utils/shared';
-  import { Delete } from '@lucide/svelte';
+  import { Delete, Sparkles, Clock } from '@lucide/svelte';
 
   import { compositeTemplateImage } from '$lib/utils/templateComposite';
   import { saveSessionAssets } from '$lib/utils/sessionAssets';
+  import { cachedFetch } from '$lib/utils/offlineCache';
   import {
     fetchTemplates,
     createTransactionSession,
-    getActiveBoothId,
+    requireActiveBoothId,
     type BoothTemplate
   } from '$lib/api/boothClient';
 
@@ -44,15 +45,25 @@
       }
     }, 1000);
 
-    const boothId = (await getActiveBoothId()) || localStorage.getItem('booth_id') || 'default';
+    let boothId = 'default';
+    try {
+      boothId = await requireActiveBoothId();
+    } catch (e) {
+      console.error('[V3Download] Booth tidak aktif saat simpan sesi:', e);
+    }
 
     try {
-      const templates = await fetchTemplates(boothId);
-      const matched = templates.find((t) => t.id === selectedFrame) || templates[0];
-      if (matched) {
-        selectedTemplate = matched;
+      await cachedFetch(
+        `templates:${boothId}`,
+        () => fetchTemplates(boothId),
+        (templates) => {
+          selectedTemplate =
+            templates.find((t) => t.id === selectedFrame) || templates[0] || null;
+        }
+      );
+      if (selectedTemplate) {
         compositeUrl = await compositeTemplateImage(
-          matched,
+          selectedTemplate,
           boothFlow.photosTaken,
           boothFlow.selectedFilterId
         );
@@ -102,7 +113,6 @@
     if (timer === 0) onDone();
   });
 
-  // Stub softfile send implementation - see §0 item 5
   async function handleSend() {
     const valid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
     if (!valid) {
@@ -110,7 +120,6 @@
       setTimeout(() => (error = false), 1600);
       return;
     }
-    // TODO: integrasikan ke API pembayaran/softfile setelah gap backend selesai
     await sendSoftFile(email, () => {
       sent = true;
       kbOpen = false;
@@ -155,209 +164,261 @@
   }
 </script>
 
-<div
-  class="w-screen h-screen bg-[#0a0a0f] text-white flex flex-col justify-between select-none relative overflow-hidden font-['Inter',sans-serif]"
->
-  <!-- Header -->
-  <div class="w-full flex justify-between items-center p-8 relative z-10">
-    <span class="font-extrabold text-sm tracking-[0.2em] text-[#FFC107] uppercase">
-      {uiConfig.config.boothName} — Softfile Download
-    </span>
-    {#if sent}
-      <span class="text-xs font-bold text-white/50">Auto Reset ({timer}s)</span>
-    {/if}
-  </div>
+<div class="w-screen h-screen flex select-none font-['Inter',sans-serif] relative overflow-hidden">
+  <!-- Left: result strip preview with green theme & filmbar -->
+  <div class="w-[42%] h-full bg-[#0E8E5E] flex flex-col items-center justify-between relative overflow-hidden shrink-0">
+    <div
+      class="absolute inset-0 opacity-10 pointer-events-none"
+      style="background-image: repeating-linear-gradient(0deg, transparent, transparent 20px, rgba(255,255,255,0.5) 20px, rgba(255,255,255,0.5) 21px);"
+    ></div>
 
-  <!-- Content -->
-  <div
-    class="relative z-10 flex-1 flex items-center justify-center gap-10 max-w-4xl mx-auto w-full my-auto px-6 transition-transform duration-300"
-    style="transform: {kbOpen ? 'translateY(-60px)' : 'translateY(0)'};"
-  >
-    <!-- Left: composited frame mockup -->
-    <div class="flex flex-col items-center shrink-0">
-      <div
-        class="flex flex-col overflow-hidden bg-white/5 border border-white/20 rounded-[24px] w-[240px] shadow-[0_16px_40px_rgba(0,0,0,0.6)] p-3 backdrop-blur-md"
-      >
-        {#if compositeUrl}
-          <img
-            src={compositeUrl}
-            alt="Hasil Foto Template"
-            class="w-full h-auto max-h-[52vh] object-contain rounded-xl block"
-          />
-        {:else}
-          <div class="w-[200px] h-[300px] flex items-center justify-center text-white/30 text-xs animate-pulse font-mono">
-            Memproses Foto...
-          </div>
-        {/if}
+    <!-- Top FilmBar -->
+    <div class="w-full h-6 flex items-center bg-black/20 shrink-0 z-20">
+      <div class="flex gap-2 px-3 overflow-hidden">
+        {#each Array(30) as _, i}
+          <div class="w-4 h-3 rounded-[2px] bg-white/10 border border-white/5 shrink-0"></div>
+        {/each}
       </div>
     </div>
 
-    <!-- Right: QR & Action card -->
-    <div class="border border-white/10 rounded-3xl bg-white/5 p-8 max-w-md w-full flex flex-col items-center gap-6 backdrop-blur-xl">
-      {#if !sent}
-        <div class="text-center">
-          <span class="text-xs font-black uppercase tracking-[0.3em] text-[#FFC107] mb-1 block">
-            Softfile Gratis
-          </span>
-          <h2 class="text-2xl font-black uppercase text-white">Scan QR / Kirim Email</h2>
+    <div class="flex-1 flex flex-col items-center justify-center gap-5 relative z-10 p-4">
+      <p class="text-white/60 text-[9px] font-bold uppercase tracking-[0.3em] m-0">✦ Hasil Foto Kamu ✦</p>
+
+      <div class="relative">
+        <div class="bg-white p-3 shadow-2xl rounded-2xl border border-gray-100 w-[210px]">
+          {#if compositeUrl}
+            <img src={compositeUrl} alt="Hasil Foto Template" class="w-full h-auto max-h-[50vh] object-contain rounded-xl block" />
+          {:else}
+            <div class="w-[180px] h-[260px] flex items-center justify-center text-gray-400 text-xs animate-pulse font-mono">
+              Memproses Foto...
+            </div>
+          {/if}
         </div>
 
-        {#if qrDataUrl}
-          <div class="p-3 bg-white rounded-2xl border border-white/20 flex flex-col items-center">
-            <img src={qrDataUrl} alt="Softfile QR Code" class="w-[140px] h-[140px] object-contain rounded-lg" />
-            <p class="text-[10px] font-mono tracking-widest text-black/60 mt-1 m-0">SCAN UNTUK SOFTFILE</p>
-          </div>
-        {/if}
+        <!-- Confetti dots -->
+        {#each ['-top-4 -left-4 bg-[#FFC107]', '-top-3 right-2 bg-[#CD1C33]', 'bottom-0 -left-5 bg-white', 'bottom-4 -right-4 bg-[#FFC107]'] as cls}
+          <div class={`absolute w-4 h-4 rounded-full ${cls}`}></div>
+        {/each}
+      </div>
 
-        <button
-          type="button"
-          onclick={() => (kbOpen = true)}
-          class="w-full border border-white/20 rounded-xl px-4 py-3 cursor-text text-left font-mono font-bold text-sm min-h-[48px] bg-white/10 text-white"
-        >
-          {email || 'nama@email.com'}
-          {#if kbOpen}
-            <span class="ml-0.5 inline-block w-0.5 h-4 bg-[#FFC107] animate-pulse align-middle"></span>
-          {/if}
-        </button>
+      <div class="flex items-center gap-2 bg-black/20 rounded-full px-4 py-1.5">
+        <span class="text-white/80 text-[10px] font-bold tracking-widest uppercase">
+          Filter: {boothFlow.selectedFilterId || 'Original'}
+        </span>
+      </div>
+    </div>
 
-        {#if error}
-          <p class="text-xs text-red-400 font-bold tracking-wide m-0">Format email tidak valid</p>
-        {/if}
+    <!-- Bottom FilmBar -->
+    <div class="w-full h-6 flex items-center bg-black/20 shrink-0 z-20">
+      <div class="flex gap-2 px-3 overflow-hidden">
+        {#each Array(30) as _, i}
+          <div class="w-4 h-3 rounded-[2px] bg-white/10 border border-white/5 shrink-0"></div>
+        {/each}
+      </div>
+    </div>
+  </div>
 
-        <!-- TODO: integrasikan ke API pembayaran/softfile setelah gap backend selesai -->
-        <button
-          onclick={handleSend}
-          class="w-full py-3.5 bg-[#FFC107] text-black font-black uppercase tracking-widest rounded-full hover:bg-yellow-300 transition-all cursor-pointer border-none shadow-[0_0_20px_rgba(255,193,7,0.4)]"
-        >
-          Kirim Softfile (Local State)
-        </button>
-      {:else}
-        <div class="flex flex-col items-center gap-4 text-center">
-          <div class="w-12 h-12 rounded-full bg-[#FFC107] text-black flex items-center justify-center font-bold text-xl">
-            ✓
-          </div>
-          <div>
-            <h3 class="font-black text-base uppercase tracking-wider text-white m-0">
-              Softfile Dikirim!
-            </h3>
-            <p class="text-xs text-white/50 mt-1 m-0">{email}</p>
-          </div>
+  <!-- Right: email + QR dark retro panel -->
+  <div
+    class="flex-1 flex flex-col relative overflow-hidden"
+    style="background: linear-gradient(160deg,#1a0a10 0%,#2d0d1a 60%,#1a1a2e 100%);"
+  >
+    <!-- Watermark -->
+    <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-[180px] font-black text-white/[0.03] leading-none select-none pointer-events-none font-['Playfair_Display',serif]">
+      ✦
+    </div>
 
-          <div class="p-4 bg-white rounded-2xl border border-white/20 mt-2">
-            {#if qrDataUrl}
-              <img src={qrDataUrl} alt="Softfile QR Code" class="w-[140px] h-[140px] object-contain rounded-lg" />
-            {:else}
-              <svg width="140" height="140" viewBox="0 0 100 100" fill="none">
-                <rect width="100" height="100" fill="white" />
-                <rect x="5" y="5" width="25" height="25" fill="black" />
-                <rect x="70" y="5" width="25" height="25" fill="black" />
-                <rect x="5" y="70" width="25" height="25" fill="black" />
-                <rect x="40" y="40" width="20" height="20" fill="black" />
-              </svg>
-            {/if}
-          </div>
-          <p class="text-[10px] font-mono tracking-widest text-white/40 m-0">
-            CODE: {sessionCode}
-          </p>
+    <!-- Header badge -->
+    <div class="flex items-center justify-between px-8 pt-6 relative z-10">
+      <div class="inline-flex items-center gap-2 bg-white/10 text-white/70 text-[9px] font-bold tracking-[0.3em] uppercase px-4 py-1.5 rounded-full">
+        <Sparkles size={9} /> Foto Siap Diunduh!
+      </div>
+      {#if sent}
+        <div class="bg-black/40 text-white/60 px-3 py-1.5 rounded-md text-[9px] font-mono flex items-center gap-1.5">
+          <Clock size={10} /> Home dalam {timer}s
         </div>
       {/if}
-
-      <button
-        onclick={onDone}
-        class="text-xs font-bold text-white/40 hover:text-white uppercase tracking-widest bg-transparent border-none cursor-pointer mt-2"
-      >
-        {sent ? 'Selesai' : 'Lewati →'}
-      </button>
     </div>
-  </div>
 
-  <!-- Keyboard V3 Dark Retro -->
-  {#if kbOpen}
+    <!-- Main Content -->
     <div
-      class="absolute bottom-0 left-0 right-0 z-50 flex flex-col gap-1.5 px-3 pb-4 pt-3 bg-[#0a0a0f] border-t border-white/10 backdrop-blur-xl"
+      class="flex-1 flex flex-col items-center justify-center gap-5 px-8 relative z-10 transition-transform duration-300"
+      style={`transform: ${kbOpen ? 'translateY(-80px)' : 'translateY(0)'};`}
     >
-      <div
-        class="flex items-center justify-between px-3 py-1 text-xs text-white/40 font-bold uppercase cursor-pointer"
-        onclick={() => (kbOpen = false)}
-        role="presentation"
-      >
-        <span>Dark Retro Keyboard</span>
-        <span>✕ Tutup</span>
+      <div class="text-center mb-1">
+        <h1 class="text-4xl font-['Playfair_Display',serif] font-bold text-white tracking-widest drop-shadow-xl m-0 uppercase">
+          Scan &amp; Download
+        </h1>
+        <p class="text-white/50 text-xs mt-1 m-0">Masukkan email atau scan QR untuk softfile kamu</p>
       </div>
 
-      {#each currentKbRows as row, ri}
-        <div class="flex gap-1.5 w-full">
-          {#each row as key}
-            {@const isSpecial = key === 'SHIFT' || key === '⌫' || key === 'ABC' || key === '123'}
-            {@const isShiftActive = key === 'SHIFT' && caps}
-            <button
-              onpointerdown={(e) => {
-                e.preventDefault();
-                pressKey(key);
-              }}
-              class="rounded-lg flex items-center justify-center font-semibold transition-all border border-white/10"
-              style="
-                height: 46px;
-                flex: {isSpecial ? '0 0 9%' : '1 1 0'};
-                background: {isShiftActive ? '#FFC107' : isSpecial ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.12)'};
-                color: {isShiftActive ? '#000' : '#fff'};
-                font-size: {key === '⌫' ? '14px' : '16px'};
-              "
-            >
-              {#if key === '⌫'}
-                <Delete size={15} />
-              {:else}
-                {caps && !numMode && key.length === 1 ? key.toUpperCase() : key}
-              {/if}
-            </button>
-          {/each}
-        </div>
-      {/each}
+      <!-- Email Card -->
+      <div
+        class="w-full max-w-[340px] rounded-2xl overflow-hidden"
+        style="background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); box-shadow: 0 20px 60px rgba(0,0,0,0.5);"
+      >
+        {#if !sent}
+          <div class="p-5 flex flex-col gap-3">
+            <p class="text-[9px] font-bold tracking-[0.3em] uppercase text-white/40 m-0">Kirim ke Email</p>
 
-      <div class="flex w-full gap-1.5">
-        <button
-          onpointerdown={(e) => {
-            e.preventDefault();
-            numMode = !numMode;
-          }}
-          class="rounded-lg flex items-center justify-center font-semibold border border-white/10 bg-white/10 text-white text-xs"
-          style="height: 46px; flex: 0 0 9%;"
-        >
-          {numMode ? 'ABC' : '123'}
-        </button>
-        <button
-          onpointerdown={(e) => {
-            e.preventDefault();
-            email = email + ' ';
-          }}
-          class="rounded-lg flex-1 flex items-center justify-center border border-white/10 bg-white/12 text-white text-xs"
-          style="height: 46px;"
-        >
-          spasi
-        </button>
-        {#each ['@', '.'] as ch}
+            <!-- Tappable email display -->
+            <!-- svelte-ignore a11y_click_events_have_key_events -->
+            <!-- svelte-ignore a11y_no_static_element_interactions -->
+            <div
+              onclick={() => (kbOpen = true)}
+              class="w-full rounded-xl px-4 py-3 cursor-text flex items-center transition-all min-h-[46px]"
+              style={`font-family: 'Space Mono', monospace; font-size: 13px; font-weight: 700; background: ${error ? 'rgba(239,68,68,0.15)' : kbOpen ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.07)'}; border: 1.5px solid ${error ? 'rgba(239,68,68,0.6)' : kbOpen ? '#FFC107' : 'rgba(255,255,255,0.12)'}; color: ${email ? (error ? '#fca5a5' : '#fff') : 'rgba(255,255,255,0.25)'}; box-shadow: ${kbOpen ? '0 0 0 3px rgba(255,193,7,0.2)' : 'none'};`}
+            >
+              {email || 'nama@email.com'}
+              {#if kbOpen}
+                <span class="ml-0.5 inline-block w-0.5 h-4 bg-[#FFC107] animate-pulse"></span>
+              {/if}
+            </div>
+
+            {#if error}
+              <p class="text-[10px] text-red-400 font-bold tracking-wide flex items-center gap-1 m-0 font-mono">
+                <svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 8v4m0 4h.01" stroke-linecap="round"/></svg>
+                Format email tidak valid
+              </p>
+            {/if}
+
+            <button
+              onclick={handleSend}
+              class="w-full py-3 rounded-xl font-black text-xs tracking-[0.2em] uppercase flex items-center justify-center gap-2 active:scale-95 transition-all border-none cursor-pointer"
+              style="background: #FFC107; color: #000; box-shadow: 0 6px 20px rgba(255,193,7,0.35);"
+            >
+              <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              Kirim Email
+            </button>
+            <p class="text-[9px] text-white/20 text-center m-0">Link aktif 30 hari · Tidak ada spam</p>
+          </div>
+        {:else}
+          <div class="p-5 flex items-center gap-3">
+            <div class="w-9 h-9 rounded-full bg-[#FFC107] flex items-center justify-center flex-shrink-0">
+              <svg width="16" height="16" fill="none" stroke="#000" stroke-width="2.8" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </div>
+            <div>
+              <p class="font-black text-xs text-white tracking-[0.15em] uppercase m-0">Email Terkirim!</p>
+              <p class="text-[10px] text-white/40 mt-0.5 m-0 font-mono">{email}</p>
+            </div>
+          </div>
+        {/if}
+      </div>
+
+      <!-- QR Card (slides in after send) -->
+      <div
+        class="w-full max-w-[340px] rounded-2xl flex flex-col items-center overflow-hidden transition-all duration-700 relative"
+        style={`background: #fff; max-height: ${sent ? '260px' : '0px'}; opacity: ${sent ? 1 : 0}; padding: ${sent ? '20px' : '0 20px'}; box-shadow: ${sent ? '0 20px 60px rgba(0,0,0,0.5)' : 'none'};`}
+      >
+        <div class="absolute -top-3 left-1/2 -translate-x-1/2 bg-[#FFC107] text-black text-[8px] font-black tracking-widest px-4 py-1 rounded-full uppercase shadow font-mono">
+          Gratis Download!
+        </div>
+        <p class="text-[9px] font-black tracking-[0.3em] uppercase text-gray-400 mb-3 mt-1 m-0">Scan to Download</p>
+        <div class="p-3 rounded-xl bg-gray-50 border-2 border-[#FFC107]">
+          {#if qrDataUrl}
+            <img src={qrDataUrl} alt="Softfile QR Code" class="w-[130px] h-[130px] object-contain block" />
+          {/if}
+        </div>
+        <p class="text-[9px] text-gray-400 tracking-widest uppercase text-center font-bold mt-3 m-0 font-mono">
+          potohub.com/download
+        </p>
+      </div>
+
+      <!-- Finish CTA -->
+      <button
+        onclick={onDone}
+        class="bg-white text-[#CD1C33] px-10 py-3 rounded-full font-black shadow-2xl hover:scale-105 active:scale-95 transition-all text-sm tracking-widest uppercase border-none cursor-pointer"
+      >
+        {sent ? '✦ Selesai' : '✦ Lewati'}
+      </button>
+    </div>
+
+    <!-- On-screen keyboard -->
+    <div
+      class="absolute bottom-0 left-0 right-0 z-50 transition-transform duration-300"
+      style={`transform: ${kbOpen ? 'translateY(0)' : 'translateY(100%)'};`}
+    >
+      <!-- svelte-ignore a11y_click_events_have_key_events -->
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <div
+        class="flex items-center justify-between px-5 py-2 cursor-pointer"
+        style="background: rgba(10,10,15,0.98); border-top: 1px solid rgba(255,255,255,0.1);"
+        onclick={() => (kbOpen = false)}
+      >
+        <span class="text-[9px] font-bold tracking-[0.3em] uppercase text-white/30 font-mono">Keyboard</span>
+        <span class="text-[9px] font-bold text-white/30">✕ Tutup</span>
+      </div>
+
+      <!-- V3 Keyboard keycaps -->
+      <div class="flex flex-col gap-1.5 px-3 pb-4 pt-3 bg-[#0a0a0f] border-t border-white/10 backdrop-blur-xl">
+        {#each currentKbRows as row, ri}
+          <div class="flex gap-1.5 w-full">
+            {#each row as key}
+              {@const isSpecial = key === 'SHIFT' || key === '⌫' || key === 'ABC' || key === '123'}
+              {@const isShiftActive = key === 'SHIFT' && caps}
+              <button
+                onpointerdown={(e) => {
+                  e.preventDefault();
+                  pressKey(key);
+                }}
+                class="rounded-lg flex items-center justify-center font-semibold transition-all border border-white/10 cursor-pointer"
+                style={`height: 46px; flex: ${isSpecial ? '0 0 9%' : '1 1 0'}; background: ${isShiftActive ? '#FFC107' : isSpecial ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.12)'}; color: ${isShiftActive ? '#000' : '#fff'}; font-size: ${key === '⌫' ? '14px' : '16px'};`}
+              >
+                {#if key === '⌫'}
+                  <Delete size={15} />
+                {:else}
+                  {caps && !numMode && key.length === 1 ? key.toUpperCase() : key}
+                {/if}
+              </button>
+            {/each}
+          </div>
+        {/each}
+
+        <div class="flex w-full gap-1.5">
           <button
             onpointerdown={(e) => {
               e.preventDefault();
-              email = email + ch;
+              numMode = !numMode;
             }}
-            class="rounded-lg flex items-center justify-center font-bold border border-white/10 bg-white/12 text-white text-base"
-            style="height: 46px; flex: 0 0 7%;"
+            class="rounded-lg flex items-center justify-center font-semibold border border-white/10 bg-white/10 text-white text-xs cursor-pointer"
+            style="height: 46px; flex: 0 0 9%;"
           >
-            {ch}
+            {numMode ? 'ABC' : '123'}
           </button>
-        {/each}
-        <button
-          onpointerdown={(e) => {
-            e.preventDefault();
-            handleSend();
-          }}
-          class="rounded-lg flex items-center justify-center font-black bg-[#FFC107] text-black text-xs border-none"
-          style="height: 46px; flex: 0 0 13%;"
-        >
-          Kirim
-        </button>
+          <button
+            onpointerdown={(e) => {
+              e.preventDefault();
+              email = email + ' ';
+            }}
+            class="rounded-lg flex-1 flex items-center justify-center border border-white/10 bg-white/12 text-white text-xs cursor-pointer"
+            style="height: 46px;"
+          >
+            spasi
+          </button>
+          {#each ['@', '.'] as ch}
+            <button
+              onpointerdown={(e) => {
+                e.preventDefault();
+                email = email + ch;
+              }}
+              class="rounded-lg flex items-center justify-center font-bold border border-white/10 bg-white/12 text-white text-base cursor-pointer"
+              style="height: 46px; flex: 0 0 7%;"
+            >
+              {ch}
+            </button>
+          {/each}
+          <button
+            onpointerdown={(e) => {
+              e.preventDefault();
+              handleSend();
+            }}
+            class="rounded-lg flex items-center justify-center font-black bg-[#FFC107] text-black text-xs border-none cursor-pointer"
+            style="height: 46px; flex: 0 0 13%;"
+          >
+            Kirim
+          </button>
+        </div>
       </div>
     </div>
-  {/if}
+  </div>
 </div>

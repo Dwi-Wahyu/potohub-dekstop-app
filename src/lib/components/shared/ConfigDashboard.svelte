@@ -1,14 +1,14 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import {
     Monitor,
-    User,
-    Calendar,
-    Layers,
+    ClockCheck,
     ChevronLeft,
     ChevronDown,
     CheckCircle2
   } from '@lucide/svelte';
   import { boothConfig, type BoothCfg } from '$lib/stores/boothConfig.svelte';
+  import { uiConfig } from '$lib/stores/uiConfig.svelte';
   import { syncBoothSettings } from '$lib/api/boothClient';
   import { cameraStore } from '$lib/camera.svelte';
 
@@ -20,6 +20,8 @@
   let { onBack, onLogout }: Props = $props();
 
   let syncStatus = $state<string | null>(null);
+  let lastSyncedAt = $state<string | null>(null);
+  let boothName = $state<string | null>(null);
 
   const NEU_BG = '#ebf0f7';
   const NEU_PRIMARY = '#2a2873';
@@ -37,11 +39,26 @@
     }
   }
 
+  function formatDate(isoString: string): string {
+    const date = new Date(isoString);
+    return new Intl.DateTimeFormat('id-ID', {
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      // timeZone: 'Asia/Jakarta', // opsional
+    }).format(date);
+  }
+
   async function handleSync() {
     syncStatus = 'Syncing...';
     try {
       const res = await syncBoothSettings();
-      syncStatus = res?.last_sync_at ? `Tersinkron ${res.last_sync_at}` : 'Tersinkronisasi';
+
+      if (res.booth_name) boothName = res.booth_name;
+      lastSyncedAt = res.last_sync_at ? formatDate(res.last_sync_at) : lastSyncedAt;
+      syncStatus = res.last_sync_at ? formatDate(res.last_sync_at) : 'Tersinkronisasi';
     } catch (e) {
       syncStatus = e instanceof Error ? e.message : 'Sync gagal';
     }
@@ -49,6 +66,14 @@
       syncStatus = null;
     }, 3000);
   }
+
+  // Isi nama device dari konfigurasi lokal yang sudah dimuat saat aplikasi
+  // start, lalu auto-sync sekali saat halaman dibuka — sehingga booth name &
+  // waktu sinkron terakhir langsung terisi tanpa harus klik tombol Sync dulu.
+  onMount(() => {
+    boothName = uiConfig.config.boothName || boothName;
+    void handleSync();
+  });
 
   const ROTATE_OPTS = ['0° (Default)', '90° CW', '180°', '90° CCW'];
   const CAMERA_MODES: Array<{ value: 'usb' | 'webcam' | 'demo'; label: string }> = [
@@ -175,7 +200,7 @@
           </div>
           <div>
             <p style="font-size: 11px; font-weight: 700; color: #334155; margin: 0;">Nama Device</p>
-            <p style="font-size: 11px; color: #64748b; margin: 0;">Boothlab</p>
+            <p style="font-size: 11px; color: #64748b; margin: 0;">{boothName}</p>
           </div>
         </div>
 
@@ -196,69 +221,24 @@
               flex-shrink: 0;
             "
           >
-            <User size={17} />
+            <ClockCheck size={17} />
           </div>
           <div>
-            <p style="font-size: 11px; font-weight: 700; color: #334155; margin: 0;">PIC Name</p>
-            <p style="font-size: 11px; color: #64748b; margin: 0;">Boothlab</p>
-          </div>
-        </div>
-
-        <div style="width: 1px; height: 30px; background: rgba(200,210,224,0.7); flex-shrink: 0;"></div>
-
-        <div style="display: flex; align-items: center; gap: 10px;">
-          <div
-            style="
-              width: 40px;
-              height: 40px;
-              border-radius: 12px;
-              background: {NEU_BG};
-              box-shadow: {neuCfg.btn};
-              display: flex;
-              align-items: center;
-              justify-content: center;
-              color: {NEU_PRIMARY};
-              flex-shrink: 0;
-            "
-          >
-            <Calendar size={17} />
-          </div>
-          <div>
-            <p style="font-size: 11px; font-weight: 700; color: #334155; margin: 0;">Expired on</p>
-            <p style="font-size: 11px; color: #64748b; margin: 0;">31/12/2045 09:40 AM</p>
-          </div>
-        </div>
-
-        <div style="width: 1px; height: 30px; background: rgba(200,210,224,0.7); flex-shrink: 0;"></div>
-
-        <div style="display: flex; align-items: center; gap: 10px;">
-          <div
-            style="
-              width: 40px;
-              height: 40px;
-              border-radius: 12px;
-              background: {NEU_BG};
-              box-shadow: {neuCfg.btn};
-              display: flex;
-              align-items: center;
-              justify-content: center;
-              color: {NEU_PRIMARY};
-              flex-shrink: 0;
-            "
-          >
-            <Layers size={17} />
-          </div>
-          <div>
-            <p style="font-size: 11px; font-weight: 700; color: #334155; margin: 0;">Version</p>
-            <p style="font-size: 11px; color: #64748b; margin: 0;">3.0.0</p>
+            <p style="font-size: 11px; font-weight: 700; color: #334155; margin: 0;">Last Synchronized At</p>
+            <p style="font-size: 11px; color: #64748b; margin: 0;">
+                <!-- Tampilkan waktu tersinkronisasi terakhir secara persisten -->
+                {#if syncStatus}
+                 {syncStatus}
+                {:else if lastSyncedAt}
+                 {lastSyncedAt}
+                {:else}
+                 Belum pernah sync
+                {/if}
+            </p>
           </div>
         </div>
 
         <div style="flex: 1;"></div>
-
-        {#if syncStatus}
-          <span style="font-size: 11px; font-weight: 600; color: #2563eb;">{syncStatus}</span>
-        {/if}
 
         <button
           onclick={handleSync}

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
-  import V1ConfigDashboard from '$lib/components/v1/V1ConfigDashboard.svelte';
+  import ConfigDashboard from '$lib/components/shared/ConfigDashboard.svelte';
   import { clearActivation } from '$lib/db/local';
 
   function handleBack() {
@@ -13,4 +13,4 @@
   }
 </script>
 
-<V1ConfigDashboard onBack={handleBack} onLogout={handleLogout} />
+<ConfigDashboard onBack={handleBack} onLogout={handleLogout} />

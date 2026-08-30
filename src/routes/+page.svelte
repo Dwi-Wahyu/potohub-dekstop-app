@@ -6,6 +6,7 @@
   import { boothConfig } from '$lib/stores/boothConfig.svelte';
   import { cameraStore } from '$lib/camera.svelte';
   import { fetchAndCacheUiConfig } from '$lib/api/boothClient';
+  import { prefetchBoothAssets } from '$lib/api/prefetch';
   import V1Layout from '$lib/components/v1/V1Layout.svelte';
   import V2Layout from '$lib/components/v2/V2Layout.svelte';
   import V3Layout from '$lib/components/v3/V3Layout.svelte';
@@ -22,6 +23,10 @@
     boothConfig.init(activation.boothId);
     uiConfig.init(activation.boothId);
     await fetchAndCacheUiConfig();
+    // Prefetch aset booth di background agar siap offline
+    void prefetchBoothAssets(activation.boothId).catch((e) =>
+      console.warn('Prefetch aset booth gagal:', e)
+    );
     if (boothConfig.config.cameraMode) {
       await cameraStore.connect(boothConfig.config.cameraMode);
     }

@@ -105,7 +105,7 @@
   {:else if step === 'session'}
     <V2Session selectedFrame={selectedFrameId} onComplete={handleSessionComplete} onBack={() => (step = 'frame')} />
   {:else if step === 'filter'}
-    <V2Filter onNext={handleFilterNext} onBack={() => (step = 'session')} />
+    <V2Filter selectedFrame={selectedFrameId} onNext={handleFilterNext} onBack={() => (step = 'session')} />
   {:else if step === 'download'}
     <V2Download selectedFrame={selectedFrameId} onDone={handleDone} />
   {/if}

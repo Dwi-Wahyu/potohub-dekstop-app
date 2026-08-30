@@ -262,7 +262,11 @@ class CameraStore {
         preMs: Math.round(preSecs * 1000),
         postMs: Math.round(postSecs * 1000),
       });
-      if (!frames || !frames.length) return null;
+      console.log(`[liveview] extract window capture=${captureTs} pre=${preSecs}s post=${postSecs}s -> ${frames?.length ?? 0} frame(s)`);
+      if (!frames || !frames.length) {
+        console.warn('[liveview] Buffer kosong untuk window ini — kemungkinan viewfinder mati selama capture_photo() berlangsung.');
+        return null;
+      }
       const encoded = await invoke<number[]>('encode_jpeg_frames_to_video', {
         frames,
         fps: 8,

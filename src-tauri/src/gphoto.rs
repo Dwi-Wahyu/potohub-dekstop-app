@@ -108,7 +108,10 @@ fn map_setting_key(frontend_key: &str) -> &str {
     }
 }
 
-pub async fn get_setting(camera: &Camera, frontend_key: &str) -> Result<serde_json::Value, GphotoError> {
+pub async fn get_setting(
+    camera: &Camera,
+    frontend_key: &str,
+) -> Result<serde_json::Value, GphotoError> {
     let key = map_setting_key(frontend_key);
     let widget: Widget = camera
         .config_key(key)
@@ -116,7 +119,10 @@ pub async fn get_setting(camera: &Camera, frontend_key: &str) -> Result<serde_js
         .map_err(|_| GphotoError::UnsupportedSetting(key.to_string()))?;
 
     let (value, ability) = match &widget {
-        Widget::Radio(radio) => (radio.choice(), radio.choices_iter().collect::<Vec<String>>()),
+        Widget::Radio(radio) => (
+            radio.choice(),
+            radio.choices_iter().collect::<Vec<String>>(),
+        ),
         Widget::Text(text) => (text.value(), vec![]),
         Widget::Toggle(toggle) => (
             toggle.toggled().map(|b| b.to_string()).unwrap_or_default(),
@@ -129,7 +135,11 @@ pub async fn get_setting(camera: &Camera, frontend_key: &str) -> Result<serde_js
     Ok(serde_json::json!({ "value": value, "ability": ability }))
 }
 
-pub async fn set_setting(camera: &Camera, frontend_key: &str, value: &str) -> Result<(), GphotoError> {
+pub async fn set_setting(
+    camera: &Camera,
+    frontend_key: &str,
+    value: &str,
+) -> Result<(), GphotoError> {
     let key = map_setting_key(frontend_key);
     let widget: Widget = camera
         .config_key(key)
@@ -138,22 +148,37 @@ pub async fn set_setting(camera: &Camera, frontend_key: &str, value: &str) -> Re
 
     match &widget {
         Widget::Radio(radio) => {
-            radio.set_choice(value).map_err(|e| GphotoError::Operation(e.to_string()))?;
-            camera.set_config(radio).wait().map_err(|e| GphotoError::Operation(e.to_string()))?;
+            radio
+                .set_choice(value)
+                .map_err(|e| GphotoError::Operation(e.to_string()))?;
+            camera
+                .set_config(radio)
+                .wait()
+                .map_err(|e| GphotoError::Operation(e.to_string()))?;
         }
         Widget::Text(text) => {
-            text.set_value(value).map_err(|e| GphotoError::Operation(e.to_string()))?;
-            camera.set_config(text).wait().map_err(|e| GphotoError::Operation(e.to_string()))?;
+            text.set_value(value)
+                .map_err(|e| GphotoError::Operation(e.to_string()))?;
+            camera
+                .set_config(text)
+                .wait()
+                .map_err(|e| GphotoError::Operation(e.to_string()))?;
         }
         Widget::Toggle(toggle) => {
             let bool_val = value.parse::<bool>().unwrap_or(false);
             toggle.set_toggled(bool_val);
-            camera.set_config(toggle).wait().map_err(|e| GphotoError::Operation(e.to_string()))?;
+            camera
+                .set_config(toggle)
+                .wait()
+                .map_err(|e| GphotoError::Operation(e.to_string()))?;
         }
         Widget::Range(range) => {
             if let Ok(float_val) = value.parse::<f32>() {
                 range.set_value(float_val);
-                camera.set_config(range).wait().map_err(|e| GphotoError::Operation(e.to_string()))?;
+                camera
+                    .set_config(range)
+                    .wait()
+                    .map_err(|e| GphotoError::Operation(e.to_string()))?;
             }
         }
         _ => return Err(GphotoError::UnsupportedSetting(key.to_string())),
@@ -163,31 +188,44 @@ pub async fn set_setting(camera: &Camera, frontend_key: &str, value: &str) -> Re
 }
 
 pub async fn trigger_popup_flash(camera: &Camera) {
-    if let Ok(toggle) = camera.config_key::<gphoto2::widget::ToggleWidget>("popupflash").wait() {
+    if let Ok(toggle) = camera
+        .config_key::<gphoto2::widget::ToggleWidget>("popupflash")
+        .wait()
+    {
         toggle.set_toggled(true);
         let _ = camera.set_config(&toggle).wait();
     }
 }
 
-pub async fn capture_photo(camera: &Camera, save_dir: &std::path::Path) -> Result<Vec<u8>, GphotoError> {
+pub async fn capture_photo(
+    camera: &Camera,
+    save_dir: &std::path::Path,
+) -> Result<Vec<u8>, GphotoError> {
     trigger_popup_flash(camera).await;
 
-    let file_path = camera.capture_image().wait().map_err(|e| GphotoError::Operation(e.to_string()))?;
+    let file_path = camera
+        .capture_image()
+        .wait()
+        .map_err(|e| GphotoError::Operation(e.to_string()))?;
     let camera_file = camera
         .fs()
         .download(&file_path.folder(), &file_path.name())
         .wait()
         .map_err(|e| GphotoError::Operation(e.to_string()))?;
 
-    let data = camera_file.get_data(camera).wait().map_err(|e| GphotoError::Operation(e.to_string()))?;
+    // PINDAHKAN KE SINI: re-enable viewfinder sesegera mungkin setelah download selesai,
+    // supaya ring buffer liveview kembali terisi lebih cepat untuk window "post-capture".
+    let _ = set_viewfinder(camera, true).await;
+
+    let data = camera_file
+        .get_data(camera)
+        .wait()
+        .map_err(|e| GphotoError::Operation(e.to_string()))?;
     let bytes = data.to_vec();
 
     let _ = std::fs::create_dir_all(save_dir);
     let local_path: PathBuf = save_dir.join(file_path.name().as_ref());
     let _ = std::fs::write(&local_path, &bytes);
-
-    // Re-enable viewfinder after photo capture
-    let _ = set_viewfinder(camera, true).await;
 
     Ok(bytes)
 }
@@ -197,39 +235,62 @@ pub async fn get_liveview_frame(camera: &Camera) -> Result<Vec<u8>, GphotoError>
         Ok(p) => p,
         Err(_) => {
             let _ = set_viewfinder(camera, true).await;
-            camera.capture_preview().wait().map_err(|e| GphotoError::Operation(e.to_string()))?
+            camera
+                .capture_preview()
+                .wait()
+                .map_err(|e| GphotoError::Operation(e.to_string()))?
         }
     };
-    let data = preview.get_data(camera).wait().map_err(|e| GphotoError::Operation(e.to_string()))?;
+    let data = preview
+        .get_data(camera)
+        .wait()
+        .map_err(|e| GphotoError::Operation(e.to_string()))?;
     Ok(data.to_vec())
 }
 
 pub async fn set_viewfinder(camera: &Camera, active: bool) -> Result<(), GphotoError> {
-    if let Ok(toggle) = camera.config_key::<gphoto2::widget::ToggleWidget>("viewfinder").wait() {
+    if let Ok(toggle) = camera
+        .config_key::<gphoto2::widget::ToggleWidget>("viewfinder")
+        .wait()
+    {
         toggle.set_toggled(active);
         let _ = camera.set_config(&toggle).wait();
-    } else if let Ok(radio) = camera.config_key::<gphoto2::widget::RadioWidget>("viewfinder").wait() {
+    } else if let Ok(radio) = camera
+        .config_key::<gphoto2::widget::RadioWidget>("viewfinder")
+        .wait()
+    {
         let val = if active { "1" } else { "0" };
         let _ = radio.set_choice(val);
         let _ = camera.set_config(&radio).wait();
     }
 
     if active {
-        if let Ok(radio) = camera.config_key::<gphoto2::widget::RadioWidget>("output").wait() {
-            let _ = radio.set_choice("TFT + PC")
+        if let Ok(radio) = camera
+            .config_key::<gphoto2::widget::RadioWidget>("output")
+            .wait()
+        {
+            let _ = radio
+                .set_choice("TFT + PC")
                 .or_else(|_| radio.set_choice("PC"))
                 .or_else(|_| radio.set_choice("1"))
                 .or_else(|_| radio.set_choice("2"));
             let _ = camera.set_config(&radio).wait();
-        } else if let Ok(radio) = camera.config_key::<gphoto2::widget::RadioWidget>("evf_output").wait() {
-            let _ = radio.set_choice("TFT + PC")
+        } else if let Ok(radio) = camera
+            .config_key::<gphoto2::widget::RadioWidget>("evf_output")
+            .wait()
+        {
+            let _ = radio
+                .set_choice("TFT + PC")
                 .or_else(|_| radio.set_choice("PC"))
                 .or_else(|_| radio.set_choice("1"))
                 .or_else(|_| radio.set_choice("2"));
             let _ = camera.set_config(&radio).wait();
         }
     } else {
-        if let Ok(radio) = camera.config_key::<gphoto2::widget::RadioWidget>("output").wait() {
+        if let Ok(radio) = camera
+            .config_key::<gphoto2::widget::RadioWidget>("output")
+            .wait()
+        {
             let _ = radio.set_choice("Off");
             let _ = camera.set_config(&radio).wait();
         }
@@ -259,4 +320,3 @@ mod tests {
         assert_eq!(window[1], vec![4, 5, 6]);
     }
 }
-

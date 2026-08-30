@@ -92,7 +92,7 @@
   {:else if step === 'tutorial'}
     <V3Tutorial onNext={handleTutorialNext} onBack={() => (step = 'start')} />
   {:else if step === 'package'}
-    <V3Package onSelectPackage={handleSelectPackage} onBack={() => (step = 'tutorial')} />
+    <V3Package onSelectPackage={handleSelectPackage} onSelectMethod={handlePaymentSelectMethod} onBack={() => (step = 'tutorial')} />
   {:else if step === 'payment'}
     <V3Payment selectedPackage={selectedPackage} onSelectMethod={handlePaymentSelectMethod} onBack={() => (step = 'package')} />
   {:else if step === 'ticket'}
@@ -102,7 +102,7 @@
   {:else if step === 'session'}
     <V3Session selectedFrame={selectedFrameId} onComplete={handleSessionComplete} onBack={() => (step = 'frame')} />
   {:else if step === 'filter'}
-    <V3Filter onNext={handleFilterNext} onBack={() => (step = 'session')} />
+    <V3Filter selectedFrame={selectedFrameId} onNext={handleFilterNext} onBack={() => (step = 'session')} />
   {:else if step === 'loading'}
     <V3Loading onDone={handleLoadingDone} />
   {:else if step === 'download'}

@@ -1,4 +1,6 @@
 import type { BoothTemplate } from '$lib/api/boothClient';
+import { boothFlow } from '$lib/stores/booth.svelte';
+import type { Sticker } from '$lib/utils/stickers';
 import { invoke } from '@tauri-apps/api/core';
 import QRCode from 'qrcode';
 
@@ -84,7 +86,8 @@ export async function compositeTemplateImage(
   template: BoothTemplate,
   photos: string[],
   filterCss?: string,
-  qrCodeText?: string
+  qrCodeText?: string,
+  stickers: Sticker[] = boothFlow.stickers
 ): Promise<string> {
   const canvas = document.createElement('canvas');
   canvas.width = template.width || 1200;
@@ -172,6 +175,41 @@ export async function compositeTemplateImage(
     }
 
     ctx.restore();
+  }
+
+  // Draw user chosen stickers on top of the composited canvas
+  if (stickers && stickers.length > 0) {
+    for (const s of stickers) {
+      ctx.save();
+      const cx = (s.x / 100) * canvas.width;
+      const cy = (s.y / 100) * canvas.height;
+
+      if (s.type === 'image' && s.imageUrl) {
+        const img = await loadImage(s.imageUrl);
+        if (img) {
+          const baseWidth = s.width || 64;
+          const targetW = (baseWidth / 400) * canvas.width;
+          const targetH = s.height ? (s.height / 400) * canvas.height : (img.height / img.width) * targetW;
+
+          ctx.translate(cx, cy);
+          if (s.rotation) {
+            ctx.rotate((s.rotation * Math.PI) / 180);
+          }
+          ctx.drawImage(img, -targetW / 2, -targetH / 2, targetW, targetH);
+        }
+      } else if (s.emoji) {
+        ctx.translate(cx, cy);
+        if (s.rotation) {
+          ctx.rotate((s.rotation * Math.PI) / 180);
+        }
+        const fontSize = Math.round((32 / 400) * canvas.width);
+        ctx.font = `${fontSize}px "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(s.emoji, 0, 0);
+      }
+      ctx.restore();
+    }
   }
 
   try {

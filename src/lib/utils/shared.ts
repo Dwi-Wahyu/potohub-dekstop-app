@@ -6,7 +6,7 @@ export function formatTime(totalSecs: number): string {
   return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
 }
 
-export function generateSessionCode(boothName: string = 'OURPICS'): string {
+export function generateSessionCode(boothName: string = 'POTOHUB'): string {
   const sanitized = boothName.replace(/\s+/g, '').toUpperCase();
   return `${sanitized}-${Date.now().toString(36).toUpperCase()}`;
 }

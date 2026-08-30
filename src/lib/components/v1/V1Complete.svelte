@@ -7,10 +7,11 @@
   import { sendSoftFile, formatTime } from '$lib/utils/shared';
   import { compositeTemplateImage } from '$lib/utils/templateComposite';
   import { saveSessionAssets } from '$lib/utils/sessionAssets';
+  import { cachedFetch } from '$lib/utils/offlineCache';
   import {
     fetchTemplates,
     createTransactionSession,
-    getActiveBoothId,
+    requireActiveBoothId,
     type BoothTemplate
   } from '$lib/api/boothClient';
 
@@ -45,15 +46,30 @@
       }
     }, 1000);
 
-    const boothId = (await getActiveBoothId()) || localStorage.getItem('booth_id') || 'default';
+    let boothId = 'default';
+    try {
+      boothId = await requireActiveBoothId();
+    } catch (e) {
+      console.error('[V1Complete] Booth tidak aktif saat simpan sesi:', e);
+    }
 
     // 1. Fetch template & composite photos into high-res frame image
     try {
-      const templates = await fetchTemplates(boothId);
-      const matched = templates.find((t) => t.id === frameConfigId) || templates[0];
-      if (matched) {
-        selectedTemplate = matched;
-        const resUrl = await compositeTemplateImage(matched, photos, boothFlow.selectedFilterId);
+      // Render instan dari cache SQLite bila ada, refresh di latar belakang
+      await cachedFetch(
+        `templates:${boothId}`,
+        () => fetchTemplates(boothId),
+        (templates) => {
+          selectedTemplate =
+            templates.find((t) => t.id === frameConfigId) || templates[0] || null;
+        }
+      );
+      if (selectedTemplate) {
+        const resUrl = await compositeTemplateImage(
+          selectedTemplate,
+          photos,
+          boothFlow.selectedFilterId
+        );
         compositeUrl = resUrl;
       }
     } catch (err) {

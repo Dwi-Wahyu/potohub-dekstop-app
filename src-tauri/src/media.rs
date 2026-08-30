@@ -143,10 +143,16 @@ pub async fn compose_template_video(
         std::fs::write(&bg_path, bg_bytes).map_err(|e| e.to_string())?;
         input_args.push("-i".into());
         input_args.push(bg_path.to_str().unwrap().into());
-        filter.push_str(&format!("[0:v]scale={}:{}[base];", canvas_width, canvas_height));
+        filter.push_str(&format!(
+            "[0:v]scale={}:{}[base];",
+            canvas_width, canvas_height
+        ));
         clip_index_offset = 1;
     } else {
-        filter.push_str(&format!("color=c=black:s={}x{}[base];", canvas_width, canvas_height));
+        filter.push_str(&format!(
+            "color=c=black:s={}x{}[base];",
+            canvas_width, canvas_height
+        ));
     }
 
     for (i, clip) in clips.iter().enumerate() {
@@ -172,15 +178,14 @@ pub async fn compose_template_video(
             scaled_label
         ));
         let next_label = format!("tmp{}", i);
-        let shortest_str = if i == total_slots - 1 { ":shortest=1" } else { "" };
+        let shortest_str = if i == total_slots - 1 {
+            ":shortest=1"
+        } else {
+            ""
+        };
         filter.push_str(&format!(
             "[{}][{}]overlay={}:{}{}[{}];",
-            last_label,
-            scaled_label,
-            *x as i32,
-            *y as i32,
-            shortest_str,
-            next_label
+            last_label, scaled_label, *x as i32, *y as i32, shortest_str, next_label
         ));
         last_label = next_label;
     }
@@ -209,7 +214,11 @@ pub async fn compose_template_video(
         out_path.to_str().unwrap().into(),
     ]);
 
-    let output = sidecar.args(args).output().await.map_err(|e| e.to_string())?;
+    let output = sidecar
+        .args(args)
+        .output()
+        .await
+        .map_err(|e| e.to_string())?;
     if !output.status.success() {
         let err_msg = String::from_utf8_lossy(&output.stderr).to_string();
         let _ = std::fs::remove_dir_all(&tmp_dir);
@@ -244,4 +253,3 @@ mod tests {
         assert_eq!(&gif_bytes[0..3], b"GIF");
     }
 }
-

@@ -1,6 +1,8 @@
 <script lang="ts">
   import type { Sticker } from '$lib/utils/stickers';
   import type { Snippet } from 'svelte';
+  import { toPng } from 'html-to-image';
+  import { boothFlow } from '$lib/stores/booth.svelte';
 
   interface Props {
     stickers: Sticker[];
@@ -48,6 +50,7 @@
 </script>
 
 <div
+  role="presentation"
   bind:this={containerRef}
   class={`relative ${className}`}
   style={containerStyle}
@@ -79,7 +82,20 @@
       "
       title="Geser untuk pindah · Double-click untuk hapus"
     >
-      {s.emoji}
+      {#if s.type === 'image' && s.imageUrl}
+        <img
+          src={s.imageUrl}
+          alt="Sticker"
+          class="pointer-events-none block select-none"
+          style="
+            width: {s.width ? `${s.width}px` : '64px'};
+            height: {s.height ? `${s.height}px` : 'auto'};
+            filter: drop-shadow(0 2px 4px rgba(0,0,0,0.3));
+          "
+        />
+      {:else}
+        {s.emoji}
+      {/if}
     </div>
   {/each}
 </div>

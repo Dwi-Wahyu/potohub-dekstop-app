@@ -1,6 +1,7 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
   import { activateBooth } from '$lib/api/boothClient';
+  import { prefetchBoothAssets } from '$lib/api/prefetch';
 
   let step = $state<'welcome' | 'activation'>('welcome');
   let code = $state('');
@@ -25,10 +26,18 @@
     loading = true;
     error = '';
     try {
-      await activateBooth(code.trim());
+      const data = await activateBooth(code.trim());
+      // Prefetch aset booth (background download) — tidak memblokir navigasi
+      void prefetchBoothAssets(data.booth_id ?? code.trim()).catch((e) =>
+        console.warn('Prefetch aset booth gagal:', e)
+      );
       await goto('/settings?firstRun=1');
     } catch (e) {
+      console.log(e);
+      
       error = e instanceof Error ? e.message : 'Aktivasi gagal.';
+
+
     } finally {
       loading = false;
     }
@@ -301,7 +310,7 @@
             {error}
           </div>
         {/if}
-      </div>
+        </div>
 
       <div style="display: flex; gap: 14px; width: 100%;">
         <button

@@ -39,7 +39,7 @@ export const DEFAULT_CFG: BoothCfg = {
   cameraMode: 'usb',
   bootScreen: 'welcome',
   liveviewClipPreSecs: 1.0,
-  liveviewClipPostSecs: 1.5,
+  liveviewClipPostSecs: 2.5,
   enableLiveviewVideo: true,
   enableSessionGif: true
 };

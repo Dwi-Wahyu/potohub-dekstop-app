@@ -4,14 +4,15 @@
   import { uiConfig } from '$lib/stores/uiConfig.svelte';
   import { boothFlow } from '$lib/stores/booth.svelte';
   import { sendSoftFile, generateSessionCode } from '$lib/utils/shared';
-  import { Delete } from '@lucide/svelte';
+  import { Delete, QrCode } from '@lucide/svelte';
 
   import { compositeTemplateImage } from '$lib/utils/templateComposite';
   import { saveSessionAssets } from '$lib/utils/sessionAssets';
+  import { cachedFetch } from '$lib/utils/offlineCache';
   import {
     fetchTemplates,
     createTransactionSession,
-    getActiveBoothId,
+    requireActiveBoothId,
     type BoothTemplate
   } from '$lib/api/boothClient';
 
@@ -44,15 +45,25 @@
       }
     }, 1000);
 
-    const boothId = (await getActiveBoothId()) || localStorage.getItem('booth_id') || 'default';
+    let boothId = 'default';
+    try {
+      boothId = await requireActiveBoothId();
+    } catch (e) {
+      console.error('[V2Download] Booth tidak aktif saat simpan sesi:', e);
+    }
 
     try {
-      const templates = await fetchTemplates(boothId);
-      const matched = templates.find((t) => t.id === selectedFrame) || templates[0];
-      if (matched) {
-        selectedTemplate = matched;
+      await cachedFetch(
+        `templates:${boothId}`,
+        () => fetchTemplates(boothId),
+        (templates) => {
+          selectedTemplate =
+            templates.find((t) => t.id === selectedFrame) || templates[0] || null;
+        }
+      );
+      if (selectedTemplate) {
         compositeUrl = await compositeTemplateImage(
-          matched,
+          selectedTemplate,
           boothFlow.photosTaken,
           boothFlow.selectedFilterId
         );
@@ -102,7 +113,6 @@
     if (timer === 0) onDone();
   });
 
-  // Stub softfile send implementation - see §0 item 5
   async function handleSend() {
     const valid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
     if (!valid) {
@@ -110,7 +120,6 @@
       setTimeout(() => (error = false), 1600);
       return;
     }
-    // TODO: integrasikan ke API pembayaran/softfile setelah gap backend selesai
     await sendSoftFile(email, () => {
       sent = true;
       kbOpen = false;
@@ -153,41 +162,100 @@
     email = email + ch;
     if (caps) caps = false;
   }
+
+  const STEPPER_LABELS = ['Tutorial', 'Payment', 'Frames', 'Photo Session', 'Edit & Filter', 'Scan File'];
+  const activeIdx = 5;
 </script>
 
 <div
-  class="w-screen h-screen bg-[#fafafa] flex flex-col select-none relative overflow-hidden"
+  class="w-screen h-screen bg-[#fafafa] flex flex-col relative overflow-hidden select-none"
   style="font-family: 'Playfair Display', Georgia, serif;"
 >
-  <!-- Header -->
-  <div class="w-full h-16 flex items-center justify-between px-10 border-b-2 border-black shrink-0 relative z-20 bg-[#C7EED8]">
-    <div class="flex items-center gap-2">
-      <span class="font-['Nunito',sans-serif] font-black text-xs tracking-widest uppercase">
-        {uiConfig.config.boothName} — Scan & Download Softfile
-      </span>
+  <!-- StepperHeader -->
+  <div
+    class="w-full h-16 flex items-center justify-between px-10 border-b-2 border-black shrink-0 relative z-20 select-none"
+    style="background: #C7EED8;"
+  >
+    <!-- dot pattern -->
+    <div
+      class="absolute inset-0 opacity-10 pointer-events-none"
+      style="background-image: radial-gradient(circle at 2px 2px, rgba(255,255,255,0.5) 1px, transparent 0); background-size: 24px 24px;"
+    ></div>
+
+    <!-- stepper pills -->
+    <div class="flex items-center gap-1 relative z-10 font-['Nunito',sans-serif]">
+      {#each STEPPER_LABELS as label, i}
+        {@const isActive = i === activeIdx}
+        {@const isDone = i < activeIdx}
+        <div class="flex items-center">
+          <div
+            class={`px-4 py-1.5 rounded-full border-2 border-black font-bold text-xs transition-all ${
+              isActive
+                ? 'bg-[#C7EED8] text-black shadow-[4px_4px_0_0_rgba(0,0,0,1)]'
+                : isDone
+                  ? 'bg-black text-white border-black'
+                  : 'text-black/40 border-black/30 bg-transparent'
+            }`}
+          >
+            {label}
+          </div>
+          {#if i < STEPPER_LABELS.length - 1}
+            <div
+              class={`w-6 h-px border-t border-black mx-0.5 ${isDone ? 'opacity-100' : 'opacity-30'}`}
+            ></div>
+          {/if}
+        </div>
+      {/each}
     </div>
+
+    <!-- brand -->
+    <div class="flex items-center gap-2 relative z-10 font-['Nunito',sans-serif]">
+      <div
+        class="w-8 h-8 rounded-xl border-2 border-black bg-white flex items-center justify-center text-[#2a2873] shadow-inner"
+      >
+        <QrCode size={18} strokeWidth={2.5} />
+      </div>
+      <h1 class="text-black font-black text-xl m-0 tracking-wide drop-shadow-sm uppercase">
+        {uiConfig.config.boothName || 'POTOHUB'}
+      </h1>
+    </div>
+  </div>
+
+  <!-- ClassicBorder -->
+  <div class="absolute inset-5 pointer-events-none z-0">
+    <div class="absolute inset-0 border-[3px] border-black rounded-[28px]"></div>
+    <div class="absolute inset-[6px] border border-black/20 rounded-[23px]"></div>
+    {#each ['top-3 left-3', 'top-3 right-3', 'bottom-3 left-3', 'bottom-3 right-3'] as pos}
+      <div class="absolute {pos} w-4 h-4">
+        <div
+          class="w-2 h-2 border-t-2 border-l-2 border-black absolute top-0 left-0"
+          style="border-radius: 2px 0 0 0;"
+        ></div>
+      </div>
+    {/each}
   </div>
 
   <!-- Content -->
   <div
     class="relative z-10 flex-1 flex items-center justify-center gap-12 px-16 py-8 transition-transform duration-300"
-    style="transform: {kbOpen ? 'translateY(-60px)' : 'translateY(0)'};"
+    style={`transform: ${kbOpen ? 'translateY(-60px)' : 'translateY(0)'};`}
   >
     <!-- Left copy -->
     <div class="flex flex-col max-w-[300px]">
-      <p class="text-xs tracking-[0.35em] uppercase text-black/30 mb-4 font-['Nunito',sans-serif] font-black">
+      <p class="text-xs tracking-[0.35em] uppercase text-black/30 mb-4 font-['Nunito',sans-serif] font-black m-0">
         Session Complete
       </p>
-      <h2 class="text-[56px] font-black uppercase tracking-tight leading-[0.9] mb-3">
+      <h2 class="text-[56px] font-black uppercase tracking-tight leading-[0.9] mb-3 m-0">
         Thank<br />You
       </h2>
-      <h3 class="text-xl font-bold italic text-black/50 mb-5">for printing with us!</h3>
+      <h3 class="text-xl font-bold italic text-black/50 mb-5 m-0">for printing with us!</h3>
       <div class="w-16 h-[3px] bg-black mb-5"></div>
-      <p class="text-sm text-black/40 leading-relaxed font-['Nunito',sans-serif] font-bold">
-        Fotomu sedang dicetak. Scan QR atau masukkan email untuk mendapatkan softfile.
+      <p class="text-sm text-black/40 leading-relaxed m-0 font-['Nunito',sans-serif]">
+        Fotomu sedang dicetak. Masukkan email untuk mendapatkan softfile, atau scan QR setelah mengirim email.
       </p>
       {#if sent}
         <div class="mt-5 flex items-center gap-2 text-black/50 text-xs font-['Nunito',sans-serif] font-black tracking-[0.15em] uppercase">
+          <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" stroke-linecap="round" stroke-linejoin="round"/></svg>
           Home dalam {timer}s
         </div>
       {/if}
@@ -218,175 +286,170 @@
       </div>
     </div>
 
-    <!-- Right card -->
+    <!-- Right cards -->
     <div class="flex flex-col gap-5">
+      <!-- Email card -->
       <div
-        class="border-[3px] border-black rounded-3xl bg-white p-7 w-[380px] shadow-[12px_12px_0_0_rgba(0,0,0,1)]"
+        class="border-[3px] border-black rounded-3xl bg-white p-7 w-[380px] transition-all duration-500 font-['Playfair_Display',serif]"
+        style={`box-shadow: ${sent ? '4px 4px 0 0 #000' : '12px 12px 0 0 #000'};`}
       >
         {#if !sent}
-          <p class="text-xs font-black uppercase tracking-[0.25em] mb-1 text-black/40 font-['Nunito',sans-serif]">
-            Scan QR / Kirim Softfile
+          <p class="text-xs font-black uppercase tracking-[0.25em] mb-1 text-black/40 font-['Nunito',sans-serif] m-0">
+            Kirim Softfile
           </p>
-          <p class="text-[13px] text-black/40 mb-4 font-['Nunito',sans-serif]">
-            Scan QR dengan kamera HP atau ketuk kolom email
+          <p class="text-[13px] text-black/40 mb-5 font-['Playfair_Display',serif] m-0">
+            Ketuk kolom email untuk membuka keyboard
           </p>
 
-          {#if qrDataUrl}
-            <div class="border-2 border-black rounded-2xl p-3 bg-white mb-4 flex flex-col items-center">
-              <img src={qrDataUrl} alt="Softfile QR Code" class="w-[130px] h-[130px] object-contain" />
-              <p class="text-[10px] font-black tracking-[0.2em] text-black/40 font-['Nunito',sans-serif] mt-1 m-0">
-                SCAN ME · {sessionCode}
-              </p>
-            </div>
-          {/if}
-
-          <div class="flex flex-col gap-3">
-            <button
-              type="button"
+          <div class="flex flex-col gap-3 font-['Nunito',sans-serif]">
+            <!-- Tappable email display -->
+            <!-- svelte-ignore a11y_click_events_have_key_events -->
+            <!-- svelte-ignore a11y_no_static_element_interactions -->
+            <div
               onclick={() => (kbOpen = true)}
-              class="w-full border-[2.5px] border-black rounded-2xl px-4 py-3 cursor-text text-left font-mono font-bold text-base min-h-[50px] bg-gray-50 text-gray-900"
+              class="w-full border-[2.5px] rounded-2xl px-4 py-3 cursor-text flex items-center transition-all min-h-[50px]"
+              style={`font-family: 'Courier New', monospace; font-size: 15px; font-weight: 700; border-color: ${error ? '#ef4444' : kbOpen ? '#000' : '#d1d5db'}; background: ${error ? '#fff5f5' : kbOpen ? '#fafafa' : '#f9f9f9'}; color: ${email ? (error ? '#ef4444' : '#000') : '#aaa'}; box-shadow: ${kbOpen ? '3px 3px 0 0 #000' : 'none'};`}
             >
               {email || 'nama@email.com'}
               {#if kbOpen}
                 <span class="ml-0.5 inline-block w-0.5 h-5 bg-black animate-pulse align-middle"></span>
               {/if}
-            </button>
+            </div>
 
             {#if error}
-              <p class="text-xs text-red-500 font-bold tracking-wide font-['Nunito',sans-serif] m-0">
+              <p class="text-xs text-red-500 font-bold tracking-wide flex items-center gap-1.5 font-['Nunito',sans-serif] m-0">
+                <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 8v4m0 4h.01" stroke-linecap="round"/></svg>
                 Format email tidak valid
               </p>
             {/if}
 
-            <!-- TODO: integrasikan ke API pembayaran/softfile setelah gap backend selesai -->
             <button
               onclick={handleSend}
-              class="w-full py-3 bg-black text-white font-black uppercase text-sm tracking-[0.18em] rounded-2xl cursor-pointer border-none font-['Nunito',sans-serif] shadow-[4px_4px_0_0_rgba(0,0,0,0.25)]"
+              class="w-full py-3 bg-black text-white font-black uppercase text-sm tracking-[0.18em] rounded-2xl hover:bg-black/80 active:scale-95 transition-all flex items-center justify-center gap-2 font-['Nunito',sans-serif] cursor-pointer border-none shadow-[4px_4px_0_0_rgba(0,0,0,0.25)]"
             >
-              Kirim Email (Local State)
+              <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              Kirim Email
             </button>
           </div>
+
+          <p class="text-[11px] text-black/25 mt-4 text-center font-['Nunito',sans-serif] m-0">
+            Link aktif selama 30 hari · Tidak ada spam
+          </p>
         {:else}
-          <div class="flex flex-col items-center gap-4 text-center">
-            <div class="w-12 h-12 rounded-full bg-black text-white flex items-center justify-center font-bold text-xl">
-              ✓
+          <div class="flex items-center gap-4">
+            <div class="w-10 h-10 rounded-full bg-black flex items-center justify-center flex-shrink-0">
+              <svg width="18" height="18" fill="none" stroke="white" stroke-width="2.8" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7" stroke-linecap="round" stroke-linejoin="round"/></svg>
             </div>
             <div>
-              <p class="font-black text-sm uppercase tracking-[0.15em] font-['Nunito',sans-serif] m-0">
-                Email Terkirim!
-              </p>
-              <p class="text-xs text-black/40 mt-1 font-['Nunito',sans-serif] m-0">{email}</p>
+              <p class="font-black text-sm uppercase tracking-[0.15em] font-['Nunito',sans-serif] m-0">Email Terkirim!</p>
+              <p class="text-xs text-black/40 mt-0.5 font-['Nunito',sans-serif] m-0">{email}</p>
             </div>
-
-            <div class="border-2 border-black rounded-2xl p-4 bg-white mt-2">
-              {#if qrDataUrl}
-                <img src={qrDataUrl} alt="Softfile QR Code" class="w-[140px] h-[140px] object-contain" />
-              {:else}
-                <svg width="140" height="140" viewBox="0 0 100 100" fill="none">
-                  <rect width="100" height="100" fill="white" />
-                  <rect x="5" y="5" width="25" height="25" fill="black" />
-                  <rect x="70" y="5" width="25" height="25" fill="black" />
-                  <rect x="5" y="70" width="25" height="25" fill="black" />
-                  <rect x="40" y="40" width="20" height="20" fill="black" />
-                </svg>
-              {/if}
-            </div>
-            <p class="text-[10px] font-black tracking-[0.2em] text-black/40 font-['Nunito',sans-serif] m-0">
-              SCAN ME · {sessionCode}
-            </p>
           </div>
         {/if}
+      </div>
+
+      <!-- QR Card -->
+      <div
+        class="border-[3px] border-black rounded-3xl bg-white flex flex-col items-center overflow-hidden transition-all duration-700 font-['Nunito',sans-serif]"
+        style={`box-shadow: 12px 12px 0 0 #000; max-height: ${sent ? '320px' : '0px'}; opacity: ${sent ? 1 : 0}; padding: ${sent ? '28px' : '0 28px'}; border-width: ${sent ? 3 : 0}; width: 380px;`}
+      >
+        <p class="text-xs font-black uppercase tracking-[0.25em] mb-1 text-black/40 m-0">Scan to Download</p>
+        <p class="text-[12px] text-black/30 mb-4 m-0">Atau buka link yang dikirim ke email kamu</p>
+        <div class="border-[2.5px] border-black rounded-2xl p-3 mb-3 bg-white">
+          {#if qrDataUrl}
+            <img src={qrDataUrl} alt="Softfile QR Code" class="w-[140px] h-[140px] object-contain" />
+          {/if}
+        </div>
+        <p class="text-[10px] font-black tracking-[0.3em] text-black/30 m-0">SCAN ME · {sessionCode}</p>
       </div>
     </div>
   </div>
 
   <!-- On-Screen Keyboard -->
-  {#if kbOpen}
-    <div class="absolute bottom-0 left-0 right-0 z-50 bg-white border-t-[3px] border-black">
-      <div
-        class="flex items-center justify-between px-5 py-2 border-b-[2px] border-black bg-gray-100 cursor-pointer"
-        onclick={() => (kbOpen = false)}
-        role="presentation"
-      >
-        <span class="text-xs font-black uppercase tracking-[0.2em] text-black/40 font-['Nunito',sans-serif]">Keyboard V2</span>
-        <span class="text-xs font-black text-black/40 font-['Nunito',sans-serif]">✕ Tutup</span>
-      </div>
+  <div
+    class="absolute bottom-0 left-0 right-0 z-50 transition-transform duration-300"
+    style={`transform: ${kbOpen ? 'translateY(0)' : 'translateY(100%)'};`}
+  >
+    <!-- Close strip -->
+    <!-- svelte-ignore a11y_click_events_have_key_events -->
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div
+      class="flex items-center justify-between px-5 py-2 border-t-[3px] border-black bg-[#f0f0f0] cursor-pointer"
+      onclick={() => (kbOpen = false)}
+    >
+      <span class="text-xs font-black uppercase tracking-[0.2em] text-black/40 font-['Nunito',sans-serif]">Keyboard</span>
+      <span class="text-xs font-black text-black/40 font-['Nunito',sans-serif]">✕ Tutup</span>
+    </div>
 
-      <div class="flex flex-col gap-1.5 px-3 pb-4 pt-3">
-        {#each currentKbRows as row, ri}
-          <div class="flex gap-1.5 w-full">
-            {#each row as key}
-              {@const isSpecial = key === 'SHIFT' || key === '⌫' || key === 'ABC' || key === '123'}
-              {@const isShiftActive = key === 'SHIFT' && caps}
-              <button
-                onpointerdown={(e) => {
-                  e.preventDefault();
-                  pressKey(key);
-                }}
-                class="rounded-lg flex items-center justify-center font-bold border-2 border-black font-['Nunito',sans-serif]"
-                style="
-                  height: 46px;
-                  flex: {isSpecial ? '0 0 9%' : '1 1 0'};
-                  background: {isShiftActive ? '#000' : isSpecial ? '#f0f0f0' : '#fff'};
-                  color: {isShiftActive ? '#fff' : '#000'};
-                  box-shadow: 2px 2px 0 0 #000;
-                "
-              >
-                {#if key === '⌫'}
-                  <Delete size={15} />
-                {:else}
-                  {caps && !numMode && key.length === 1 ? key.toUpperCase() : key}
-                {/if}
-              </button>
-            {/each}
-          </div>
-        {/each}
-
-        <div class="flex w-full gap-1.5">
-          <button
-            onpointerdown={(e) => {
-              e.preventDefault();
-              numMode = !numMode;
-            }}
-            class="rounded-lg flex items-center justify-center font-bold border-2 border-black bg-gray-100 font-['Nunito',sans-serif] text-xs"
-            style="height: 46px; flex: 0 0 9%; box-shadow: 2px 2px 0 0 #000;"
-          >
-            {numMode ? 'ABC' : '123'}
-          </button>
-          <button
-            onpointerdown={(e) => {
-              e.preventDefault();
-              email = email + ' ';
-            }}
-            class="rounded-lg flex-1 flex items-center justify-center border-2 border-black bg-white font-['Nunito',sans-serif] text-xs"
-            style="height: 46px; box-shadow: 2px 2px 0 0 #000;"
-          >
-            spasi
-          </button>
-          {#each ['@', '.'] as ch}
+    <!-- V2 Keyboard -->
+    <div class="flex flex-col gap-1.5 px-3 pb-4 pt-3 bg-white border-t-[3px] border-black">
+      {#each currentKbRows as row, ri}
+        <div class="flex gap-1.5 w-full">
+          {#each row as key}
+            {@const isSpecial = key === 'SHIFT' || key === '⌫' || key === 'ABC' || key === '123'}
+            {@const isShiftActive = key === 'SHIFT' && caps}
             <button
               onpointerdown={(e) => {
                 e.preventDefault();
-                email = email + ch;
+                pressKey(key);
               }}
-              class="rounded-lg flex items-center justify-center font-bold border-2 border-black bg-white font-['Nunito',sans-serif] text-base"
-              style="height: 46px; flex: 0 0 7%; box-shadow: 2px 2px 0 0 #000;"
+              class="rounded-lg flex items-center justify-center font-bold transition-all border-[2px] border-black cursor-pointer font-['Nunito',sans-serif]"
+              style={`height: 46px; flex: ${isSpecial ? '0 0 9%' : '1 1 0'}; min-width: 0; background: ${isShiftActive ? '#000' : isSpecial ? '#f0f0f0' : '#fff'}; color: ${isShiftActive ? '#fff' : '#000'}; font-size: ${key === '⌫' ? '14px' : '16px'}; box-shadow: 2px 2px 0 0 #000;`}
             >
-              {ch}
+              {#if key === '⌫'}
+                <Delete size={15} />
+              {:else}
+                {caps && !numMode && key.length === 1 ? key.toUpperCase() : key}
+              {/if}
             </button>
           {/each}
+        </div>
+      {/each}
+
+      <div class="flex w-full gap-1.5">
+        <button
+          onpointerdown={(e) => {
+            e.preventDefault();
+            numMode = !numMode;
+          }}
+          class="rounded-lg flex items-center justify-center font-bold border-[2px] border-black bg-[#f0f0f0] cursor-pointer font-['Nunito',sans-serif]"
+          style="height: 46px; flex: 0 0 9%; font-size: 13px; box-shadow: 2px 2px 0 0 #000;"
+        >
+          {numMode ? 'ABC' : '123'}
+        </button>
+        <button
+          onpointerdown={(e) => {
+            e.preventDefault();
+            email = email + ' ';
+          }}
+          class="rounded-lg flex-1 flex items-center justify-center border-[2px] border-black bg-white cursor-pointer font-['Nunito',sans-serif]"
+          style="height: 46px; box-shadow: 2px 2px 0 0 #000; font-size: 13px;"
+        >
+          spasi
+        </button>
+        {#each ['@', '.'] as ch}
           <button
             onpointerdown={(e) => {
               e.preventDefault();
-              handleSend();
+              email = email + ch;
             }}
-            class="rounded-lg flex items-center justify-center font-black border-2 border-black bg-black text-white font-['Nunito',sans-serif] text-xs"
-            style="height: 46px; flex: 0 0 13%; shadow: 2px 2px 0 0 #000;"
+            class="rounded-lg flex items-center justify-center font-bold border-[2px] border-black bg-white cursor-pointer font-['Nunito',sans-serif]"
+            style="height: 46px; flex: 0 0 7%; font-size: 17px; box-shadow: 2px 2px 0 0 #000;"
           >
-            Kirim
+            {ch}
           </button>
-        </div>
+        {/each}
+        <button
+          onpointerdown={(e) => {
+            e.preventDefault();
+            handleSend();
+          }}
+          class="rounded-lg flex items-center justify-center font-black border-[2px] border-black bg-black text-white cursor-pointer font-['Nunito',sans-serif]"
+          style="height: 46px; flex: 0 0 13%; font-size: 13px; box-shadow: 2px 2px 0 0 rgba(0,0,0,0.35);"
+        >
+          Kirim
+        </button>
       </div>
     </div>
-  {/if}
+  </div>
 </div>

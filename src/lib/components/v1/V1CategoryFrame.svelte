@@ -3,7 +3,8 @@
   import { uiConfig } from '$lib/stores/uiConfig.svelte';
   import { cameraStore } from '$lib/camera.svelte';
   import { formatTime } from '$lib/utils/shared';
-  import { fetchCategories, fetchTemplates, type BoothCategory, type BoothTemplate } from '$lib/api/boothClient';
+  import { fetchCategories, fetchTemplates, requireActiveBoothId, type BoothCategory, type BoothTemplate } from '$lib/api/boothClient';
+  import { cachedFetch } from '$lib/utils/offlineCache';
 
   interface Props {
     onNext: (price: number, frameConfigId: string) => void;
@@ -95,11 +96,22 @@
     };
   }
 
-  onMount(async () => {
-    const boothId = localStorage.getItem('booth_id') || 'default';
+  async function loadCatalog() {
+    loadingCatalog = true;
+    catalogError = '';
     try {
-      categoriesData = await fetchCategories(boothId);
-      templatesData = await fetchTemplates(boothId);
+      const boothId = await requireActiveBoothId();
+      // Render instan dari cache SQLite bila ada, refresh di latar belakang
+      await cachedFetch(
+        `categories:${boothId}`,
+        () => fetchCategories(boothId),
+        (d) => { categoriesData = d; }
+      );
+      await cachedFetch(
+        `templates:${boothId}`,
+        () => fetchTemplates(boothId),
+        (d) => { templatesData = d; }
+      );
       if (categoriesData[0]) {
         categoryId = categoriesData[0].id;
         const visible = templatesData.filter((t) => t.category_id === categoryId);
@@ -108,12 +120,15 @@
         }
       }
     } catch (err) {
-      console.log(err);
-      
-      catalogError = 'Gagal memuat katalog. Periksa koneksi ke server.';
+      console.error('[V1CategoryFrame] Gagal memuat katalog:', err);
+      catalogError = 'Gagal memuat katalog. Periksa koneksi ke server atau status aktivasi booth.';
     } finally {
       loadingCatalog = false;
     }
+  }
+
+  onMount(async () => {
+    await loadCatalog();
 
     await cameraStore.startLiveview(videoEl);
     timer = setInterval(() => {
@@ -188,31 +203,12 @@
           <path d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" stroke-linecap="round" stroke-linejoin="round" />
         </svg>
         <div class="text-base font-bold text-red-400 mb-1">{catalogError}</div>
-        <div class="text-xs text-white/50 mb-6 text-center max-w-md">Koneksi ke server API gagal. Anda bisa menggunakan data default dengan menekan tombol di bawah.</div>
+        <div class="text-xs text-white/50 mb-6 text-center max-w-md">Koneksi ke server API gagal atau booth belum teraktivasi. Silakan periksa koneksi atau aktivasi ulang booth.</div>
         <button
-          onclick={() => {
-            // Load defaults
-            categoriesData = [
-              { id: 'solo', name: 'Solo', base_price: 35000, extra_price: 10000, position: 1, banner_url: null },
-              { id: 'couple', name: 'Couple', base_price: 50000, extra_price: 15000, position: 2, banner_url: null },
-              { id: 'group', name: 'Group', base_price: 65000, extra_price: 20000, position: 3, banner_url: null },
-              { id: 'family', name: 'Family', base_price: 70000, extra_price: 25000, position: 4, banner_url: null }
-            ];
-            templatesData = [
-              { id: 'strip2', category_id: 'solo', name: 'Strip 2', width: 2, height: 6, paper_size: '4x6', frame_image_url: null, design_data: [ {x:0,y:0,w:1,h:1}, {x:0,y:1,w:1,h:1} ], is_active: true },
-              { id: 'strip4', category_id: 'solo', name: 'Strip 4', width: 2, height: 6, paper_size: '4x6', frame_image_url: null, design_data: [ {x:0,y:0,w:1,h:1}, {x:0,y:1,w:1,h:1}, {x:0,y:2,w:1,h:1}, {x:0,y:3,w:1,h:1} ], is_active: true },
-              { id: 'grid4', category_id: 'couple', name: 'Grid 2x2', width: 4, height: 6, paper_size: '4x6', frame_image_url: null, design_data: [ {x:0,y:0,w:1,h:1}, {x:1,y:0,w:1,h:1}, {x:0,y:1,w:1,h:1}, {x:1,y:1,w:1,h:1} ], is_active: true },
-              { id: 'grid6', category_id: 'group', name: 'Grid 2x3', width: 4, height: 6, paper_size: '4x6', frame_image_url: null, design_data: [ {x:0,y:0,w:1,h:1}, {x:1,y:0,w:1,h:1}, {x:0,y:1,w:1,h:1}, {x:1,y:1,w:1,h:1}, {x:0,y:2,w:1,h:1}, {x:1,y:2,w:1,h:1} ], is_active: true },
-              { id: 'love4', category_id: 'couple', name: 'Love 4', width: 4, height: 6, paper_size: '4x6', frame_image_url: null, design_data: [ {x:0,y:0,w:1,h:1}, {x:1,y:0,w:1,h:1}, {x:0,y:1,w:1,h:1}, {x:1,y:1,w:1,h:1} ], is_active: true },
-              { id: 'wide3', category_id: 'family', name: 'Wide 3', width: 6, height: 4, paper_size: '4x6', frame_image_url: null, design_data: [ {x:0,y:0,w:1,h:1}, {x:1,y:0,w:1,h:1}, {x:2,y:0,w:1,h:1} ], is_active: true }
-            ];
-            categoryId = 'solo';
-            frameId = 'strip2';
-            catalogError = '';
-          }}
+          onclick={() => loadCatalog()}
           class="px-6 py-2.5 rounded-full bg-white/10 hover:bg-white/20 border-none text-[#f0edf8] cursor-pointer font-bold text-sm transition-colors duration-150"
         >
-          Gunakan Mode Offline
+          Coba Lagi
         </button>
       </div>
     {:else}

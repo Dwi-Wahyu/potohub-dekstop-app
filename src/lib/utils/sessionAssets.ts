@@ -1,8 +1,10 @@
 import { invoke } from '@tauri-apps/api/core';
 import { boothFlow } from '$lib/stores/booth.svelte';
 import { boothConfig } from '$lib/stores/boothConfig.svelte';
+import { uiConfig } from '$lib/stores/uiConfig.svelte';
 import { uploadGalleryAsset } from '$lib/api/boothClient';
 import { buildSessionGif } from './gif';
+import { saveLocalSessionAssets } from './localSessionStorage';
 
 export interface SlotRect {
   x: number;
@@ -20,7 +22,20 @@ export async function saveSessionAssets(
   slotRects: SlotRect[],
   backgroundUrl?: string | null
 ) {
+  console.log('[saveSessionAssets] mulai', {
+    boothId,
+    sessionId,
+    hasComposite: !!compositeUrl,
+    photosTakenCount: boothFlow.photosTaken.length,
+    liveviewClipsCount: boothFlow.liveviewClips.filter(Boolean).length,
+  });
+
   const tasks: Promise<unknown>[] = [];
+
+  // Tangkapan untuk penyimpanan lokal (Part E) — diisi saat build/upload
+  let gifBlob: Blob | null = null;
+  let compositeVideoBlob: Blob | null = null;
+  const validClips = boothFlow.liveviewClips.filter((c): c is string => !!c);
 
   // 1. Foto mentah tiap slot
   boothFlow.photosTaken.forEach((photoUrl, i) => {
@@ -58,29 +73,30 @@ export async function saveSessionAssets(
   if (boothConfig.config.enableSessionGif && boothFlow.photosTaken.length > 0) {
     tasks.push(
       buildSessionGif(boothFlow.photosTaken)
-        .then((gifBlob) =>
-          uploadGalleryAsset(
+        .then((blob) => {
+          gifBlob = blob;
+          return uploadGalleryAsset(
             boothId,
             sessionId,
             'gif',
-            gifBlob,
+            blob,
             'gif',
             'image/gif',
             480,
             720
-          )
-        )
+          );
+        })
         .catch((e) => console.error('Gagal buat/upload GIF sesi:', e))
     );
   }
 
   // 4. Video composite live view per slot
-  const validClips = boothFlow.liveviewClips.filter((c): c is string => !!c);
   if (
     boothConfig.config.enableLiveviewVideo &&
     validClips.length === boothFlow.photosTaken.length &&
     validClips.length > 0
   ) {
+    console.log(`[liveview] Membuat video composite dengan ${validClips.length}/${boothFlow.photosTaken.length} klip valid.`);
     tasks.push(
       (async () => {
         const clipBytes = await Promise.all(
@@ -115,14 +131,15 @@ export async function saveSessionAssets(
           canvasHeight: templateHeight,
           backgroundJpeg: bgBytes
         });
-        const videoBlob = new Blob([new Uint8Array(videoBytes)], {
+        const blob = new Blob([new Uint8Array(videoBytes)], {
           type: 'video/mp4'
         });
+        compositeVideoBlob = blob;
         return uploadGalleryAsset(
           boothId,
           sessionId,
           'video',
-          videoBlob,
+          blob,
           'mp4',
           'video/mp4',
           templateWidth,
@@ -130,7 +147,21 @@ export async function saveSessionAssets(
         );
       })().catch((e) => console.error('Gagal buat/upload video liveview:', e))
     );
+  } else {
+    console.warn(
+      `[liveview] Video composite dilewati. enableLiveviewVideo=${boothConfig.config.enableLiveviewVideo}, validClips=${validClips.length}, photosTaken=${boothFlow.photosTaken.length}`
+    );
   }
 
   await Promise.allSettled(tasks);
+
+  // 5. Penyimpanan lokal hasil sesi (Part E) — tidak boleh menggagalkan upload R2
+  saveLocalSessionAssets(
+    uiConfig.config.boothName,
+    boothFlow.sessionCode ?? sessionId ?? `session-${Date.now()}`,
+    compositeUrl,
+    gifBlob,
+    validClips,
+    compositeVideoBlob
+  ).catch((e) => console.warn('Gagal simpan hasil sesi ke lokal:', e));
 }

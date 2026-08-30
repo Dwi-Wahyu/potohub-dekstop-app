@@ -58,7 +58,10 @@ mod platform {
     use winapi::um::winspool::*;
 
     fn to_wide(s: &str) -> Vec<u16> {
-        OsStr::new(s).encode_wide().chain(std::iter::once(0)).collect()
+        OsStr::new(s)
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect()
     }
 
     pub fn get_installed_printers() -> Result<Vec<String>, PrinterError> {
@@ -108,7 +111,11 @@ mod platform {
 
         for info in info_slice {
             if !info.pPrinterName.is_null() {
-                let len = unsafe { (0..).take_while(|&i| *info.pPrinterName.offset(i) != 0).count() };
+                let len = unsafe {
+                    (0..)
+                        .take_while(|&i| *info.pPrinterName.offset(i) != 0)
+                        .count()
+                };
                 let name_slice = unsafe { std::slice::from_raw_parts(info.pPrinterName, len) };
                 let name = String::from_utf16_lossy(name_slice);
                 printers.push(name);
@@ -122,7 +129,8 @@ mod platform {
         let wide_name = to_wide(printer_name);
         let mut handle: winapi::shared::ntdef::HANDLE = ptr::null_mut();
 
-        let open_res = unsafe { OpenPrinterW(wide_name.as_ptr() as *mut _, &mut handle, ptr::null_mut()) };
+        let open_res =
+            unsafe { OpenPrinterW(wide_name.as_ptr() as *mut _, &mut handle, ptr::null_mut()) };
         if open_res == 0 || handle.is_null() {
             return Err(PrinterError::PrinterNotFound(printer_name.to_string()));
         }
@@ -134,7 +142,9 @@ mod platform {
 
         if needed == 0 {
             unsafe { ClosePrinter(handle) };
-            return Err(PrinterError::StatusFailed("Gagal membaca ukuran status printer".into()));
+            return Err(PrinterError::StatusFailed(
+                "Gagal membaca ukuran status printer".into(),
+            ));
         }
 
         let mut buffer: Vec<u8> = vec![0; needed as usize];
@@ -142,13 +152,20 @@ mod platform {
         unsafe { ClosePrinter(handle) };
 
         if get_res == 0 {
-            return Err(PrinterError::StatusFailed("Gagal mengambil info status printer".into()));
+            return Err(PrinterError::StatusFailed(
+                "Gagal mengambil info status printer".into(),
+            ));
         }
 
         let info = unsafe { &*(buffer.as_ptr() as *const PRINTER_INFO_2W) };
         let status_code = info.Status;
 
-        let has_error = (status_code & (PRINTER_STATUS_ERROR | PRINTER_STATUS_PAPER_JAM | PRINTER_STATUS_PAPER_OUT | PRINTER_STATUS_OFFLINE)) != 0;
+        let has_error = (status_code
+            & (PRINTER_STATUS_ERROR
+                | PRINTER_STATUS_PAPER_JAM
+                | PRINTER_STATUS_PAPER_OUT
+                | PRINTER_STATUS_OFFLINE))
+            != 0;
         let is_online = (status_code & PRINTER_STATUS_OFFLINE) == 0;
         let is_ready = is_online && !has_error;
 
@@ -184,7 +201,8 @@ mod platform {
         let wide_name = to_wide(printer_name);
         let mut handle: winapi::shared::ntdef::HANDLE = ptr::null_mut();
 
-        let open_res = unsafe { OpenPrinterW(wide_name.as_ptr() as *mut _, &mut handle, ptr::null_mut()) };
+        let open_res =
+            unsafe { OpenPrinterW(wide_name.as_ptr() as *mut _, &mut handle, ptr::null_mut()) };
         if open_res == 0 || handle.is_null() {
             return Err(PrinterError::PrinterNotFound(printer_name.to_string()));
         }
@@ -201,7 +219,9 @@ mod platform {
         let start_doc = unsafe { StartDocPrinterW(handle, 1, &mut doc_info as *mut _ as *mut _) };
         if start_doc == 0 {
             unsafe { ClosePrinter(handle) };
-            return Err(PrinterError::PrintFailed("Gagal memulai dokumen printer".into()));
+            return Err(PrinterError::PrintFailed(
+                "Gagal memulai dokumen printer".into(),
+            ));
         }
 
         for _copy in 0..options.copies.max(1) {
@@ -211,7 +231,9 @@ mod platform {
                     EndDocPrinter(handle);
                     ClosePrinter(handle);
                 }
-                return Err(PrinterError::PrintFailed("Gagal memulai halaman cetak".into()));
+                return Err(PrinterError::PrintFailed(
+                    "Gagal memulai halaman cetak".into(),
+                ));
             }
 
             let mut bytes_written: DWORD = 0;
@@ -231,7 +253,9 @@ mod platform {
                     EndDocPrinter(handle);
                     ClosePrinter(handle);
                 }
-                return Err(PrinterError::PrintFailed("Gagal menulis data ke printer".into()));
+                return Err(PrinterError::PrintFailed(
+                    "Gagal menulis data ke printer".into(),
+                ));
             }
         }
 

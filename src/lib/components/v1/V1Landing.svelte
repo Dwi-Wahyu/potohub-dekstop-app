@@ -114,7 +114,7 @@
     "
     class="px-9 py-2.5 rounded-full min-w-[120px] border-none font-['Plus_Jakarta_Sans',sans-serif] font-bold text-[clamp(11px,1vw,14px)] tracking-[0.2em] uppercase cursor-pointer touch-manipulation transition-transform duration-150 ease-out active:scale-95"
   >
-    MULAI
+    {uiConfig.getElementLabel('start', 'start_button', 'MULAI')}
   </button>
 
   <p class="absolute bottom-[clamp(12px,2vh,20px)] left-0 right-0 text-center text-[clamp(9px,0.7vw,12px)] text-white/30 m-0 font-['Plus_Jakarta_Sans',sans-serif]">

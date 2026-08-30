@@ -3,11 +3,12 @@
   import { FILTERS } from '$lib/utils/filters';
   import { uiConfig } from '$lib/stores/uiConfig.svelte';
   import { boothFlow } from '$lib/stores/booth.svelte';
-  import EmojiPicker from '$lib/components/shared/EmojiPicker.svelte';
+  import StickerPicker from '$lib/components/shared/StickerPicker.svelte';
   import StickerCanvas from '$lib/components/shared/StickerCanvas.svelte';
-  import type { Sticker } from '$lib/utils/stickers';
+  import type { Sticker, StickerType } from '$lib/utils/stickers';
   import { formatTime } from '$lib/utils/shared';
-  import { fetchTemplates, type BoothTemplate } from '$lib/api/boothClient';
+  import { fetchTemplates, fetchEmots, requireActiveBoothId, type BoothTemplate, type BoothEmot } from '$lib/api/boothClient';
+  import { cachedFetch } from '$lib/utils/offlineCache';
 
   interface Props {
     photos: string[];
@@ -19,6 +20,7 @@
   let { photos, frameConfigId = '', onBack, onNext }: Props = $props();
 
   let selectedTemplate = $state<BoothTemplate | null>(null);
+  let emotsData = $state<BoothEmot[]>([]);
   let photoSlots = $derived(
     selectedTemplate?.design_data
       ?.filter((l) => !l.isBackground && !l.isQr)
@@ -32,23 +34,34 @@
   let bgLayer = $derived(selectedTemplate?.design_data?.find((l) => l.isBackground));
   let bgUrl = $derived(bgLayer?.imageUrl || selectedTemplate?.frame_image_url || '');
 
-  let stickers = $state<Sticker[]>([]);
+  let stickers = $state<Sticker[]>(boothFlow.stickers);
   let stickerCounter = $state(0);
   let secs = $state(5 * 60);
   let timer: any = null;
 
   onMount(async () => {
-    const boothId = localStorage.getItem('booth_id') || 'default';
     try {
-      const templates = await fetchTemplates(boothId);
-      const matched = templates.find((t) => t.id === frameConfigId);
-      if (matched) {
-        selectedTemplate = matched;
-      } else if (templates[0]) {
-        selectedTemplate = templates[0];
-      }
+      const boothId = await requireActiveBoothId();
+      // Render instan dari cache SQLite bila ada, refresh di latar belakang
+      await cachedFetch(
+        `templates:${boothId}`,
+        () => fetchTemplates(boothId),
+        (templates) => {
+          const matched = templates.find((t) => t.id === frameConfigId);
+          if (matched) {
+            selectedTemplate = matched;
+          } else if (templates[0]) {
+            selectedTemplate = templates[0];
+          }
+        }
+      );
+      await cachedFetch(
+        `emots:${boothId}`,
+        () => fetchEmots(boothId),
+        (emots) => { emotsData = emots; }
+      );
     } catch (err) {
-      console.error('Failed to load template in customize:', err);
+      console.error('[V1Customize] Failed to load catalog or emots in customize:', err);
     }
 
     timer = setInterval(() => {
@@ -64,24 +77,29 @@
     if (timer) clearInterval(timer);
   });
 
-  function addSticker(emoji: string) {
+  function addSticker(emoji: string, imageUrl: string = '', type: StickerType = 'emoji') {
     stickers = [
       ...stickers,
       {
         id: stickerCounter++,
         emoji,
+        imageUrl,
+        type,
         x: 30 + Math.random() * 40,
         y: 30 + Math.random() * 40
       }
     ];
+    boothFlow.stickers = stickers;
   }
 
   function moveSticker(id: number, x: number, y: number) {
     stickers = stickers.map((st) => (st.id === id ? { ...st, x, y } : st));
+    boothFlow.stickers = stickers;
   }
 
   function removeSticker(id: number) {
     stickers = stickers.filter((st) => st.id !== id);
+    boothFlow.stickers = stickers;
   }
 
   let currentFilterCss = $derived(
@@ -144,7 +162,7 @@
       </div>
 
       <div class="shrink-0 border-t border-gray-100 pt-4">
-        <EmojiPicker onPick={addSticker} />
+        <StickerPicker onPick={addSticker} emots={emotsData} />
       </div>
 
       <button

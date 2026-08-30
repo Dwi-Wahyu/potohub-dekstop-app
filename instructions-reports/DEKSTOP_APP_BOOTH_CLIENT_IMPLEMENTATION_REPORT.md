@@ -42,17 +42,17 @@ This report documents the full end-to-end implementation and verification of the
 
 ## 2. Execution Log & Audit
 
-| Phase / Module | Description | Status | Key Components & Artifacts |
-| :--- | :--- | :--- | :--- |
-| **Dependencies & Setup** | Installed QR Code generator dependencies | ✅ Completed | Added `qrcode` and `@types/qrcode`. |
-| **Shared Stores & API** | Created Svelte 5 rune state stores & API client | ✅ Completed | Created `src/lib/stores/booth.svelte.ts`, `boothConfig.svelte.ts`, `uiConfig.svelte.ts`, `src/lib/api/boothClient.ts`. |
-| **Shared Utilities** | Created shared capture, filter, sticker & time helpers | ✅ Completed | Created `src/lib/utils/shared.ts`, `filters.ts`, `capture.ts`, `stickers.ts`. |
-| **Shared Components** | Built reusable Neumorphic PIN Pad & Sticker Canvas | ✅ Completed | Created `src/lib/components/shared/PinPad.svelte`, `EmojiPicker.svelte`, `StickerCanvas.svelte`. |
-| **Variant 1 (V1)** | Built 11 V1 components & V1Layout director | ✅ Completed | Created `src/lib/components/v1/` (`V1Layout`, `V1ConfigDashboard`, `V1Landing`, `V1Tutorial`, `V1PaymentMethod`, `V1CategoryFrame`, `V1PrintQty`, `V1QRISPayment`, `V1Camera`, `V1Customize`, `V1Complete`). |
-| **Variant 2 (V2)** | Built 10 V2 components & V2Layout director | ✅ Completed | Created `src/lib/components/v2/` (`V2Layout`, `V2Landing`, `V2Tutorial`, `V2Payment`, `V2Qris`, `V2Ticket`, `V2Frame`, `V2Session`, `V2Filter`, `V2Download`). |
-| **Variant 3 (V3)** | Built 11 V3 components & V3Layout director | ✅ Completed | Created `src/lib/components/v3/` (`V3Layout`, `V3Start`, `V3Tutorial`, `V3Package`, `V3Payment`, `V3Ticket`, `V3Frame`, `V3Session`, `V3Filter`, `V3Loading`, `V3Download`). |
-| **Director Routing** | Wired `src/routes/+page.svelte` to templateVariant | ✅ Completed | Dynamic component rendering based on `uiConfig.templateVariant`. |
-| **Verification & Build** | Diagnostic type checks and production bundle build | ✅ Completed | Executed `pnpm check` (0 errors) and `pnpm build` (built static bundle cleanly). |
+| Phase / Module           | Description                                            | Status       | Key Components & Artifacts                                                                                                                                                                                   |
+| :----------------------- | :----------------------------------------------------- | :----------- | :----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Dependencies & Setup** | Installed QR Code generator dependencies               | ✅ Completed | Added `qrcode` and `@types/qrcode`.                                                                                                                                                                          |
+| **Shared Stores & API**  | Created Svelte 5 rune state stores & API client        | ✅ Completed | Created `src/lib/stores/booth.svelte.ts`, `boothConfig.svelte.ts`, `uiConfig.svelte.ts`, `src/lib/api/boothClient.ts`.                                                                                       |
+| **Shared Utilities**     | Created shared capture, filter, sticker & time helpers | ✅ Completed | Created `src/lib/utils/shared.ts`, `filters.ts`, `capture.ts`, `stickers.ts`.                                                                                                                                |
+| **Shared Components**    | Built reusable Neumorphic PIN Pad & Sticker Canvas     | ✅ Completed | Created `src/lib/components/shared/PinPad.svelte`, `StickerPicker.svelte`, `StickerCanvas.svelte`.                                                                                                           |
+| **Variant 1 (V1)**       | Built 11 V1 components & V1Layout director             | ✅ Completed | Created `src/lib/components/v1/` (`V1Layout`, `V1ConfigDashboard`, `V1Landing`, `V1Tutorial`, `V1PaymentMethod`, `V1CategoryFrame`, `V1PrintQty`, `V1QRISPayment`, `V1Camera`, `V1Customize`, `V1Complete`). |
+| **Variant 2 (V2)**       | Built 10 V2 components & V2Layout director             | ✅ Completed | Created `src/lib/components/v2/` (`V2Layout`, `V2Landing`, `V2Tutorial`, `V2Payment`, `V2Qris`, `V2Ticket`, `V2Frame`, `V2Session`, `V2Filter`, `V2Download`).                                               |
+| **Variant 3 (V3)**       | Built 11 V3 components & V3Layout director             | ✅ Completed | Created `src/lib/components/v3/` (`V3Layout`, `V3Start`, `V3Tutorial`, `V3Package`, `V3Payment`, `V3Ticket`, `V3Frame`, `V3Session`, `V3Filter`, `V3Loading`, `V3Download`).                                 |
+| **Director Routing**     | Wired `src/routes/+page.svelte` to templateVariant     | ✅ Completed | Dynamic component rendering based on `uiConfig.templateVariant`.                                                                                                                                             |
+| **Verification & Build** | Diagnostic type checks and production bundle build     | ✅ Completed | Executed `pnpm check` (0 errors) and `pnpm build` (built static bundle cleanly).                                                                                                                             |
 
 ---
 
@@ -77,7 +77,7 @@ src/
 │   └── components/
 │       ├── shared/
 │       │   ├── PinPad.svelte          # Neumorphic PIN keypad modal
-│       │   ├── EmojiPicker.svelte     # Scrollable emoji sticker picker
+│       │   ├── StickerPicker.svelte     # Scrollable emoji sticker picker
 │       │   └── StickerCanvas.svelte   # Draggable & removable canvas overlay
 │       ├── v1/                        # Variant 1 (Modern Purple/Navy Neumorphism)
 │       │   ├── V1Layout.svelte
@@ -122,14 +122,14 @@ src/
 
 ## 4. Verification & Validation Summary
 
-| Test / Audit Item | Command / Method | Result | Notes |
-| :--- | :--- | :--- | :--- |
-| **Svelte & TypeScript Diagnostics** | `pnpm check` | ✅ **0 ERRORS** | Verified strict type safety across all components and stores. |
-| **Vite Production Bundle** | `pnpm build` | ✅ **SUCCESS** | Generated output in `.svelte-kit/output/client`. |
-| **Kiosk Welcome Boot** | App navigation | ✅ **PASSED** | App boots directly to Welcome/Landing screen. |
-| **Hidden PIN Trigger** | Tap brand mark 5x / click lock icon | ✅ **PASSED** | Displays Neumorphic `PinPad` modal. |
-| **Config Dashboard Mode Switch** | Select `cameraMode` dropdown | ✅ **PASSED** | Switchable between `usb`, `webcam`, and `demo`. |
-| **Variant Switching** | Change `localStorage.ui_template_variant` | ✅ **PASSED** | Director dynamically switches layout between V1, V2, and V3. |
+| Test / Audit Item                   | Command / Method                          | Result          | Notes                                                         |
+| :---------------------------------- | :---------------------------------------- | :-------------- | :------------------------------------------------------------ |
+| **Svelte & TypeScript Diagnostics** | `pnpm check`                              | ✅ **0 ERRORS** | Verified strict type safety across all components and stores. |
+| **Vite Production Bundle**          | `pnpm build`                              | ✅ **SUCCESS**  | Generated output in `.svelte-kit/output/client`.              |
+| **Kiosk Welcome Boot**              | App navigation                            | ✅ **PASSED**   | App boots directly to Welcome/Landing screen.                 |
+| **Hidden PIN Trigger**              | Tap brand mark 5x / click lock icon       | ✅ **PASSED**   | Displays Neumorphic `PinPad` modal.                           |
+| **Config Dashboard Mode Switch**    | Select `cameraMode` dropdown              | ✅ **PASSED**   | Switchable between `usb`, `webcam`, and `demo`.               |
+| **Variant Switching**               | Change `localStorage.ui_template_variant` | ✅ **PASSED**   | Director dynamically switches layout between V1, V2, and V3.  |
 
 ---
 

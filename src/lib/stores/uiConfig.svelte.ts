@@ -32,11 +32,12 @@ export interface ElementStyle {
   textColor: string | null;
   fontSize: 'Kecil' | 'Sedang' | 'Besar' | null;
   fontFamily: 'Sans Serif' | 'Serif' | 'Monospace' | null;
+  label: string | null;
 }
 
 export interface StepStyle {
   step: string;
-  bgType: 'color' | 'gradient' | 'none';
+  bgType: 'color' | 'gradient' | 'image' | 'none';
   bgValue: string | null;
 }
 
@@ -45,6 +46,7 @@ export interface BoothUIConfig {
   tagline: string;
   templateVariant: 'v1' | 'v2' | 'v3' | 'custom';
   primaryColor: string;
+  showStepIndicator: boolean;
   paymentMethods: PaymentMethod[];
   frameCategories: string[];
   frameTitleStyle: TextStyle;
@@ -72,6 +74,7 @@ export const DEFAULT_UI_CONFIG: BoothUIConfig = {
   tagline: 'tell a story',
   templateVariant: 'v1',
   primaryColor: '#f5d9cc',
+  showStepIndicator: true,
   paymentMethods: [
     { id: '1', name: 'Gopay', logoUrl: '' },
     { id: '2', name: 'BNI', logoUrl: '' },
@@ -99,8 +102,18 @@ class UIConfigStore {
 
   getStepStyle(step: string): { background: string | null } {
     const s = this.config.stepStyles?.find((x) => x.step === step);
-    if (!s || s.bgType === 'none') return { background: null };
-    return { background: s.bgValue ?? null };
+    if (!s || s.bgType === 'none' || !s.bgValue) return { background: null };
+    if (s.bgType === 'image' || s.bgValue.startsWith('http') || s.bgValue.startsWith('data:')) {
+      return { background: `url("${s.bgValue}") center / cover no-repeat` };
+    }
+    return { background: s.bgValue };
+  }
+
+  getElementLabel(screenKey: string, elementKey: string, fallbackLabel: string): string {
+    const s = this.config.elementStyles?.find(
+      (x) => x.screenKey === screenKey && x.elementKey === elementKey
+    );
+    return s?.label ?? fallbackLabel;
   }
 
   getElementPosition(screenKey: string, elementKey: string, fallback: { x: number; y: number }) {

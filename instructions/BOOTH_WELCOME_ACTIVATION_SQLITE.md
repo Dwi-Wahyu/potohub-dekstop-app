@@ -106,7 +106,7 @@ tauri::Builder::default()
     .plugin(
         tauri_plugin_sql::Builder::default()
             .add_migrations(
-                "sqlite:booth.db",
+                "sqlite:app.db",
                 vec![tauri_plugin_sql::Migration {
                     version: 1,
                     description: "create booth_activation table",
@@ -171,7 +171,7 @@ export interface BoothActivation {
 
 let dbPromise: ReturnType<typeof Database.load> | null = null;
 function db() {
-  if (!dbPromise) dbPromise = Database.load("sqlite:booth.db");
+  if (!dbPromise) dbPromise = Database.load("sqlite:app.db");
   return dbPromise;
 }
 

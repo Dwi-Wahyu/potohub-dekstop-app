@@ -83,7 +83,7 @@ src/
 │   └── components/
 │       ├── shared/
 │       │   ├── PinPad.svelte           # dipakai V1's LOGIN & sebagai modal gerbang di V2/V3
-│       │   ├── EmojiPicker.svelte
+│       │   ├── StickerPicker.svelte
 │       │   └── StickerCanvas.svelte
 │       ├── v1/
 │       │   ├── V1Layout.svelte         # Director internal V1: LOGIN→CONFIG→IDLE→...→COMPLETE

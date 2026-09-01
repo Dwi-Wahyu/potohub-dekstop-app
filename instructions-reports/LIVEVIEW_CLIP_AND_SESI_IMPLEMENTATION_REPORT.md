@@ -1,6 +1,6 @@
 # Laporan Implementasi — Live View Clip per Slot + GIF Sesi + Perbaikan Upload Gallery
 
-**Target Aplikasi:** `photobooth-dekstop-app` (Tauri v2 + SvelteKit 2 + Svelte 5 + Tailwind CSS v4)  
+**Target Aplikasi:** `potohub-dekstop-app` (Tauri v2 + SvelteKit 2 + Svelte 5 + Tailwind CSS v4)  
 **Dokumen Instruksi:** `instructions/LIVEVIEW_CLIP_AND_SESI_IMPLEMENTATION.md`  
 **Waktu Eksekusi:** 2026-08-28  
 **Status Akhir:** ✅ **100% SELESAI & TERVERIFIKASI (0 Error)**

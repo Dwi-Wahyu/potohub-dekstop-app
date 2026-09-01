@@ -10,9 +10,10 @@
     onSelectPackage: (pkg: StoreCategory) => void;
     onSelectMethod?: (method: 'ticket' | 'cashless') => void;
     onBack: () => void;
+    background?: string;
   }
 
-  let { onSelectPackage, onSelectMethod, onBack }: Props = $props();
+  let { onSelectPackage, onSelectMethod, onBack, background }: Props = $props();
 
   let showQtyModal = $state(false);
   let qty = $state(1);
@@ -69,9 +70,14 @@
 
   const VISIBLE_STEPS = ['Package', 'Payment', 'Frames', 'Photo Session', 'Edit & Filter'];
   const activeStepIdx = 0;
+  const DEFAULT_BG = '#fdfdfd';
+  let effectiveBg = $derived(background ?? uiConfig.getStepStyle('package').background ?? DEFAULT_BG);
 </script>
 
-<div class="w-screen h-screen flex flex-col bg-[#fdfdfd] select-none font-['Inter',sans-serif] relative overflow-hidden">
+<div
+  class="w-full h-full flex flex-col select-none font-['Inter',sans-serif] relative overflow-hidden"
+  style:background={effectiveBg}
+>
   <!-- Header -->
   <div class="h-[68px] bg-[#CD1C33] flex items-center justify-between px-8 shadow-lg shrink-0 z-20 relative overflow-hidden">
     <div

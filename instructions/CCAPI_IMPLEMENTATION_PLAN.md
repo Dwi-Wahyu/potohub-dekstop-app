@@ -1,6 +1,6 @@
 # Rencana Implementasi CCAPI — Photobooth Desktop App (Tauri v2 + SvelteKit)
 
-> **Untuk siapa dokumen ini**: agen CLI yang akan mengeksekusi perubahan pada repo `photobooth-dekstop-app`.
+> **Untuk siapa dokumen ini**: agen CLI yang akan mengeksekusi perubahan pada repo `potohub-dekstop-app`.
 > **Prinsip kerja**: jalankan per-Phase secara berurutan, jangan lompat. Setiap Phase punya "Definition of Done" — jangan lanjut ke Phase berikutnya sebelum itu terpenuhi. Kalau ada langkah yang gagal karena field/endpoint CCAPI ternyata beda dari dugaan di dokumen ini, **ikuti hasil discovery nyata dari kamera** (lihat Phase 0), bukan asumsi di dokumen ini.
 
 ---
@@ -8,7 +8,7 @@
 ## 0. Kondisi Project Saat Ini (baseline, sudah diverifikasi)
 
 ```
-photobooth-dekstop-app/
+potohub-dekstop-app/
 ├── src/
 │   ├── app.html
 │   ├── globals.css                 # @import "tailwindcss";

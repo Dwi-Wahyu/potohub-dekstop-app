@@ -14,9 +14,10 @@
     selectedFrame: string;
     onComplete: (photos: string[]) => void;
     onBack: () => void;
+    background?: string;
   }
 
-  let { selectedFrame, onComplete, onBack }: Props = $props();
+  let { selectedFrame, onComplete, onBack, background }: Props = $props();
 
   let selectedTemplate = $state<BoothTemplate | null>(null);
   let photoSlots = $derived(selectedTemplate?.design_data?.filter((l) => !l.isBackground && !l.isQr) ?? []);
@@ -114,11 +115,14 @@
 
   const STEPPER_LABELS = ['Tutorial', 'Payment', 'Frames', 'Photo Session', 'Edit & Filter', 'Scan File'];
   const activeIdx = 3;
+  const DEFAULT_BG = '#fafafa';
+  let effectiveBg = $derived(background ?? uiConfig.getStepStyle('session').background ?? DEFAULT_BG);
 </script>
 
 <div
-  class="w-screen h-screen bg-[#fafafa] flex flex-col relative overflow-hidden select-none"
-  style="font-family: 'Playfair Display', Georgia, serif;"
+  class="w-full h-full flex flex-col relative overflow-hidden select-none"
+  style:background={effectiveBg}
+  style:font-family="'Playfair Display', Georgia, serif"
 >
   <!-- StepperHeader -->
   <div

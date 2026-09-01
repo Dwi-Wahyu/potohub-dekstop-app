@@ -84,29 +84,32 @@
     boothFlow.reset();
     step = 'landing';
   }
+
+  const V2_DEFAULT_BG = '#fafafa';
+  const getV2Bg = (stepKey: string) => uiConfig.getStepStyle(stepKey).background ?? V2_DEFAULT_BG;
 </script>
 
 <div
-  class="w-screen h-screen overflow-hidden bg-[#fafafa]"
-  style:background={uiConfig.getStepStyle(V2_STEP_TO_UI_STEP[step]).background ?? undefined}
+  class="w-screen h-screen overflow-hidden"
+  style:background={getV2Bg(V2_STEP_TO_UI_STEP[step])}
 >
   {#if step === 'landing'}
-    <V2Landing onStart={handleStart} onOpenConfig={handleOpenConfig} />
+    <V2Landing background={getV2Bg('start')} onStart={handleStart} onOpenConfig={handleOpenConfig} />
   {:else if step === 'tutorial'}
-    <V2Tutorial onNext={handleTutorialNext} onBack={() => (step = 'landing')} />
+    <V2Tutorial background={getV2Bg('tutorial')} onNext={handleTutorialNext} onBack={() => (step = 'landing')} />
   {:else if step === 'payment'}
-    <V2Payment onSelect={handlePaymentSelect} onBack={() => (step = 'tutorial')} />
+    <V2Payment background={getV2Bg('payment')} onSelect={handlePaymentSelect} onBack={() => (step = 'tutorial')} />
   {:else if step === 'qris'}
-    <V2Qris onSuccess={handleQrisSuccess} onBack={() => (step = 'payment')} />
+    <V2Qris background={getV2Bg('payment')} onSuccess={handleQrisSuccess} onBack={() => (step = 'payment')} />
   {:else if step === 'ticket'}
-    <V2Ticket onConfirm={handleTicketConfirm} onBack={() => (step = 'payment')} />
+    <V2Ticket background={getV2Bg('ticket')} onConfirm={handleTicketConfirm} onBack={() => (step = 'payment')} />
   {:else if step === 'frame'}
-    <V2Frame onSelectFrame={handleSelectFrame} onBack={() => (step = 'payment')} />
+    <V2Frame background={getV2Bg('frame')} onSelectFrame={handleSelectFrame} onBack={() => (step = 'payment')} />
   {:else if step === 'session'}
-    <V2Session selectedFrame={selectedFrameId} onComplete={handleSessionComplete} onBack={() => (step = 'frame')} />
+    <V2Session background={getV2Bg('session')} selectedFrame={selectedFrameId} onComplete={handleSessionComplete} onBack={() => (step = 'frame')} />
   {:else if step === 'filter'}
-    <V2Filter selectedFrame={selectedFrameId} onNext={handleFilterNext} onBack={() => (step = 'session')} />
+    <V2Filter background={getV2Bg('filter')} selectedFrame={selectedFrameId} onNext={handleFilterNext} onBack={() => (step = 'session')} />
   {:else if step === 'download'}
-    <V2Download selectedFrame={selectedFrameId} onDone={handleDone} />
+    <V2Download background={getV2Bg('download')} selectedFrame={selectedFrameId} onDone={handleDone} />
   {/if}
 </div>

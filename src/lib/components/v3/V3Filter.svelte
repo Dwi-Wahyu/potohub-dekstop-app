@@ -9,13 +9,16 @@
   import { Check, Sparkles } from '@lucide/svelte';
   import type { Sticker, StickerType } from '$lib/utils/stickers';
 
+  import { uiConfig } from '$lib/stores/uiConfig.svelte';
+
   interface Props {
     selectedFrame?: string;
     onNext: () => void;
     onBack: () => void;
+    background?: string;
   }
 
-  let { selectedFrame = '', onNext, onBack }: Props = $props();
+  let { selectedFrame = '', onNext, onBack, background }: Props = $props();
 
   let selectedFilter = $state('none');
   let emotsData = $state<BoothEmot[]>([]);
@@ -98,9 +101,14 @@
 
   const VISIBLE_STEPS = ['Package', 'Payment', 'Frames', 'Photo Session', 'Edit & Filter'];
   const activeStepIdx = 4;
+  const DEFAULT_BG = '#fdfdfd';
+  let effectiveBg = $derived(background ?? uiConfig.getStepStyle('filter').background ?? DEFAULT_BG);
 </script>
 
-<div class="w-screen h-screen flex flex-col bg-[#fdfdfd] select-none font-['Inter',sans-serif] relative overflow-hidden">
+<div
+  class="w-full h-full flex flex-col select-none font-['Inter',sans-serif] relative overflow-hidden"
+  style:background={effectiveBg}
+>
   <!-- Header -->
   <div class="h-[68px] bg-[#CD1C33] flex items-center justify-between px-8 shadow-lg shrink-0 z-20 relative overflow-hidden">
     <div

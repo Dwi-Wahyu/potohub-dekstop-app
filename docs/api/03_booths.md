@@ -169,6 +169,7 @@ Called by physical Desktop Booth Client on initial startup to retrieve bootstrap
     "general": { "pin": "1234", "camera_rotate": 0, "mirror": true },
     "timer": { "payment_time": 120, "photo_session_time": 10 }
   },
-  "ui_template_variant": "v1"
+  "ui_template_variant": "v1",
+  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIwMTkyODM3NC1hYWFhLWJiYmItY2NjYy0xMTIyMzM0NDU1NjYiLCJyb2xlIjoib3BlcmF0b3IiLCJpYXQiOjE3NzE2MzIwMDAsImV4cCI6MTgwMzE2ODAwMH0.sampleTokenSignature"
 }
 ```

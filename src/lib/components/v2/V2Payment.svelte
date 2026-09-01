@@ -9,9 +9,10 @@
   interface Props {
     onSelect: (method: 'ticket' | 'cashless') => void;
     onBack: () => void;
+    background?: string;
   }
 
-  let { onSelect, onBack }: Props = $props();
+  let { onSelect, onBack, background }: Props = $props();
 
   let showQtyModal = $state(false);
   let qty = $state(1);
@@ -36,6 +37,8 @@
 
   const STEPPER_LABELS = ['Tutorial', 'Payment', 'Frames', 'Photo Session', 'Edit & Filter', 'Scan File'];
   const activeIdx = 1;
+  const DEFAULT_BG = '#fafafa';
+  let effectiveBg = $derived(background ?? uiConfig.getStepStyle('payment').background ?? DEFAULT_BG);
 
   function handleProceedQris() {
     boothFlow.printQty = qty;
@@ -45,8 +48,9 @@
 </script>
 
 <div
-  class="w-screen h-screen bg-[#fafafa] flex flex-col relative overflow-hidden select-none"
-  style="font-family: 'Playfair Display', Georgia, serif;"
+  class="w-full h-full flex flex-col relative overflow-hidden select-none"
+  style:background={effectiveBg}
+  style:font-family="'Playfair Display', Georgia, serif"
 >
   <!-- StepperHeader -->
   <div

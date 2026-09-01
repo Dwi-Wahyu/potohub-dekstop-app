@@ -1,6 +1,6 @@
 # Rencana Migrasi Kamera: CCAPI → libgphoto2 (gphoto2-rs) — Photobooth Desktop App (Tauri v2 + SvelteKit)
 
-> **Untuk siapa dokumen ini**: agen CLI yang akan mengeksekusi perubahan pada repo `photobooth-dekstop-app`.
+> **Untuk siapa dokumen ini**: agen CLI yang akan mengeksekusi perubahan pada repo `potohub-dekstop-app`.
 > **Kenapa migrasi ini**: implementasi saat ini pakai Canon CCAPI (HTTP over Wi-Fi), tapi belum ada kamera yang mendukung Wi-Fi CCAPI secara fisik untuk testing. `libgphoto2` (via crate `gphoto2`) mendukung Canon **dan** Nikon lewat kabel USB, jadi bisa langsung dites dengan kamera yang ada sekarang.
 > **Prinsip kerja**: jalankan per-Phase secara berurutan. Jangan hapus kode CCAPI — **backup dulu (Phase 1)**, baru ganti. Setiap Phase punya "Definition of Done"; jangan lanjut sebelum itu terpenuhi. Kalau nama field/config gphoto2 di dokumen ini ternyata beda dari kondisi real kamera (sangat mungkin, karena config tree gphoto2 berbeda antar model/driver), **ikuti hasil discovery nyata di Phase 0**, bukan asumsi di dokumen ini.
 

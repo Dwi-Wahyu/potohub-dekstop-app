@@ -81,31 +81,34 @@
     boothFlow.reset();
     step = 'start';
   }
+
+  const V3_DEFAULT_BG = '#CD1C33';
+  const getV3Bg = (stepKey: string) => uiConfig.getStepStyle(stepKey).background ?? V3_DEFAULT_BG;
 </script>
 
 <div
-  class="w-screen h-screen overflow-hidden bg-[#0a0a0f]"
-  style:background={uiConfig.getStepStyle(step).background ?? undefined}
+  class="w-screen h-screen overflow-hidden"
+  style:background={getV3Bg(step)}
 >
   {#if step === 'start'}
-    <V3Start onStart={handleStart} onOpenConfig={handleOpenConfig} />
+    <V3Start background={getV3Bg('start')} onStart={handleStart} onOpenConfig={handleOpenConfig} />
   {:else if step === 'tutorial'}
-    <V3Tutorial onNext={handleTutorialNext} onBack={() => (step = 'start')} />
+    <V3Tutorial background={getV3Bg('tutorial')} onNext={handleTutorialNext} onBack={() => (step = 'start')} />
   {:else if step === 'package'}
-    <V3Package onSelectPackage={handleSelectPackage} onSelectMethod={handlePaymentSelectMethod} onBack={() => (step = 'tutorial')} />
+    <V3Package background={getV3Bg('package')} onSelectPackage={handleSelectPackage} onSelectMethod={handlePaymentSelectMethod} onBack={() => (step = 'tutorial')} />
   {:else if step === 'payment'}
-    <V3Payment selectedPackage={selectedPackage} onSelectMethod={handlePaymentSelectMethod} onBack={() => (step = 'package')} />
+    <V3Payment background={getV3Bg('payment')} selectedPackage={selectedPackage} onSelectMethod={handlePaymentSelectMethod} onBack={() => (step = 'package')} />
   {:else if step === 'ticket'}
-    <V3Ticket onConfirm={handleTicketConfirm} onBack={() => (step = 'payment')} />
+    <V3Ticket background={getV3Bg('ticket')} onConfirm={handleTicketConfirm} onBack={() => (step = 'payment')} />
   {:else if step === 'frame'}
-    <V3Frame onSelectFrame={handleSelectFrame} onBack={() => (step = 'payment')} />
+    <V3Frame background={getV3Bg('frame')} onSelectFrame={handleSelectFrame} onBack={() => (step = 'payment')} />
   {:else if step === 'session'}
-    <V3Session selectedFrame={selectedFrameId} onComplete={handleSessionComplete} onBack={() => (step = 'frame')} />
+    <V3Session background={getV3Bg('session')} selectedFrame={selectedFrameId} onComplete={handleSessionComplete} onBack={() => (step = 'frame')} />
   {:else if step === 'filter'}
-    <V3Filter selectedFrame={selectedFrameId} onNext={handleFilterNext} onBack={() => (step = 'session')} />
+    <V3Filter background={getV3Bg('filter')} selectedFrame={selectedFrameId} onNext={handleFilterNext} onBack={() => (step = 'session')} />
   {:else if step === 'loading'}
-    <V3Loading onDone={handleLoadingDone} />
+    <V3Loading background={getV3Bg('loading')} onDone={handleLoadingDone} />
   {:else if step === 'download'}
-    <V3Download selectedFrame={selectedFrameId} onDone={handleDone} />
+    <V3Download background={getV3Bg('download')} selectedFrame={selectedFrameId} onDone={handleDone} />
   {/if}
 </div>

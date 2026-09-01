@@ -1,14 +1,16 @@
 <script lang="ts">
   import { uiConfig } from '$lib/stores/uiConfig.svelte';
   import PinPad from '$lib/components/shared/PinPad.svelte';
+  import IdleBannerModal from '$lib/components/shared/IdleBannerModal.svelte';
   import { Camera, Image as ImageIcon, Star } from '@lucide/svelte';
 
   interface Props {
     onStart: () => void;
     onOpenConfig: () => void;
+    background?: string;
   }
 
-  let { onStart, onOpenConfig }: Props = $props();
+  let { onStart, onOpenConfig, background }: Props = $props();
 
   let showPinModal = $state(false);
   let tapCount = $state(0);
@@ -31,11 +33,14 @@
   let startBtnStyle = $derived(uiConfig.getElementStyle('start', 'start_button', {
     bgColor: '#FFFFFF', textColor: '#CD1C33', fontSize: 'Besar', fontFamily: 'Sans Serif',
   }));
+
+  const DEFAULT_BG = '#CD1C33 repeating-linear-gradient(90deg, transparent, transparent 40px, rgba(0,0,0,0.05) 40px, rgba(0,0,0,0.05) 80px)';
+  let effectiveBg = $derived(background ?? uiConfig.getStepStyle('start').background ?? DEFAULT_BG);
 </script>
 
 <div
-  class="w-screen h-screen bg-[#CD1C33] text-white flex flex-col select-none relative overflow-hidden font-['Inter',sans-serif]"
-  style="background-image: repeating-linear-gradient(90deg, transparent, transparent 40px, rgba(0,0,0,0.05) 40px, rgba(0,0,0,0.05) 80px);"
+  class="w-full h-full text-white flex flex-col select-none relative overflow-hidden font-['Inter',sans-serif]"
+  style:background={effectiveBg}
 >
   <!-- FilmBar Top -->
   <div class="h-6 flex items-center bg-[#1a1a1a] shrink-0 z-20">
@@ -148,6 +153,9 @@
       {/each}
     </div>
   </div>
+
+  <!-- Idle Promo Banner Popup Slider -->
+  <IdleBannerModal disabled={showPinModal} />
 
   {#if showPinModal}
     <div

@@ -15,9 +15,10 @@
   interface Props {
     onSelectFrame: (frameId: string) => void;
     onBack: () => void;
+    background?: string;
   }
 
-  let { onSelectFrame, onBack }: Props = $props();
+  let { onSelectFrame, onBack, background }: Props = $props();
 
   let selectedFrame = $state('strip-2x4');
   let activeCategoryId = $state('ALL');
@@ -132,11 +133,14 @@
 
   const STEPPER_LABELS = ['Tutorial', 'Payment', 'Frames', 'Photo Session', 'Edit & Filter', 'Scan File'];
   const activeIdx = 2;
+  const DEFAULT_BG = '#fafafa';
+  let effectiveBg = $derived(background ?? uiConfig.getStepStyle('frame').background ?? DEFAULT_BG);
 </script>
 
 <div
-  class="w-screen h-screen bg-[#fafafa] flex flex-col relative overflow-hidden select-none"
-  style="font-family: 'Playfair Display', Georgia, serif;"
+  class="w-full h-full flex flex-col relative overflow-hidden select-none"
+  style:background={effectiveBg}
+  style:font-family="'Playfair Display', Georgia, serif"
 >
   <!-- StepperHeader -->
   <div

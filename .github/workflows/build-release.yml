@@ -1,0 +1,28 @@
+name: 'Build and Release'
+on:
+  push:
+    tags:
+      - 'v*' # Akan berjalan saat ada tag baru seperti v1.0.0
+
+jobs:
+  release:
+    strategy:
+      matrix:
+        platform: [macos-latest, ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install Linux dependencies
+        if: matrix.platform == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.0-dev libgtk-3-dev
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          releaseId: 'auto' # Secara otomatis buat/update release
+          args: ${{ matrix.platform == 'macos-latest' && '-- --target universal-apple-darwin' || '' }}

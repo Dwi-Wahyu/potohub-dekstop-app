@@ -265,6 +265,24 @@ pub async fn set_viewfinder(camera: &Camera, active: bool) -> Result<(), GphotoE
     }
 
     if active {
+        // Disable Exposure Simulation on Canon DSLR so preview/liveview is bright under ambient room lighting
+        if let Ok(radio) = camera
+            .config_key::<gphoto2::widget::RadioWidget>("expsim")
+            .wait()
+        {
+            let _ = radio
+                .set_choice("Disable")
+                .or_else(|_| radio.set_choice("0"))
+                .or_else(|_| radio.set_choice("Off"));
+            let _ = camera.set_config(&radio).wait();
+        } else if let Ok(toggle) = camera
+            .config_key::<gphoto2::widget::ToggleWidget>("expsim")
+            .wait()
+        {
+            toggle.set_toggled(false);
+            let _ = camera.set_config(&toggle).wait();
+        }
+
         if let Ok(radio) = camera
             .config_key::<gphoto2::widget::RadioWidget>("output")
             .wait()

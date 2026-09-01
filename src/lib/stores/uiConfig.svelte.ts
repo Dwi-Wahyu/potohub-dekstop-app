@@ -101,9 +101,27 @@ class UIConfigStore {
   }
 
   getStepStyle(step: string): { background: string | null } {
-    const s = this.config.stepStyles?.find((x) => x.step === step);
+    const s = this.config.stepStyles?.find(
+      (x) =>
+        x.step === step ||
+        (step === 'download' && x.step === 'softfile') ||
+        (step === 'softfile' && x.step === 'download') ||
+        (step === 'payment' && x.step === 'package') ||
+        (step === 'package' && x.step === 'payment')
+    );
     if (!s || s.bgType === 'none' || !s.bgValue) return { background: null };
-    if (s.bgType === 'image' || s.bgValue.startsWith('http') || s.bgValue.startsWith('data:')) {
+    if (s.bgValue.startsWith('url(')) {
+      return { background: s.bgValue };
+    }
+    if (
+      s.bgType === 'image' ||
+      s.bgValue.startsWith('http://') ||
+      s.bgValue.startsWith('https://') ||
+      s.bgValue.startsWith('data:') ||
+      s.bgValue.startsWith('blob:') ||
+      s.bgValue.startsWith('asset://') ||
+      s.bgValue.startsWith('tauri://')
+    ) {
       return { background: `url("${s.bgValue}") center / cover no-repeat` };
     }
     return { background: s.bgValue };
@@ -150,6 +168,16 @@ class UIConfigStore {
       
       if (storedVariant && ['v1', 'v2', 'v3', 'custom'].includes(storedVariant)) {
         parsedCfg.templateVariant = storedVariant;
+      }
+
+      const localAssetsRaw = localStorage.getItem(`potohub.ui-customize-local.${this.boothId}`) || localStorage.getItem(`potohub.ui-customize-local.default`);
+      if (localAssetsRaw) {
+        try {
+          const localAssets = JSON.parse(localAssetsRaw);
+          if (localAssets?.tutorialImageUrl && !parsedCfg.tutorialImageUrl) {
+            parsedCfg.tutorialImageUrl = localAssets.tutorialImageUrl;
+          }
+        } catch {}
       }
 
       this.config = { ...DEFAULT_UI_CONFIG, ...parsedCfg };

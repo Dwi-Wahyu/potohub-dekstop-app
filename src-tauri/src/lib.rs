@@ -115,6 +115,35 @@ async fn get_liveview_clip_frames(
 }
 
 #[tauri::command]
+async fn extract_and_encode_liveview_clip(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    capture_ts_ms: u64,
+    pre_ms: u64,
+    post_ms: u64,
+) -> Result<Vec<u8>, String> {
+    let buf = state.liveview_buffer.lock().await;
+    let total_in_buffer = buf.frames.len();
+    let frames = buf.extract_window(capture_ts_ms as u128, pre_ms as u128, post_ms as u128);
+    println!(
+        "extract_and_encode_liveview_clip: total_buffer={} matched_window={} capture_ts={}",
+        total_in_buffer,
+        frames.len(),
+        capture_ts_ms
+    );
+    if frames.is_empty() {
+        return Err("Buffer kosong untuk window ini".to_string());
+    }
+    let fps = if frames.len() <= 12 {
+        (frames.len() as u32 / 2).max(4)
+    } else {
+        8
+    };
+    drop(buf);
+    media::encode_jpeg_frames_to_video_internal(&app, frames, fps).await
+}
+
+#[tauri::command]
 async fn clear_liveview_buffer(state: State<'_, AppState>) -> Result<(), GphotoError> {
     state.liveview_buffer.lock().await.frames.clear();
     Ok(())
@@ -229,6 +258,12 @@ pub fn run() {
             );",
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 4,
+            description: "add token column to booth_activation",
+            sql: "ALTER TABLE booth_activation ADD COLUMN token TEXT;",
+            kind: MigrationKind::Up,
+        },
     ];
 
     tauri::Builder::default()
@@ -279,6 +314,7 @@ pub fn run() {
             stop_liveview,
             get_liveview_frame,
             get_liveview_clip_frames,
+            extract_and_encode_liveview_clip,
             clear_liveview_buffer,
             media::fetch_image_as_data_url,
             media::encode_photos_to_gif,

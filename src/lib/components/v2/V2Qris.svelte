@@ -10,9 +10,10 @@
   interface Props {
     onSuccess: () => void;
     onBack: () => void;
+    background?: string;
   }
 
-  let { onSuccess, onBack }: Props = $props();
+  let { onSuccess, onBack, background }: Props = $props();
 
   let paid = $state(false);
   let qrUrl = $state('');
@@ -48,11 +49,14 @@
 
   const STEPPER_LABELS = ['Tutorial', 'Payment', 'Frames', 'Photo Session', 'Edit & Filter', 'Scan File'];
   const activeIdx = 1;
+  const DEFAULT_BG = '#fafafa';
+  let effectiveBg = $derived(background ?? uiConfig.getStepStyle('payment').background ?? DEFAULT_BG);
 </script>
 
 <div
-  class="w-screen h-screen bg-[#fafafa] flex flex-col relative overflow-hidden select-none"
-  style="font-family: 'Playfair Display', Georgia, serif;"
+  class="w-full h-full flex flex-col relative overflow-hidden select-none"
+  style:background={effectiveBg}
+  style:font-family="'Playfair Display', Georgia, serif"
 >
   <!-- StepperHeader -->
   <div

@@ -9,7 +9,7 @@
 
 ## 1. Executive Summary
 
-This report documents the implementation of the **DNP DS-RX1HS Printer Integration** into the `photobooth-dekstop-app`. Following **Option 2** of the implementation plan, the system now features a robust modular print architecture in the Rust backend (`src-tauri/src/printer.rs`), exposed via Tauri commands to a Svelte 5 reactive printer store (`src/lib/printer.svelte.ts`) and integrated UI pages.
+This report documents the implementation of the **DNP DS-RX1HS Printer Integration** into the `potohub-dekstop-app`. Following **Option 2** of the implementation plan, the system now features a robust modular print architecture in the Rust backend (`src-tauri/src/printer.rs`), exposed via Tauri commands to a Svelte 5 reactive printer store (`src/lib/printer.svelte.ts`) and integrated UI pages.
 
 ### Key Objectives Implemented
 1. **Option 2 Dual-Platform Printing Engine**:

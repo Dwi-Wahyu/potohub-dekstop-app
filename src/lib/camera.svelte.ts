@@ -200,7 +200,12 @@ class CameraStore {
 
   private cleanupLiveviewUrl() {
     if (this.currentLiveviewUrl) {
-      URL.revokeObjectURL(this.currentLiveviewUrl);
+      const oldUrl = this.currentLiveviewUrl;
+      setTimeout(() => {
+        try {
+          URL.revokeObjectURL(oldUrl);
+        } catch {}
+      }, 500);
       this.currentLiveviewUrl = null;
     }
   }
@@ -257,21 +262,17 @@ class CameraStore {
   ): Promise<Blob | null> {
     if (this.cameraMode === 'usb') {
       await new Promise((r) => setTimeout(r, postSecs * 1000 + 150));
-      const frames = await invoke<number[][]>('get_liveview_clip_frames', {
-        captureTsMs: captureTs,
-        preMs: Math.round(preSecs * 1000),
-        postMs: Math.round(postSecs * 1000),
-      });
-      console.log(`[liveview] extract window capture=${captureTs} pre=${preSecs}s post=${postSecs}s -> ${frames?.length ?? 0} frame(s)`);
-      if (!frames || !frames.length) {
-        console.warn('[liveview] Buffer kosong untuk window ini — kemungkinan viewfinder mati selama capture_photo() berlangsung.');
+      try {
+        const encoded = await invoke<number[]>('extract_and_encode_liveview_clip', {
+          captureTsMs: captureTs,
+          preMs: Math.round(preSecs * 1000),
+          postMs: Math.round(postSecs * 1000),
+        });
+        return new Blob([new Uint8Array(encoded)], { type: 'video/mp4' });
+      } catch (err) {
+        console.warn('[liveview] Gagal extract & encode klip liveview:', err);
         return null;
       }
-      const encoded = await invoke<number[]>('encode_jpeg_frames_to_video', {
-        frames,
-        fps: 8,
-      });
-      return new Blob([new Uint8Array(encoded)], { type: 'video/mp4' });
     }
     if (this.cameraMode === 'demo') {
       return this.extractDemoLiveviewClip();

@@ -9,9 +9,10 @@
   interface Props {
     onNext: (price: number, frameConfigId: string) => void;
     onBack: () => void;
+    background?: string;
   }
 
-  let { onNext, onBack }: Props = $props();
+  let { onNext, onBack, background }: Props = $props();
 
   let secs = $state(14 * 60 + 50);
   let timer: any = null;
@@ -156,18 +157,20 @@
   });
 
   const fmtPrice = (n: number) => `Rp ${n.toLocaleString('id-ID')}`;
+  const DEFAULT_BG = 'linear-gradient(135deg, #1e1b4b 0%, #2a2873 50%, #312e81 100%)';
+  let effectiveBg = $derived(background ?? uiConfig.getStepStyle('frame').background ?? DEFAULT_BG);
 </script>
 
 <div
   class="w-full h-full overflow-hidden flex flex-col font-['Plus_Jakarta_Sans',sans-serif] text-[#f0edf8] relative"
-  style="background: linear-gradient(135deg, #1e1b4b 0%, #2a2873 50%, #312e81 100%);"
+  style:background={effectiveBg}
 >
   <!-- Watermark -->
-  <div class="absolute inset-0 flex items-center justify-center pointer-events-none z-0">
+  <!-- <div class="absolute inset-0 flex items-center justify-center pointer-events-none z-0">
     <span class="text-[clamp(180px,22vw,380px)] font-black text-white/[0.028] tracking-[-0.04em] whitespace-nowrap leading-none select-none">
       {uiConfig.config.boothName}
     </span>
-  </div>
+  </div> -->
 
   <!-- Top bar -->
   <div class="flex justify-between items-center px-10 pt-7 pb-5 shrink-0 relative z-10">

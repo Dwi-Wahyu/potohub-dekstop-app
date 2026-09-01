@@ -1,6 +1,6 @@
 # Rencana Implementasi DNP Printer — Photobooth Desktop App (Tauri v2 + SvelteKit)
 
-> **Untuk siapa dokumen ini**: agen CLI yang akan mengeksekusi perubahan pada repo `photobooth-dekstop-app`.
+> **Untuk siapa dokumen ini**: agen CLI yang akan mengeksekusi perubahan pada repo `potohub-dekstop-app`.
 > **Prinsip kerja**: jalankan per-Phase secara berurutan, jangan lompat. Setiap Phase punya "Definition of Done" — jangan lanjut ke Phase berikutnya sebelum itu terpenuhi.
 
 ---

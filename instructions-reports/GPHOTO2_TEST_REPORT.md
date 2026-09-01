@@ -123,3 +123,5 @@ svelte-check found 0 errors and 4 warnings in 3 files
 1. **Wi-Fi/NFC MUST be disabled** in the camera settings (yellow screwdriver/wrench menu), otherwise the USB connection will be deactivated.
 2. **Do not run `gphoto2` in the terminal** while the Tauri desktop application is open. Tauri holds the camera's USB port lock, and running terminal commands concurrently will result in lock conflicts.
 3. If the camera is turned off and on again, restart the Tauri application to re-initialize the connection.
+
+

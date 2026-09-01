@@ -86,51 +86,59 @@
     boothFlow.reset();
     currentSubStep = 'welcome';
   }
+
+  const V1_DEFAULT_BG = 'linear-gradient(135deg, #1e1b4b 0%, #2a2873 50%, #312e81 100%)';
+  const getV1Bg = (stepKey: string) => uiConfig.getStepStyle(stepKey).background ?? V1_DEFAULT_BG;
 </script>
 
 <div
-  class="w-screen h-screen overflow-hidden bg-black text-white select-none font-['Poppins',sans-serif]"
-  style:background={uiConfig.getStepStyle(SUBSTEP_TO_UI_STEP[currentSubStep]).background ?? undefined}
+  class="w-screen h-screen overflow-hidden text-white select-none font-['Poppins',sans-serif]"
+  style:background={getV1Bg(SUBSTEP_TO_UI_STEP[currentSubStep])}
 >
   {#if currentSubStep === 'welcome'}
-    <V1Landing onStart={handleStart} onOpenConfig={handleOpenConfig} />
+    <V1Landing background={getV1Bg('start')} onStart={handleStart} onOpenConfig={handleOpenConfig} />
   {:else if currentSubStep === 'tutorial'}
-    <V1Tutorial onNext={handleTutorialNext} onBack={() => (currentSubStep = 'welcome')} />
+    <V1Tutorial background={getV1Bg('tutorial')} onNext={handleTutorialNext} onBack={() => (currentSubStep = 'welcome')} />
   {:else if currentSubStep === 'category_frame'}
-    <V1CategoryFrame onNext={handleCategoryFrameNext} onBack={() => (currentSubStep = 'tutorial')} />
+    <V1CategoryFrame background={getV1Bg('frame')} onNext={handleCategoryFrameNext} onBack={() => (currentSubStep = 'tutorial')} />
   {:else if currentSubStep === 'print_qty'}
     <V1PrintQty
+      background={getV1Bg('frame')}
       basePrice={selectedPrice}
       onNext={handlePrintQtyNext}
       onBack={() => (currentSubStep = 'category_frame')}
     />
   {:else if currentSubStep === 'method_select'}
-    <V1PaymentMethod onSelect={handleMethodSelect} onBack={() => (currentSubStep = 'print_qty')} />
+    <V1PaymentMethod background={getV1Bg('payment')} onSelect={handleMethodSelect} onBack={() => (currentSubStep = 'print_qty')} />
   {:else if currentSubStep === 'ticket'}
     <V1TicketScan
+      background={getV1Bg('ticket')}
       onSuccess={() => (currentSubStep = 'camera')}
       onBack={() => (currentSubStep = 'method_select')}
     />
   {:else if currentSubStep === 'payment'}
     <V1QRISPayment
+      background={getV1Bg('payment')}
       totalPrice={selectedPrice * boothFlow.printQty}
       onSuccess={handlePaymentSuccess}
       onBack={() => (currentSubStep = 'method_select')}
     />
   {:else if currentSubStep === 'camera'}
     <V1Camera
+      background={getV1Bg('session')}
       frameConfigId={selectedFrameConfigId}
       onComplete={handleCameraComplete}
       onBack={() => (currentSubStep = 'print_qty')}
     />
   {:else if currentSubStep === 'customize'}
     <V1Customize
+      background={getV1Bg('filter')}
       photos={boothFlow.photosTaken}
       frameConfigId={selectedFrameConfigId}
       onBack={() => (currentSubStep = 'camera')}
       onNext={handleCustomizeNext}
     />
   {:else if currentSubStep === 'complete'}
-    <V1Complete photos={boothFlow.photosTaken} frameConfigId={selectedFrameConfigId} onNewSession={handleNewSession} />
+    <V1Complete background={getV1Bg('download')} photos={boothFlow.photosTaken} frameConfigId={selectedFrameConfigId} onNewSession={handleNewSession} />
   {/if}
 </div>

@@ -1,11 +1,14 @@
 <script lang="ts">
   import { onMount } from 'svelte';
 
+  import { uiConfig } from '$lib/stores/uiConfig.svelte';
+
   interface Props {
     onDone: () => void;
+    background?: string;
   }
 
-  let { onDone }: Props = $props();
+  let { onDone, background }: Props = $props();
 
   onMount(() => {
     const t = setTimeout(() => {
@@ -13,9 +16,15 @@
     }, 3000);
     return () => clearTimeout(t);
   });
+
+  const DEFAULT_BG = '#1a1a1a';
+  let effectiveBg = $derived(background ?? uiConfig.getStepStyle('loading').background ?? DEFAULT_BG);
 </script>
 
-<div class="w-screen h-screen bg-[#1a1a1a] flex flex-col items-center justify-center gap-6 relative overflow-hidden select-none font-['Inter',sans-serif]">
+<div
+  class="w-full h-full flex flex-col items-center justify-center gap-6 relative overflow-hidden select-none font-['Inter',sans-serif]"
+  style:background={effectiveBg}
+>
   <!-- Background decoration -->
   <div
     class="absolute inset-0 opacity-20 pointer-events-none"

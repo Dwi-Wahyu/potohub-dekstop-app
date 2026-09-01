@@ -9,9 +9,10 @@
     boothId?: string;
     onConfirm: () => void;
     onBack: () => void;
+    background?: string;
   }
 
-  let { boothId = '', onConfirm, onBack }: Props = $props();
+  let { boothId = '', onConfirm, onBack, background }: Props = $props();
 
   let code = $state('');
   let errorMsg = $state('');
@@ -91,11 +92,14 @@
 
   const STEPPER_LABELS = ['Tutorial', 'Payment', 'Frames', 'Photo Session', 'Edit & Filter', 'Scan File'];
   const activeIdx = 1;
+  const DEFAULT_BG = '#fafafa';
+  let effectiveBg = $derived(background ?? uiConfig.getStepStyle('ticket').background ?? DEFAULT_BG);
 </script>
 
 <div
-  class="w-screen h-screen bg-[#fafafa] flex flex-col relative overflow-hidden select-none"
-  style="font-family: 'Playfair Display', Georgia, serif;"
+  class="w-full h-full flex flex-col relative overflow-hidden select-none"
+  style:background={effectiveBg}
+  style:font-family="'Playfair Display', Georgia, serif"
 >
   <!-- StepperHeader -->
   <div

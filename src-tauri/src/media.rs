@@ -62,9 +62,8 @@ pub async fn encode_photos_to_gif(
     Ok(buf)
 }
 
-#[tauri::command]
-pub async fn encode_jpeg_frames_to_video(
-    app: tauri::AppHandle,
+pub async fn encode_jpeg_frames_to_video_internal(
+    app: &tauri::AppHandle,
     frames: Vec<Vec<u8>>,
     fps: u32,
 ) -> Result<Vec<u8>, String> {
@@ -116,6 +115,15 @@ pub async fn encode_jpeg_frames_to_video(
 }
 
 #[tauri::command]
+pub async fn encode_jpeg_frames_to_video(
+    app: tauri::AppHandle,
+    frames: Vec<Vec<u8>>,
+    fps: u32,
+) -> Result<Vec<u8>, String> {
+    encode_jpeg_frames_to_video_internal(&app, frames, fps).await
+}
+
+#[tauri::command]
 pub async fn compose_template_video(
     app: tauri::AppHandle,
     clips: Vec<Vec<u8>>,
@@ -134,29 +142,34 @@ pub async fn compose_template_video(
     let tmp_dir = std::env::temp_dir().join(format!("compose_{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&tmp_dir).map_err(|e| e.to_string())?;
 
+    let canvas_w = (canvas_width / 2) * 2;
+    let canvas_h = (canvas_height / 2) * 2;
+
     let mut input_args: Vec<String> = Vec::new();
     let mut filter = String::new();
     let mut clip_index_offset = 0;
 
     if let Some(bg_bytes) = background_jpeg {
-        let bg_path = tmp_dir.join("bg.jpg");
+        let bg_path = tmp_dir.join("bg.png");
         std::fs::write(&bg_path, bg_bytes).map_err(|e| e.to_string())?;
+        input_args.push("-loop".into());
+        input_args.push("1".into());
         input_args.push("-i".into());
         input_args.push(bg_path.to_str().unwrap().into());
         filter.push_str(&format!(
             "[0:v]scale={}:{}[base];",
-            canvas_width, canvas_height
+            canvas_w, canvas_h
         ));
         clip_index_offset = 1;
     } else {
         filter.push_str(&format!(
-            "color=c=black:s={}x{}[base];",
-            canvas_width, canvas_height
+            "color=c=white:s={}x{}[base];",
+            canvas_w, canvas_h
         ));
     }
 
     for (i, clip) in clips.iter().enumerate() {
-        let p = tmp_dir.join(format!("clip_{}.bin", i));
+        let p = tmp_dir.join(format!("clip_{}.mp4", i));
         std::fs::write(&p, clip).map_err(|e| e.to_string())?;
         input_args.push("-i".into());
         input_args.push(p.to_str().unwrap().into());
@@ -168,13 +181,18 @@ pub async fn compose_template_video(
     for (i, (x, y, w, h)) in slot_rects.iter().enumerate() {
         let input_idx = i + clip_index_offset;
         let scaled_label = format!("v{}", i);
+        let sw = (((*w as i32) / 2) * 2).max(2);
+        let sh = (((*h as i32) / 2) * 2).max(2);
+        let sx = *x as i32;
+        let sy = *y as i32;
+
         filter.push_str(&format!(
-            "[{}:v]scale={}:{}:force_original_aspect_ratio=decrease,pad={}:{}:(ow-iw)/2:(oh-ih)/2,setpts=PTS-STARTPTS[{}];",
+            "[{}:v]scale={}:{}:force_original_aspect_ratio=increase,crop={}:{},setsar=1,setpts=PTS-STARTPTS[{}];",
             input_idx,
-            *w as i32,
-            *h as i32,
-            *w as i32,
-            *h as i32,
+            sw,
+            sh,
+            sw,
+            sh,
             scaled_label
         ));
         let next_label = format!("tmp{}", i);
@@ -185,7 +203,7 @@ pub async fn compose_template_video(
         };
         filter.push_str(&format!(
             "[{}][{}]overlay={}:{}{}[{}];",
-            last_label, scaled_label, *x as i32, *y as i32, shortest_str, next_label
+            last_label, scaled_label, sx, sy, shortest_str, next_label
         ));
         last_label = next_label;
     }

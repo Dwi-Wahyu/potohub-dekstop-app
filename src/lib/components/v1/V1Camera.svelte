@@ -13,9 +13,10 @@
     onComplete: (photos: string[]) => void;
     onBack: () => void;
     frameConfigId?: string;
+    background?: string;
   }
 
-  let { onComplete, onBack, frameConfigId = '' }: Props = $props();
+  let { onComplete, onBack, frameConfigId = '', background }: Props = $props();
 
   let selectedTemplate = $state<BoothTemplate | null>(null);
   let photoSlots = $derived(selectedTemplate?.design_data?.filter((l) => !l.isBackground && !l.isQr) ?? []);
@@ -106,18 +107,14 @@
   }
 
   let allDone = $derived(boothFlow.photosTaken.length === totalPhotos);
+  const DEFAULT_BG = 'linear-gradient(135deg, #1e1b4b 0%, #2a2873 50%, #312e81 100%)';
+  let effectiveBg = $derived(background ?? uiConfig.getStepStyle('session').background ?? DEFAULT_BG);
 </script>
 
 <div
   class="w-full h-full overflow-hidden relative flex items-center justify-center font-['Plus_Jakarta_Sans',sans-serif]"
-  style="background: linear-gradient(135deg, #1e1b4b 0%, #2a2873 50%, #312e81 100%);"
+  style:background={effectiveBg}
 >
-  <!-- Watermark -->
-  <div class="absolute inset-0 flex items-center justify-center pointer-events-none select-none overflow-hidden z-0">
-    <span class="font-black text-[clamp(180px,22vw,380px)] text-white/[0.028] tracking-[-0.04em] leading-none whitespace-nowrap">
-      {uiConfig.config.boothName}
-    </span>
-  </div>
 
   <div class="relative z-10 flex flex-row items-center justify-center w-full box-border gap-[clamp(40px,4.5vw,88px)] px-[clamp(40px,5vw,100px)] py-6">
     <!-- Viewfinder card -->

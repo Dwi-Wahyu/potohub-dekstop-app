@@ -1,13 +1,15 @@
 <script lang="ts">
   import { uiConfig } from '$lib/stores/uiConfig.svelte';
   import PinPad from '$lib/components/shared/PinPad.svelte';
+  import IdleBannerModal from '$lib/components/shared/IdleBannerModal.svelte';
 
   interface Props {
     onStart: () => void;
     onOpenConfig: () => void;
+    background?: string;
   }
 
-  let { onStart, onOpenConfig }: Props = $props();
+  let { onStart, onOpenConfig, background }: Props = $props();
 
   let showPinModal = $state(false);
   let tapCount = $state(0);
@@ -25,11 +27,15 @@
       }, 1500);
     }
   }
+
+  const DEFAULT_BG = '#fafafa';
+  let effectiveBg = $derived(background ?? uiConfig.getStepStyle('start').background ?? DEFAULT_BG);
 </script>
 
 <div
-  class="w-screen h-screen bg-[#fafafa] flex items-center justify-center relative overflow-hidden select-none"
-  style="font-family: 'Playfair Display', Georgia, serif;"
+  class="w-full h-full flex items-center justify-center relative overflow-hidden select-none"
+  style:background={effectiveBg}
+  style:font-family="'Playfair Display', Georgia, serif"
 >
   <!-- Decorative border (ClassicBorder) -->
   <div class="absolute inset-5 pointer-events-none z-0">
@@ -96,6 +102,9 @@
       Start
     </button>
   </div>
+
+  <!-- Idle Promo Banner Popup Slider -->
+  <IdleBannerModal disabled={showPinModal} />
 
   {#if showPinModal}
     <div

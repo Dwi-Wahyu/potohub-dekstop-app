@@ -4,7 +4,8 @@
   import { Printer, Send, Delete } from '@lucide/svelte';
   import { uiConfig } from '$lib/stores/uiConfig.svelte';
   import { boothFlow } from '$lib/stores/booth.svelte';
-  import { sendSoftFile, formatTime } from '$lib/utils/shared';
+  import { sendSoftfileEmail, sendSoftfileWA, formatTime } from '$lib/utils/shared';
+  import { boothConfig } from '$lib/stores/boothConfig.svelte';
   import { compositeTemplateImage } from '$lib/utils/templateComposite';
   import { saveSessionAssets } from '$lib/utils/sessionAssets';
   import { cachedFetch } from '$lib/utils/offlineCache';
@@ -19,12 +20,21 @@
     photos?: string[];
     frameConfigId?: string;
     onNewSession: () => void;
+    background?: string;
   }
 
-  let { photos = [], frameConfigId = '', onNewSession }: Props = $props();
+  let { photos = [], frameConfigId = '', onNewSession, background }: Props = $props();
 
   let email = $state('');
-  let sent = $state(false);
+  let phone = $state('');
+  let emailSent = $state(false);
+  let waSent = $state(false);
+  let sent = $derived(emailSent || waSent);
+  let activeKbTarget = $state<'email' | 'phone' | null>(null);
+
+  let emailEnabled = $derived(boothConfig.config.emailEnabled ?? true);
+  let whatsappEnabled = $derived(boothConfig.config.whatsappEnabled ?? true);
+
   let secs = $state(5 * 60);
   let kbOpen = $state(false);
   let caps = $state(false);
@@ -53,9 +63,7 @@
       console.error('[V1Complete] Booth tidak aktif saat simpan sesi:', e);
     }
 
-    // 1. Fetch template & composite photos into high-res frame image
     try {
-      // Render instan dari cache SQLite bila ada, refresh di latar belakang
       await cachedFetch(
         `templates:${boothId}`,
         () => fetchTemplates(boothId),
@@ -65,18 +73,16 @@
         }
       );
       if (selectedTemplate) {
-        const resUrl = await compositeTemplateImage(
+        compositeUrl = await compositeTemplateImage(
           selectedTemplate,
           photos,
           boothFlow.selectedFilterId
         );
-        compositeUrl = resUrl;
       }
     } catch (err) {
-      console.error('Failed to composite template image:', err);
+      console.error('Failed to composite template:', err);
     }
 
-    // 2. Create session in database & upload composited media file
     try {
       isSavingSession = true;
       const session = await createTransactionSession(
@@ -89,11 +95,9 @@
       const sessId = session.session_id || session.id || 'demo-session';
       boothFlow.sessionId = sessId;
 
-      // Generate QR Code with session URL
       const softfileUrl = `${ADMIN_DASHBOARD_PUBLIC_URL}/s/${sessId}`;
       qrDataUrl = await QRCode.toDataURL(softfileUrl, { margin: 1, width: 200 });
 
-      // Save all session assets to R2 and register metadata in database
       await saveSessionAssets(
         boothId,
         sessId,
@@ -105,7 +109,6 @@
       );
     } catch (err) {
       console.error('Failed to create & save session in database:', err);
-      // Fallback QR code if offline / backend error
       const fallbackUrl = `${ADMIN_DASHBOARD_PUBLIC_URL}/s/${boothFlow.sessionId || 'demo-session'}`;
       qrDataUrl = await QRCode.toDataURL(fallbackUrl, { margin: 1, width: 200 }).catch(() => '');
     } finally {
@@ -117,12 +120,30 @@
     if (timer) clearInterval(timer);
   });
 
-  async function handleSend() {
-    if (!email.trim() || sent) return;
-    await sendSoftFile(email, () => {
-      sent = true;
-      kbOpen = false;
-    });
+  async function handleSendEmail() {
+    if (!email.trim() || emailSent) return;
+    await sendSoftfileEmail(
+      email,
+      () => {
+        emailSent = true;
+        activeKbTarget = null;
+        kbOpen = false;
+      },
+      boothFlow.sessionId
+    );
+  }
+
+  async function handleSendWA() {
+    if (!phone.trim() || waSent) return;
+    await sendSoftfileWA(
+      phone,
+      () => {
+        waSent = true;
+        activeKbTarget = null;
+        kbOpen = false;
+      },
+      boothFlow.sessionId
+    );
   }
 
   const ROWS_ALPHA = [
@@ -139,31 +160,57 @@
   let currentKbRows = $derived(numMode ? ROWS_NUM : ROWS_ALPHA);
 
   function pressKey(key: string) {
-    if (key === '⌫') {
-      email = email.slice(0, -1);
-      return;
+    if (activeKbTarget === 'phone') {
+      if (key === '⌫') {
+        phone = phone.slice(0, -1);
+        return;
+      }
+      if (key === 'SHIFT') {
+        caps = !caps;
+        return;
+      }
+      if (key === 'ABC') {
+        numMode = false;
+        return;
+      }
+      if (key === '123') {
+        numMode = true;
+        return;
+      }
+      phone += key;
+    } else {
+      if (key === '⌫') {
+        email = email.slice(0, -1);
+        return;
+      }
+      if (key === 'SHIFT') {
+        caps = !caps;
+        return;
+      }
+      if (key === 'ABC') {
+        numMode = false;
+        return;
+      }
+      if (key === '123') {
+        numMode = true;
+        return;
+      }
+      const ch = caps && !numMode ? key.toUpperCase() : key;
+      email = email + ch;
+      if (caps) caps = false;
     }
-    if (key === 'SHIFT') {
-      caps = !caps;
-      return;
-    }
-    if (key === 'ABC') {
-      numMode = false;
-      return;
-    }
-    if (key === '123') {
-      numMode = true;
-      return;
-    }
-    const ch = caps && !numMode ? key.toUpperCase() : key;
-    email = email + ch;
-    if (caps) caps = false;
   }
+
+  const DEFAULT_BG = '#0d0d0d';
+  let effectiveBg = $derived(
+    background ?? uiConfig.getStepStyle('download').background ?? uiConfig.getStepStyle('softfile').background ?? DEFAULT_BG
+  );
 </script>
 
 <div
   class="w-full h-full flex flex-col items-center justify-center select-none relative overflow-hidden text-[#e6e1e5]"
-  style="background: #0d0d0d; font-family: 'Poppins', sans-serif;"
+  style:background={effectiveBg}
+  style:font-family="'Poppins', sans-serif"
 >
   <!-- Timer pill -->
   <div class="absolute top-6 left-1/2 -translate-x-1/2 flex items-center gap-2 bg-white/10 backdrop-blur-sm text-white/80 rounded-full px-5 py-2.5 text-sm font-semibold border border-white/10 z-10">
@@ -237,8 +284,8 @@
               <Send size={16} />
             </div>
             <div>
-              <p class="font-black text-[#111] text-base leading-tight m-0">Scan QR / Email</p>
-              <p class="text-[#888] text-[12px] leading-tight mt-0.5 m-0">Dapatkan softfile foto kamu</p>
+              <p class="font-black text-[#111] text-base leading-tight m-0">Download Softfile</p>
+              <p class="text-[#888] text-[12px] leading-tight mt-0.5 m-0">Pilih metode pengiriman file</p>
             </div>
           </div>
 
@@ -249,28 +296,71 @@
             </div>
           {/if}
 
-          <button
-            type="button"
-            onclick={() => (kbOpen = true)}
-            class="w-full rounded-xl px-4 py-3 text-sm cursor-text border-2 text-left bg-[#f2f2f2]"
-            style="border-color: {kbOpen ? '#2563eb' : 'transparent'};"
-          >
-            {email || 'nama@email.com'}
-          </button>
+          <!-- Form Email (Jika Aktif di Admin Dashboard) -->
+          {#if emailEnabled}
+            <div class="flex flex-col gap-1.5 w-full">
+              <div class="flex items-center justify-between text-[11px] font-bold text-gray-500 uppercase tracking-wider">
+                <span>Email Softfile</span>
+                {#if emailSent}<span class="text-green-600 font-bold">✓ Terkirim</span>{/if}
+              </div>
+              <div class="flex gap-2">
+                <button
+                  type="button"
+                  onclick={() => { activeKbTarget = 'email'; kbOpen = true; numMode = false; }}
+                  class="flex-1 rounded-xl px-3 py-2.5 text-xs cursor-text border-2 text-left bg-[#f2f2f2] truncate"
+                  style="border-color: {activeKbTarget === 'email' && kbOpen ? '#2563eb' : 'transparent'};"
+                >
+                  {email || 'nama@email.com'}
+                </button>
+                <button
+                  type="button"
+                  onclick={handleSendEmail}
+                  disabled={!email.trim() || emailSent}
+                  class="px-3 py-2.5 rounded-xl text-xs font-bold transition-all border-0 shrink-0"
+                  style="
+                    background: {email.trim() && !emailSent ? '#111' : '#e0e0e0'};
+                    color: {email.trim() && !emailSent ? '#fff' : '#999'};
+                    cursor: {email.trim() && !emailSent ? 'pointer' : 'default'};
+                  "
+                >
+                  {emailSent ? 'Terkirim' : 'Kirim Email'}
+                </button>
+              </div>
+            </div>
+          {/if}
 
-          <button
-            type="button"
-            onclick={handleSend}
-            disabled={!email.trim()}
-            class="w-full py-3.5 rounded-xl text-sm font-bold tracking-wide transition-all border-0"
-            style="
-              background: {email.trim() ? '#111' : '#e0e0e0'};
-              color: {email.trim() ? '#fff' : '#999'};
-              cursor: {email.trim() ? 'pointer' : 'default'};
-            "
-          >
-            Kirim Softfile
-          </button>
+          <!-- Form WhatsApp (Jika Aktif di Admin Dashboard) -->
+          {#if whatsappEnabled}
+            <div class="flex flex-col gap-1.5 w-full">
+              <div class="flex items-center justify-between text-[11px] font-bold text-gray-500 uppercase tracking-wider">
+                <span>WhatsApp (Fonnte)</span>
+                {#if waSent}<span class="text-green-600 font-bold">✓ Terkirim</span>{/if}
+              </div>
+              <div class="flex gap-2">
+                <button
+                  type="button"
+                  onclick={() => { activeKbTarget = 'phone'; kbOpen = true; numMode = true; }}
+                  class="flex-1 rounded-xl px-3 py-2.5 text-xs cursor-text border-2 text-left bg-[#f2f2f2] truncate"
+                  style="border-color: {activeKbTarget === 'phone' && kbOpen ? '#2563eb' : 'transparent'};"
+                >
+                  {phone || '08123456789'}
+                </button>
+                <button
+                  type="button"
+                  onclick={handleSendWA}
+                  disabled={!phone.trim() || waSent}
+                  class="px-3 py-2.5 rounded-xl text-xs font-bold transition-all border-0 shrink-0"
+                  style="
+                    background: {phone.trim() && !waSent ? '#16a34a' : '#e0e0e0'};
+                    color: {phone.trim() && !waSent ? '#fff' : '#999'};
+                    cursor: {phone.trim() && !waSent ? 'pointer' : 'default'};
+                  "
+                >
+                  {waSent ? 'Terkirim' : 'Kirim WA'}
+                </button>
+              </div>
+            </div>
+          {/if}
         {/if}
       </div>
 

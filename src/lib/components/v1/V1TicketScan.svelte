@@ -8,9 +8,10 @@
     boothId?: string;
     onSuccess: () => void;
     onBack: () => void;
+    background?: string;
   }
 
-  let { boothId = '', onSuccess, onBack }: Props = $props();
+  let { boothId = '', onSuccess, onBack, background }: Props = $props();
 
   let manualInput = $state('');
   let isVerifying = $state(false);
@@ -87,9 +88,14 @@
     scanStatus = 'error';
     scanStatusMessage = 'Kamera bermasalah';
   }
+  const DEFAULT_BG = '#090810';
+  let effectiveBg = $derived(background ?? uiConfig.getStepStyle('ticket').background ?? DEFAULT_BG);
 </script>
 
-<div class="w-screen h-screen bg-[#090810] text-white flex flex-col items-center justify-between p-8 select-none relative overflow-hidden font-['Plus_Jakarta_Sans',sans-serif]">
+<div
+  class="w-full h-full text-white flex flex-col items-center justify-between p-8 select-none relative overflow-hidden font-['Plus_Jakarta_Sans',sans-serif]"
+  style:background={effectiveBg}
+>
   <!-- Topbar -->
   <header class="w-full flex items-center justify-between z-20">
     <button

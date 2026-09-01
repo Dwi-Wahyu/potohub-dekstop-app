@@ -7,9 +7,10 @@
     totalPrice: number;
     onSuccess: () => void;
     onBack: () => void;
+    background?: string;
   }
 
-  let { totalPrice, onSuccess, onBack }: Props = $props();
+  let { totalPrice, onSuccess, onBack, background }: Props = $props();
 
   let secs = $state(14 * 60 + 30);
   let qrSecs = $state(5 * 60);
@@ -39,11 +40,13 @@
 
   const fmtPrice = (n: number) => `Rp ${n.toLocaleString('id-ID')}`;
   const PAYMENT_METHODS = ['GoPay', 'OVO', 'DANA', 'ShopeePay', 'LinkAja', 'BRI', 'BCA', 'Mandiri', 'BNI'];
+  const DEFAULT_BG = 'linear-gradient(135deg, #1e1b4b 0%, #2a2873 50%, #312e81 100%)';
+  let effectiveBg = $derived(background ?? uiConfig.getStepStyle('payment').background ?? DEFAULT_BG);
 </script>
 
 <div
   class="w-full h-full overflow-hidden flex flex-col relative font-['Plus_Jakarta_Sans',sans-serif] text-[#e6e1e5]"
-  style="background: linear-gradient(135deg, #1e1b4b 0%, #2a2873 50%, #312e81 100%);"
+  style:background={effectiveBg}
 >
   <!-- Watermark -->
   <div class="absolute inset-0 flex items-center justify-center pointer-events-none select-none z-0">

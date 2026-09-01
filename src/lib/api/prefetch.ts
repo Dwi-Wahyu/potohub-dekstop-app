@@ -1,6 +1,6 @@
-import { fetchCategories, fetchTemplates } from './boothClient';
+import { fetchCategories, fetchTemplates, fetchBanners } from './boothClient';
 import { uiConfig } from '$lib/stores/uiConfig.svelte';
-import { ensureAsset } from '$lib/utils/offlineCache';
+import { ensureAsset, writeApiCache } from '$lib/utils/offlineCache';
 
 function collectAssetUrls(): string[] {
   const urls: string[] = [];
@@ -16,13 +16,14 @@ function collectAssetUrls(): string[] {
 
 /**
  * Kumpulkan semua URL aset booth (background step, banner kategori,
- * preview/frame template, layer desain) lalu download ke cache lokal
+ * preview/frame template, layer desain, promo banner) lalu download ke cache lokal
  * (app_cache_dir/assets). Dipanggil di background agar tidak memblokir render.
  */
 export async function prefetchBoothAssets(boothId: string): Promise<void> {
-  const [categories, templates] = await Promise.allSettled([
+  const [categories, templates, banners] = await Promise.allSettled([
     fetchCategories(boothId),
     fetchTemplates(boothId),
+    fetchBanners(boothId),
   ]);
 
   const urls = new Set<string>(collectAssetUrls());
@@ -36,6 +37,12 @@ export async function prefetchBoothAssets(boothId: string): Promise<void> {
       for (const layer of t.design_data ?? []) {
         if (layer.imageUrl) urls.add(layer.imageUrl);
       }
+    }
+  }
+  if (banners.status === 'fulfilled') {
+    void writeApiCache(`banners:${boothId}`, banners.value);
+    for (const b of banners.value) {
+      if (b.image_url) urls.add(b.image_url);
     }
   }
 

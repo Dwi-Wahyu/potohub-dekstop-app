@@ -9,7 +9,7 @@
 
 ## 1. Executive Summary
 
-This report documents the full end-to-end execution of the **libgphoto2 Camera Migration Plan** (`instruction/GPHOTO2_IMPLEMENTATION_PLAN.md`) for `photobooth-dekstop-app`. The application camera control stack has been migrated from Canon CCAPI (HTTP over Wi-Fi) to **`libgphoto2` (via crate `gphoto2` v3.4.1)** over USB, enabling multi-brand camera support (Canon, Nikon, Sony, Fuji, etc.) without requiring Wi-Fi setup.
+This report documents the full end-to-end execution of the **libgphoto2 Camera Migration Plan** (`instruction/GPHOTO2_IMPLEMENTATION_PLAN.md`) for `potohub-dekstop-app`. The application camera control stack has been migrated from Canon CCAPI (HTTP over Wi-Fi) to **`libgphoto2` (via crate `gphoto2` v3.4.1)** over USB, enabling multi-brand camera support (Canon, Nikon, Sony, Fuji, etc.) without requiring Wi-Fi setup.
 
 ### Key Deliverables Implemented
 1. **Legacy CCAPI Archival & Rollback Preservation (Phase 1)**:

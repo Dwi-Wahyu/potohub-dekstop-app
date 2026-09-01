@@ -15,9 +15,10 @@
     frameConfigId?: string;
     onBack: () => void;
     onNext: () => void;
+    background?: string;
   }
 
-  let { photos, frameConfigId = '', onBack, onNext }: Props = $props();
+  let { photos, frameConfigId = '', onBack, onNext, background }: Props = $props();
 
   let selectedTemplate = $state<BoothTemplate | null>(null);
   let emotsData = $state<BoothEmot[]>([]);
@@ -108,18 +109,20 @@
   let thumbSrc = $derived(
     photos[0] || 'https://images.unsplash.com/photo-1531746020798-e6953c6e8e04?w=400&h=400&fit=crop&auto=format'
   );
+  const DEFAULT_BG = 'linear-gradient(135deg, #1e1b4b 0%, #2a2873 50%, #312e81 100%)';
+  let effectiveBg = $derived(background ?? uiConfig.getStepStyle('filter').background ?? DEFAULT_BG);
 </script>
 
 <div
   class="w-full h-full overflow-hidden relative flex items-center justify-center font-['Plus_Jakarta_Sans',sans-serif]"
-  style="background: linear-gradient(135deg, #1e1b4b 0%, #2a2873 50%, #312e81 100%);"
+  style:background={effectiveBg}
 >
   <!-- Watermark -->
-  <div class="absolute inset-0 overflow-hidden flex items-center justify-center pointer-events-none select-none z-0">
+  <!-- <div class="absolute inset-0 overflow-hidden flex items-center justify-center pointer-events-none select-none z-0">
     <span class="text-[clamp(180px,22vw,380px)] font-black text-white/[0.028] tracking-[-0.04em] leading-none whitespace-nowrap">
       {uiConfig.config.boothName}
     </span>
-  </div>
+  </div> -->
 
   <div class="relative z-10 flex flex-row items-center gap-[clamp(32px,3.5vw,64px)] px-[clamp(32px,4vw,72px)] py-8 w-full h-full box-border justify-center">
     <!-- Filter grid card -->

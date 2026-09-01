@@ -13,9 +13,10 @@
     selectedFrame?: string;
     onNext: () => void;
     onBack: () => void;
+    background?: string;
   }
 
-  let { selectedFrame = '', onNext, onBack }: Props = $props();
+  let { selectedFrame = '', onNext, onBack, background }: Props = $props();
 
   let activeFilterIndex = $state(0);
   let emotsData = $state<BoothEmot[]>([]);
@@ -104,11 +105,14 @@
 
   const STEPPER_LABELS = ['Tutorial', 'Payment', 'Frames', 'Photo Session', 'Edit & Filter', 'Scan File'];
   const activeIdx = 4;
+  const DEFAULT_BG = '#fafafa';
+  let effectiveBg = $derived(background ?? uiConfig.getStepStyle('filter').background ?? DEFAULT_BG);
 </script>
 
 <div
-  class="w-screen h-screen bg-[#fafafa] flex flex-col select-none relative overflow-hidden"
-  style="font-family: 'Playfair Display', Georgia, serif;"
+  class="w-full h-full flex flex-col select-none relative overflow-hidden"
+  style:background={effectiveBg}
+  style:font-family="'Playfair Display', Georgia, serif"
 >
   <!-- StepperHeader -->
   <div

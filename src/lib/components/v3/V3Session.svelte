@@ -14,9 +14,10 @@
     selectedFrame: string;
     onComplete: (photos: string[]) => void;
     onBack: () => void;
+    background?: string;
   }
 
-  let { selectedFrame, onComplete, onBack }: Props = $props();
+  let { selectedFrame, onComplete, onBack, background }: Props = $props();
 
   let selectedTemplate = $state<BoothTemplate | null>(null);
   let photoSlots = $derived(selectedTemplate?.design_data?.filter((l) => !l.isBackground && !l.isQr) ?? []);
@@ -108,9 +109,14 @@
 
   const VISIBLE_STEPS = ['Package', 'Payment', 'Frames', 'Photo Session', 'Edit & Filter'];
   const activeStepIdx = 3;
+  const DEFAULT_BG = '#fdfdfd';
+  let effectiveBg = $derived(background ?? uiConfig.getStepStyle('session').background ?? DEFAULT_BG);
 </script>
 
-<div class="w-screen h-screen flex flex-col bg-[#fdfdfd] select-none font-['Inter',sans-serif] relative overflow-hidden">
+<div
+  class="w-full h-full flex flex-col select-none font-['Inter',sans-serif] relative overflow-hidden"
+  style:background={effectiveBg}
+>
   <!-- Header -->
   <div class="h-[68px] bg-[#CD1C33] flex items-center justify-between px-8 shadow-lg shrink-0 z-20 relative overflow-hidden">
     <div

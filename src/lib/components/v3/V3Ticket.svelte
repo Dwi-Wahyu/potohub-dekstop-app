@@ -4,13 +4,16 @@
   import { Check, Ticket as TicketIcon } from '@lucide/svelte';
   import type { QrScanResult, QrScanStatus } from '$lib/types/qr';
 
+  import { uiConfig } from '$lib/stores/uiConfig.svelte';
+
   interface Props {
     boothId?: string;
     onConfirm: () => void;
     onBack: () => void;
+    background?: string;
   }
 
-  let { boothId = '', onConfirm, onBack }: Props = $props();
+  let { boothId = '', onConfirm, onBack, background }: Props = $props();
 
   let code = $state('');
   let errorMsg = $state('');
@@ -90,9 +93,14 @@
 
   const VISIBLE_STEPS = ['Package', 'Payment', 'Frames', 'Photo Session', 'Edit & Filter'];
   const activeStepIdx = 1;
+  const DEFAULT_BG = '#111';
+  let effectiveBg = $derived(background ?? uiConfig.getStepStyle('ticket').background ?? DEFAULT_BG);
 </script>
 
-<div class="w-screen h-screen flex flex-col bg-[#111] text-white select-none font-['Inter',sans-serif] relative overflow-hidden">
+<div
+  class="w-full h-full flex flex-col text-white select-none font-['Inter',sans-serif] relative overflow-hidden"
+  style:background={effectiveBg}
+>
   <!-- Header -->
   <div class="h-[68px] bg-[#CD1C33] flex items-center justify-between px-8 shadow-lg shrink-0 z-20 relative overflow-hidden">
     <div

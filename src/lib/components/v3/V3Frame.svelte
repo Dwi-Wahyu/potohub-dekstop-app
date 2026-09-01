@@ -11,12 +11,15 @@
   } from '$lib/api/boothClient';
   import { cachedFetch } from '$lib/utils/offlineCache';
 
+  import { uiConfig } from '$lib/stores/uiConfig.svelte';
+
   interface Props {
     onSelectFrame: (frameId: string) => void;
     onBack: () => void;
+    background?: string;
   }
 
-  let { onSelectFrame, onBack }: Props = $props();
+  let { onSelectFrame, onBack, background }: Props = $props();
 
   let selectedFrame = $state('frame1');
   let selectedCategory = $state('SEMUA');
@@ -119,9 +122,14 @@
 
   const VISIBLE_STEPS = ['Package', 'Payment', 'Frames', 'Photo Session', 'Edit & Filter'];
   const activeStepIdx = 2;
+  const DEFAULT_BG = '#f5f5f5';
+  let effectiveBg = $derived(background ?? uiConfig.getStepStyle('frame').background ?? DEFAULT_BG);
 </script>
 
-<div class="w-screen h-screen flex flex-col bg-[#f5f5f5] select-none font-['Inter',sans-serif] relative overflow-hidden">
+<div
+  class="w-full h-full flex flex-col select-none font-['Inter',sans-serif] relative overflow-hidden"
+  style:background={effectiveBg}
+>
   <!-- Header -->
   <div class="h-[68px] bg-[#CD1C33] flex items-center justify-between px-8 shadow-lg shrink-0 z-20 relative overflow-hidden">
     <div

@@ -7,6 +7,7 @@ export interface BoothActivation {
   organizationId: string | null;
   templateVariant: "v1" | "v2" | "v3" | "custom";
   activatedAt: string;
+  token?: string | null;
 }
 
 let dbPromise: ReturnType<typeof Database.load> | null = null;
@@ -30,6 +31,7 @@ export async function getActivation(): Promise<BoothActivation | null> {
       organizationId: r.organization_id,
       templateVariant: r.template_variant,
       activatedAt: r.activated_at,
+      token: r.token ?? null,
     };
   } catch (e) {
     console.warn("Failed to query SQLite booth_activation:", e);
@@ -41,11 +43,11 @@ export async function saveActivation(data: BoothActivation): Promise<void> {
   try {
     const conn = await db();
     await conn.execute(
-      `INSERT INTO booth_activation (id, booth_id, activation_code, booth_name, organization_id, template_variant, activated_at)
-     VALUES (1, $1, $2, $3, $4, $5, $6)
+      `INSERT INTO booth_activation (id, booth_id, activation_code, booth_name, organization_id, template_variant, activated_at, token)
+     VALUES (1, $1, $2, $3, $4, $5, $6, $7)
      ON CONFLICT (id) DO UPDATE SET
        booth_id = $1, activation_code = $2, booth_name = $3,
-       organization_id = $4, template_variant = $5, activated_at = $6`,
+       organization_id = $4, template_variant = $5, activated_at = $6, token = $7`,
       [
         data.boothId,
         data.activationCode,
@@ -53,6 +55,7 @@ export async function saveActivation(data: BoothActivation): Promise<void> {
         data.organizationId,
         data.templateVariant,
         data.activatedAt,
+        data.token ?? null,
       ],
     );
   } catch (e) {

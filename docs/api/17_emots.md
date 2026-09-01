@@ -21,8 +21,8 @@ graph TD
 ```
 
 - **Base Path**: `/api/booths/{boothId}/emots`
-- **Security**: Bearer JWT (`Authorization: Bearer <token>`).
-- **Authorization**: Endpoint pembacaan (`GET`) dapat diakses oleh user terautentikasi dan booth client. Endpoint penulisan (`POST`, `PUT`, `DELETE`) memerlukan hak akses `Owner` atau `SuperAdmin`.
+- **Security**: Public / Booth Client untuk pembacaan (`GET`), Bearer JWT (`Owner` / `SuperAdmin`) untuk penulisan.
+- **Authorization**: Endpoint pembacaan (`GET`) dapat diakses secara publik oleh Booth Client dan user terautentikasi. Endpoint penulisan (`POST`, `PUT`, `DELETE`) memerlukan hak akses `Owner` atau `SuperAdmin`.
 
 ---
 
@@ -53,7 +53,7 @@ Mengambil daftar emot dan stiker untuk booth tertentu dengan dukungan filter kat
 
 - **Method**: `GET`
 - **Endpoint**: `/api/booths/{boothId}/emots`
-- **Auth Required**: Yes (`Bearer <token>`)
+- **Auth Required**: No (Public / Booth Client)
 - **Query Parameters**:
   - `category` (opsional): Filter kategori (misal: `smileys`, `party`)
   - `emot_type` (opsional): Filter tipe (`emoji` atau `image`)

@@ -19,6 +19,10 @@ export interface BoothCfg {
   liveviewClipPostSecs: number;
   enableLiveviewVideo: boolean;
   enableSessionGif: boolean;
+  idleBannerTimeoutMins: number;
+  enableIdleBanner: boolean;
+  emailEnabled: boolean;
+  whatsappEnabled: boolean;
 }
 
 export const DEFAULT_CFG: BoothCfg = {
@@ -38,10 +42,14 @@ export const DEFAULT_CFG: BoothCfg = {
   paymentPage: true,
   cameraMode: 'usb',
   bootScreen: 'welcome',
-  liveviewClipPreSecs: 1.0,
-  liveviewClipPostSecs: 2.5,
+  liveviewClipPreSecs: 2.5,
+  liveviewClipPostSecs: 0.5,
   enableLiveviewVideo: true,
-  enableSessionGif: true
+  enableSessionGif: true,
+  idleBannerTimeoutMins: 2,
+  enableIdleBanner: true,
+  emailEnabled: true,
+  whatsappEnabled: true,
 };
 
 class BoothConfigStore {

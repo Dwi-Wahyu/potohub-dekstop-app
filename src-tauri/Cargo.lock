@@ -3370,29 +3370,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "photobooth-dekstop-app"
-version = "0.1.0"
-dependencies = [
- "base64 0.22.1",
- "gphoto2",
- "image",
- "reqwest 0.12.28",
- "serde",
- "serde_json",
- "tauri",
- "tauri-build",
- "tauri-plugin-log",
- "tauri-plugin-opener",
- "tauri-plugin-shell",
- "tauri-plugin-sql",
- "thiserror 2.0.19",
- "tokio",
- "uuid",
- "webkit2gtk",
- "winapi",
-]
-
-[[package]]
 name = "pin-project-lite"
 version = "0.2.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3502,6 +3479,29 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0103b1cef7ec0cf76490e969665504990193874ea05c85ff9bab8b911d0a0564"
 dependencies = [
  "zerovec",
+]
+
+[[package]]
+name = "potohub-dekstop-app"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "gphoto2",
+ "image",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-log",
+ "tauri-plugin-opener",
+ "tauri-plugin-shell",
+ "tauri-plugin-sql",
+ "thiserror 2.0.19",
+ "tokio",
+ "uuid",
+ "webkit2gtk",
+ "winapi",
 ]
 
 [[package]]

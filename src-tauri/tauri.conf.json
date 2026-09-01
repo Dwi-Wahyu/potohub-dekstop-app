@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "photobooth-dekstop-app",
+  "productName": "potohub-dekstop-app",
   "version": "0.1.0",
-  "identifier": "com.dwiwahyuilahi.photobooth-dekstop-app",
+  "identifier": "com.dwiwahyuilahi.potohub-dekstop-app",
   "build": {
     "beforeDevCommand": "pnpm dev",
     "devUrl": "http://localhost:1420",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "photobooth-dekstop-app",
+        "title": "potohub-dekstop-app",
         "width": 800,
         "height": 600
       }

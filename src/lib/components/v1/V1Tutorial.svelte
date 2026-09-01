@@ -7,9 +7,10 @@
   interface Props {
     onNext: () => void;
     onBack: () => void;
+    background?: string;
   }
 
-  let { onNext, onBack }: Props = $props();
+  let { onNext, onBack, background }: Props = $props();
 
   let secs = $state(60);
   let timer: any = null;
@@ -30,24 +31,43 @@
   });
 
   const EL = '#cbb8b3';
+  const DEFAULT_BG = 'linear-gradient(135deg, #1e1b4b 0%, #2a2873 50%, #312e81 100%)';
+  let effectiveBg = $derived(background ?? uiConfig.getStepStyle('tutorial').background ?? DEFAULT_BG);
+
+  let tutorialImg = $derived(
+    uiConfig.config.tutorialImageUrl ||
+      (() => {
+        try {
+          const raw =
+            localStorage.getItem(`potohub.ui-customize-local.${uiConfig.boothId}`) ||
+            localStorage.getItem(`potohub.ui-customize-local.default`);
+          return raw ? JSON.parse(raw)?.tutorialImageUrl || '' : '';
+        } catch {
+          return '';
+        }
+      })()
+  );
+
+  
 </script>
 
 <div
   class="w-full h-full overflow-hidden flex flex-col px-[52px] py-10 gap-5 font-['Plus_Jakarta_Sans',sans-serif] text-[#e6e1e5] relative"
-  style="background: linear-gradient(135deg, #1e1b4b 0%, #2a2873 50%, #312e81 100%);"
+  style:background={effectiveBg}
 >
   <!-- Watermark Dinamis -->
-  <div
+  <!-- <div
     class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-[clamp(160px,28vw,380px)] font-black text-white/[0.028] select-none pointer-events-none leading-none whitespace-nowrap z-0"
   >
     {uiConfig.config.boothName}
-  </div>
+  </div> -->
 
   <!-- Header -->
   <header class="flex justify-between items-center shrink-0 relative z-10">
     <button
       onclick={onBack}
       class="group border border-white/10 text-white/30 px-5 py-[9px] rounded-full bg-transparent flex items-center gap-2 cursor-pointer transition-colors duration-150 font-['Plus_Jakarta_Sans',sans-serif] font-semibold text-sm hover:border-white/20 hover:text-white/50"
+      title="Kembali"
     >
       <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
         <path d="M15.75 19.5L8.25 12l7.5-7.5" stroke-linecap="round" stroke-linejoin="round" />
@@ -55,7 +75,7 @@
     </button>
 
     <h1 class="m-0 text-4xl font-bold tracking-wider bg-gradient-to-r from-white to-gray-400 bg-clip-text text-transparent">
-      Tutorial
+      {uiConfig.getElementLabel('tutorial', 'instruction_text', 'Tutorial')}
     </h1>
 
     <div class="flex items-center gap-2 bg-white/95 text-[#0f0e14] px-[22px] py-[11px] rounded-full font-bold text-xl shadow-[0_6px_24px_rgba(0,0,0,0.4)]">
@@ -66,9 +86,18 @@
     </div>
   </header>
 
-  <!-- Steps grid -->
+  <!-- Steps grid / Custom Tutorial Image -->
   <main class="flex-grow min-h-0 flex items-center justify-center relative z-10">
-    <div class="relative w-full">
+    {#if tutorialImg}
+      <div class="w-full h-full flex items-center justify-center overflow-hidden p-2">
+        <img
+          src={tutorialImg}
+          alt="Tutorial Penggunaan"
+          class="max-w-full max-h-full object-contain rounded-2xl shadow-2xl"
+        />
+      </div>
+    {:else}
+      <div class="relative w-full">
       <!-- Flow connectors -->
       <div class="absolute top-[25%] left-[10%] right-[10%] h-1 rounded-sm z-0" style="background-color: {uiConfig.config.primaryColor}33;"></div>
       <div class="absolute top-[75%] left-[10%] right-[10%] h-1 rounded-sm z-0" style="background-color: {uiConfig.config.primaryColor}33;"></div>
@@ -267,6 +296,7 @@
         </article>
       </div>
     </div>
+    {/if}
   </main>
 
   <!-- Footer -->

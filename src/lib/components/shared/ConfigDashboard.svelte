@@ -323,6 +323,33 @@
               </span>
             </button>
 
+            <button
+              type="button"
+              onclick={() => update('enableIdleBanner', !boothConfig.config.enableIdleBanner)}
+              style="
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                background: {NEU_BG};
+                box-shadow: {neuCfg.btnSm};
+                border-radius: 12px;
+                padding: 10px 14px;
+                border: none;
+                cursor: pointer;
+                text-align: left;
+                width: 100%;
+              "
+            >
+              <div style="width: 17px; height: 17px; border-radius: 50%; border: 2px solid {boothConfig.config.enableIdleBanner ? '#22c55e' : '#c8d2e0'}; background: {boothConfig.config.enableIdleBanner ? '#22c55e' : 'transparent'}; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                {#if boothConfig.config.enableIdleBanner}
+                  <div style="width: 6px; height: 6px; border-radius: 50%; background: white;"></div>
+                {/if}
+              </div>
+              <span style="font-size: 13px; font-weight: 600; color: {boothConfig.config.enableIdleBanner ? '#334155' : '#94a3b8'}; flex: 1;">
+                Pop-up Banner Idle
+              </span>
+            </button>
+
             <!-- Take Photo group -->
             <div
               style="
@@ -533,6 +560,63 @@
                   <button onclick={() => update('paperThreshold', Math.min(100, boothConfig.config.paperThreshold + 1))} style="width: 32px; height: 32px; border-radius: 9px; background: {NEU_BG}; box-shadow: {neuCfg.btnSm}; border: none; cursor: pointer; font-weight: 700; font-size: 16px; color: #334155; display: flex; align-items: center; justify-content: center;">+</button>
                 </div>
               </div>
+            </div>
+
+            <div style="height: 1px; background: rgba(200,210,224,0.7);"></div>
+
+            <!-- Timeout Banner Idle -->
+            <div style="display: flex; flex-direction: column; gap: 6px;">
+              <div style="display: flex; justify-content: space-between; align-items: center;">
+                <h1 style="font-size: 10px; font-weight: 700; color: #334155; text-transform: uppercase; letter-spacing: 0.06em; margin: 0;">
+                  Timeout Pop-up Banner Idle
+                </h1>
+                <span style="font-size: 11px; font-weight: 600; color: #64748b;">
+                  {boothConfig.config.idleBannerTimeoutMins} Menit
+                </span>
+              </div>
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <div style="display: flex; align-items: center; gap: 6px; flex: 1;">
+                  <button
+                    onclick={() => update('idleBannerTimeoutMins', Math.max(1, boothConfig.config.idleBannerTimeoutMins - 1))}
+                    style="width: 32px; height: 32px; border-radius: 9px; background: {NEU_BG}; box-shadow: {neuCfg.btnSm}; border: none; cursor: pointer; font-weight: 700; font-size: 16px; color: #334155; display: flex; align-items: center; justify-content: center;"
+                  >−</button>
+                  <div
+                    style="flex: 1; background: {NEU_BG}; box-shadow: {neuCfg.inset}; border-radius: 10px; padding: 6px 0; text-align: center; font-size: 13px; font-weight: 700; color: #334155;"
+                  >
+                    {boothConfig.config.idleBannerTimeoutMins} Menit
+                  </div>
+                  <button
+                    onclick={() => update('idleBannerTimeoutMins', Math.min(60, boothConfig.config.idleBannerTimeoutMins + 1))}
+                    style="width: 32px; height: 32px; border-radius: 9px; background: {NEU_BG}; box-shadow: {neuCfg.btnSm}; border: none; cursor: pointer; font-weight: 700; font-size: 16px; color: #334155; display: flex; align-items: center; justify-content: center;"
+                  >+</button>
+                </div>
+                <!-- Quick presets -->
+                <div style="display: flex; gap: 4px;">
+                  {#each [1, 2, 3, 5, 10] as m}
+                    <button
+                      type="button"
+                      onclick={() => update('idleBannerTimeoutMins', m)}
+                      style="
+                        padding: 6px 9px;
+                        border-radius: 8px;
+                        background: {NEU_BG};
+                        box-shadow: {boothConfig.config.idleBannerTimeoutMins === m ? neuCfg.inset : neuCfg.btnSm};
+                        border: none;
+                        cursor: pointer;
+                        font-size: 11px;
+                        font-family: 'Poppins', sans-serif;
+                        font-weight: {boothConfig.config.idleBannerTimeoutMins === m ? 700 : 500};
+                        color: {boothConfig.config.idleBannerTimeoutMins === m ? '#2a2873' : '#64748b'};
+                      "
+                    >
+                      {m}m
+                    </button>
+                  {/each}
+                </div>
+              </div>
+              <p style="font-size: 10px; color: #94a3b8; margin: 0;">
+                Pop-up slider banner muncul otomatis saat tidak ada interaksi / klik pada layar awal.
+              </p>
             </div>
 
             <div style="height: 1px; background: rgba(200,210,224,0.7);"></div>

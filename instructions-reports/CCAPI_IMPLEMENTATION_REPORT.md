@@ -9,7 +9,7 @@
 
 ## 1. Executive Summary
 
-This report documents the full end-to-end execution of the **CCAPI Implementation Plan** for `photobooth-dekstop-app`. The project now features direct Canon Camera Control API (CCAPI) integration for mirrorless cameras (such as the Canon EOS R100), combining a high-performance Rust backend proxy (using `reqwest` & `tokio`) with a reactive Svelte 5 frontend store and UI pages.
+This report documents the full end-to-end execution of the **CCAPI Implementation Plan** for `potohub-dekstop-app`. The project now features direct Canon Camera Control API (CCAPI) integration for mirrorless cameras (such as the Canon EOS R100), combining a high-performance Rust backend proxy (using `reqwest` & `tokio`) with a reactive Svelte 5 frontend store and UI pages.
 
 ### Key Deliverables Implemented
 1. **Direct Rust-to-Camera Proxy Architecture**:

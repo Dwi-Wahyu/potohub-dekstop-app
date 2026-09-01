@@ -2,12 +2,15 @@
   import { onMount, onDestroy } from 'svelte';
   import { Star, QrCode, Image as ImageIcon, Camera, Download, ChevronRight } from '@lucide/svelte';
 
+  import { uiConfig } from '$lib/stores/uiConfig.svelte';
+
   interface Props {
     onNext: () => void;
     onBack: () => void;
+    background?: string;
   }
 
-  let { onNext, onBack }: Props = $props();
+  let { onNext, onBack, background }: Props = $props();
 
   let secs = $state(60);
   let timer: any = null;
@@ -32,9 +35,28 @@
     { n: 3, icon: Camera, title: 'Pose & Foto', desc: 'Countdown 5 detik', bg: '#f7f7f7', accent: '#1a1a1a', iconClass: 'text-[#1a1a1a]' },
     { n: 4, icon: Download, title: 'Unduh Hasilnya', desc: 'Scan QR, foto tersimpan', bg: '#fffbeb', accent: '#d97706', iconClass: 'text-[#FFC107]' }
   ];
+  const DEFAULT_BG = '#fdfdfd';
+  let effectiveBg = $derived(background ?? uiConfig.getStepStyle('tutorial').background ?? DEFAULT_BG);
+
+  let tutorialImg = $derived(
+    uiConfig.config.tutorialImageUrl ||
+      (() => {
+        try {
+          const raw =
+            localStorage.getItem(`potohub.ui-customize-local.${uiConfig.boothId}`) ||
+            localStorage.getItem(`potohub.ui-customize-local.default`);
+          return raw ? JSON.parse(raw)?.tutorialImageUrl || '' : '';
+        } catch {
+          return '';
+        }
+      })()
+  );
 </script>
 
-<div class="w-screen h-screen flex flex-col bg-[#fdfdfd] select-none font-['Inter',sans-serif] relative overflow-hidden">
+<div
+  class="w-full h-full flex flex-col select-none font-['Inter',sans-serif] relative overflow-hidden"
+  style:background={effectiveBg}
+>
   <!-- Top bar -->
   <div class="bg-[#1a1a1a] h-10 flex items-center px-8 gap-3 shrink-0">
     {#each ['#CD1C33', '#FFC107', '#0E8E5E'] as c}
@@ -58,30 +80,40 @@
       </h2>
     </div>
 
-    <div class="grid grid-cols-4 gap-5 w-full max-w-5xl relative z-10">
-      {#each TUTORIAL_ITEMS as item}
-        {@const IconComp = item.icon}
-        <div
-          class="rounded-2xl p-5 flex flex-col gap-3 border border-gray-100 shadow-sm hover:shadow-md transition-all relative overflow-hidden"
-          style="background: {item.bg};"
-        >
+    {#if tutorialImg}
+      <div class="w-full max-w-4xl p-4 flex items-center justify-center overflow-hidden relative z-10">
+        <img
+          src={tutorialImg}
+          alt="Panduan Penggunaan"
+          class="max-w-full max-h-full object-contain rounded-2xl shadow-xl"
+        />
+      </div>
+    {:else}
+      <div class="grid grid-cols-4 gap-5 w-full max-w-5xl relative z-10">
+        {#each TUTORIAL_ITEMS as item}
+          {@const IconComp = item.icon}
           <div
-            class="absolute top-3 right-3 text-[48px] font-black opacity-[0.06] font-['Playfair_Display',serif] leading-none"
-            style="color: {item.accent};"
+            class="rounded-2xl p-5 flex flex-col gap-3 border border-gray-100 shadow-sm hover:shadow-md transition-all relative overflow-hidden"
+            style="background: {item.bg};"
           >
-            {item.n}
+            <div
+              class="absolute top-3 right-3 text-[48px] font-black opacity-[0.06] font-['Playfair_Display',serif] leading-none"
+              style="color: {item.accent};"
+            >
+              {item.n}
+            </div>
+            <div class="w-12 h-12 rounded-xl flex items-center justify-center bg-white shadow-sm shrink-0">
+              <IconComp size={32} class={item.iconClass} strokeWidth={1.5} />
+            </div>
+            <div>
+              <div class="font-black text-gray-800 text-sm">{item.title}</div>
+              <div class="text-xs text-gray-400 mt-0.5">{item.desc}</div>
+            </div>
+            <div class="h-[2px] w-8 rounded-full mt-auto" style="background: {item.accent};"></div>
           </div>
-          <div class="w-12 h-12 rounded-xl flex items-center justify-center bg-white shadow-sm shrink-0">
-            <IconComp size={32} class={item.iconClass} strokeWidth={1.5} />
-          </div>
-          <div>
-            <div class="font-black text-gray-800 text-sm">{item.title}</div>
-            <div class="text-xs text-gray-400 mt-0.5">{item.desc}</div>
-          </div>
-          <div class="h-[2px] w-8 rounded-full mt-auto" style="background: {item.accent};"></div>
-        </div>
-      {/each}
-    </div>
+        {/each}
+      </div>
+    {/if}
 
     <button
       onclick={onNext}

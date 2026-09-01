@@ -3,7 +3,8 @@
   import QRCode from 'qrcode';
   import { uiConfig } from '$lib/stores/uiConfig.svelte';
   import { boothFlow } from '$lib/stores/booth.svelte';
-  import { sendSoftFile, generateSessionCode } from '$lib/utils/shared';
+  import { sendSoftfileEmail, sendSoftfileWA, generateSessionCode } from '$lib/utils/shared';
+  import { boothConfig } from '$lib/stores/boothConfig.svelte';
   import { Delete, QrCode } from '@lucide/svelte';
 
   import { compositeTemplateImage } from '$lib/utils/templateComposite';
@@ -19,12 +20,21 @@
   interface Props {
     selectedFrame?: string;
     onDone: () => void;
+    background?: string;
   }
 
-  let { selectedFrame = '', onDone }: Props = $props();
+  let { selectedFrame = '', onDone, background }: Props = $props();
 
   let email = $state('');
-  let sent = $state(false);
+  let phone = $state('');
+  let emailSent = $state(false);
+  let waSent = $state(false);
+  let activeKbTarget = $state<'email' | 'phone' | null>(null);
+
+  let emailEnabled = $derived(boothConfig.config.emailEnabled ?? true);
+  let whatsappEnabled = $derived(boothConfig.config.whatsappEnabled ?? true);
+
+  let sent = $derived(emailSent || waSent);
   let error = $state(false);
   let timer = $state(60);
   let kbOpen = $state(false);
@@ -113,17 +123,40 @@
     if (timer === 0) onDone();
   });
 
-  async function handleSend() {
+  async function handleSendEmail() {
     const valid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
     if (!valid) {
       error = true;
       setTimeout(() => (error = false), 1600);
       return;
     }
-    await sendSoftFile(email, () => {
-      sent = true;
-      kbOpen = false;
-    });
+    await sendSoftfileEmail(
+      email,
+      () => {
+        emailSent = true;
+        activeKbTarget = null;
+        kbOpen = false;
+      },
+      boothFlow.sessionId
+    );
+  }
+
+  async function handleSendWA() {
+    const valid = /^\+?[0-9]{8,15}$/.test(phone.trim().replace(/[\s-]/g, ''));
+    if (!valid) {
+      error = true;
+      setTimeout(() => (error = false), 1600);
+      return;
+    }
+    await sendSoftfileWA(
+      phone,
+      () => {
+        waSent = true;
+        activeKbTarget = null;
+        kbOpen = false;
+      },
+      boothFlow.sessionId
+    );
   }
 
   let sessionCode = $derived(generateSessionCode(uiConfig.config.boothName));
@@ -142,34 +175,59 @@
   let currentKbRows = $derived(numMode ? KB_ROWS_NUM : KB_ROWS_ALPHA);
 
   function pressKey(key: string) {
-    if (key === '⌫') {
-      email = email.slice(0, -1);
-      return;
+    if (activeKbTarget === 'phone') {
+      if (key === '⌫') {
+        phone = phone.slice(0, -1);
+        return;
+      }
+      if (key === 'SHIFT') {
+        caps = !caps;
+        return;
+      }
+      if (key === 'ABC') {
+        numMode = false;
+        return;
+      }
+      if (key === '123') {
+        numMode = true;
+        return;
+      }
+      phone += key;
+    } else {
+      if (key === '⌫') {
+        email = email.slice(0, -1);
+        return;
+      }
+      if (key === 'SHIFT') {
+        caps = !caps;
+        return;
+      }
+      if (key === 'ABC') {
+        numMode = false;
+        return;
+      }
+      if (key === '123') {
+        numMode = true;
+        return;
+      }
+      const ch = caps && !numMode ? key.toUpperCase() : key;
+      email = email + ch;
+      if (caps) caps = false;
     }
-    if (key === 'SHIFT') {
-      caps = !caps;
-      return;
-    }
-    if (key === 'ABC') {
-      numMode = false;
-      return;
-    }
-    if (key === '123') {
-      numMode = true;
-      return;
-    }
-    const ch = caps && !numMode ? key.toUpperCase() : key;
-    email = email + ch;
-    if (caps) caps = false;
   }
 
   const STEPPER_LABELS = ['Tutorial', 'Payment', 'Frames', 'Photo Session', 'Edit & Filter', 'Scan File'];
   const activeIdx = 5;
+  const DEFAULT_BG = '#fafafa';
+  let effectiveBg = $derived(
+    background ?? uiConfig.getStepStyle('download').background ?? uiConfig.getStepStyle('softfile').background ?? DEFAULT_BG
+  );
 </script>
 
 <div
-  class="w-screen h-screen bg-[#fafafa] flex flex-col relative overflow-hidden select-none"
-  style="font-family: 'Playfair Display', Georgia, serif;"
+  class="w-full h-full flex flex-col relative overflow-hidden select-none"
+  style:background={effectiveBg}
+  style:font-family="'Playfair Display', Georgia, serif"
 >
   <!-- StepperHeader -->
   <div
@@ -295,54 +353,79 @@
       >
         {#if !sent}
           <p class="text-xs font-black uppercase tracking-[0.25em] mb-1 text-black/40 font-['Nunito',sans-serif] m-0">
-            Kirim Softfile
+            Download Softfile
           </p>
-          <p class="text-[13px] text-black/40 mb-5 font-['Playfair_Display',serif] m-0">
-            Ketuk kolom email untuk membuka keyboard
+          <p class="text-[13px] text-black/40 mb-4 font-['Playfair_Display',serif] m-0">
+            Pilih metode pengiriman softfile
           </p>
 
-          <div class="flex flex-col gap-3 font-['Nunito',sans-serif]">
-            <!-- Tappable email display -->
-            <!-- svelte-ignore a11y_click_events_have_key_events -->
-            <!-- svelte-ignore a11y_no_static_element_interactions -->
-            <div
-              onclick={() => (kbOpen = true)}
-              class="w-full border-[2.5px] rounded-2xl px-4 py-3 cursor-text flex items-center transition-all min-h-[50px]"
-              style={`font-family: 'Courier New', monospace; font-size: 15px; font-weight: 700; border-color: ${error ? '#ef4444' : kbOpen ? '#000' : '#d1d5db'}; background: ${error ? '#fff5f5' : kbOpen ? '#fafafa' : '#f9f9f9'}; color: ${email ? (error ? '#ef4444' : '#000') : '#aaa'}; box-shadow: ${kbOpen ? '3px 3px 0 0 #000' : 'none'};`}
-            >
-              {email || 'nama@email.com'}
-              {#if kbOpen}
-                <span class="ml-0.5 inline-block w-0.5 h-5 bg-black animate-pulse align-middle"></span>
-              {/if}
-            </div>
+          <div class="flex flex-col gap-4 font-['Nunito',sans-serif]">
+            {#if emailEnabled}
+              <div class="flex flex-col gap-1.5">
+                <div class="flex items-center justify-between text-xs font-bold text-black/60 uppercase tracking-wider">
+                  <span>Email Softfile</span>
+                  {#if emailSent}<span class="text-green-600 font-black">✓ Terkirim</span>{/if}
+                </div>
+                <!-- svelte-ignore a11y_click_events_have_key_events -->
+                <!-- svelte-ignore a11y_no_static_element_interactions -->
+                <div
+                  onclick={() => { activeKbTarget = 'email'; kbOpen = true; numMode = false; }}
+                  class="w-full border-[2.5px] rounded-2xl px-4 py-2.5 cursor-text flex items-center transition-all min-h-[46px]"
+                  style={`font-family: 'Courier New', monospace; font-size: 14px; font-weight: 700; border-color: ${activeKbTarget === 'email' && kbOpen ? '#000' : '#d1d5db'}; background: ${activeKbTarget === 'email' && kbOpen ? '#fafafa' : '#f9f9f9'}; color: ${email ? '#000' : '#aaa'};`}
+                >
+                  {email || 'nama@email.com'}
+                </div>
+                <button
+                  onclick={handleSendEmail}
+                  disabled={!email.trim() || emailSent}
+                  class="w-full py-2.5 bg-black text-white font-black uppercase text-xs tracking-[0.18em] rounded-xl hover:bg-black/80 transition-all flex items-center justify-center gap-2 cursor-pointer border-none shadow-[3px_3px_0_0_rgba(0,0,0,0.2)] disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  {emailSent ? 'Email Terkirim' : 'Kirim Email'}
+                </button>
+              </div>
+            {/if}
+
+            {#if whatsappEnabled}
+              <div class="flex flex-col gap-1.5">
+                <div class="flex items-center justify-between text-xs font-bold text-black/60 uppercase tracking-wider">
+                  <span>WhatsApp (Fonnte)</span>
+                  {#if waSent}<span class="text-green-600 font-black">✓ Terkirim</span>{/if}
+                </div>
+                <!-- svelte-ignore a11y_click_events_have_key_events -->
+                <!-- svelte-ignore a11y_no_static_element_interactions -->
+                <div
+                  onclick={() => { activeKbTarget = 'phone'; kbOpen = true; numMode = true; }}
+                  class="w-full border-[2.5px] rounded-2xl px-4 py-2.5 cursor-text flex items-center transition-all min-h-[46px]"
+                  style={`font-family: 'Courier New', monospace; font-size: 14px; font-weight: 700; border-color: ${activeKbTarget === 'phone' && kbOpen ? '#000' : '#d1d5db'}; background: ${activeKbTarget === 'phone' && kbOpen ? '#fafafa' : '#f9f9f9'}; color: ${phone ? '#000' : '#aaa'};`}
+                >
+                  {phone || '08123456789'}
+                </div>
+                <button
+                  onclick={handleSendWA}
+                  disabled={!phone.trim() || waSent}
+                  class="w-full py-2.5 bg-[#16a34a] text-white font-black uppercase text-xs tracking-[0.18em] rounded-xl hover:bg-[#15803d] transition-all flex items-center justify-center gap-2 cursor-pointer border-none shadow-[3px_3px_0_0_rgba(0,0,0,0.2)] disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  {waSent ? 'WA Terkirim' : 'Kirim WhatsApp'}
+                </button>
+              </div>
+            {/if}
 
             {#if error}
               <p class="text-xs text-red-500 font-bold tracking-wide flex items-center gap-1.5 font-['Nunito',sans-serif] m-0">
                 <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 8v4m0 4h.01" stroke-linecap="round"/></svg>
-                Format email tidak valid
+                Format input tidak valid
               </p>
             {/if}
-
-            <button
-              onclick={handleSend}
-              class="w-full py-3 bg-black text-white font-black uppercase text-sm tracking-[0.18em] rounded-2xl hover:bg-black/80 active:scale-95 transition-all flex items-center justify-center gap-2 font-['Nunito',sans-serif] cursor-pointer border-none shadow-[4px_4px_0_0_rgba(0,0,0,0.25)]"
-            >
-              <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z" stroke-linecap="round" stroke-linejoin="round"/></svg>
-              Kirim Email
-            </button>
           </div>
-
-          <p class="text-[11px] text-black/25 mt-4 text-center font-['Nunito',sans-serif] m-0">
-            Link aktif selama 30 hari · Tidak ada spam
-          </p>
         {:else}
           <div class="flex items-center gap-4">
             <div class="w-10 h-10 rounded-full bg-black flex items-center justify-center flex-shrink-0">
               <svg width="18" height="18" fill="none" stroke="white" stroke-width="2.8" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7" stroke-linecap="round" stroke-linejoin="round"/></svg>
             </div>
             <div>
-              <p class="font-black text-sm uppercase tracking-[0.15em] font-['Nunito',sans-serif] m-0">Email Terkirim!</p>
-              <p class="text-xs text-black/40 mt-0.5 font-['Nunito',sans-serif] m-0">{email}</p>
+              <p class="font-black text-sm uppercase tracking-[0.15em] font-['Nunito',sans-serif] m-0">Softfile Terkirim!</p>
+              {#if emailSent}<p class="text-xs text-black/40 mt-0.5 font-['Nunito',sans-serif] m-0">Email: {email}</p>{/if}
+              {#if waSent}<p class="text-xs text-black/40 mt-0.5 font-['Nunito',sans-serif] m-0">WA: {phone}</p>{/if}
             </div>
           </div>
         {/if}

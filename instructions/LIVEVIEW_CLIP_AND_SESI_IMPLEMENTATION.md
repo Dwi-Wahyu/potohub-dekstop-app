@@ -1,6 +1,6 @@
 # Instruksi Implementasi — Live View Clip per Slot + GIF Sesi + Perbaikan Upload Gallery
 
-**Repo target:** `photobooth-dekstop-app` (Tauri v2 + SvelteKit 2 + Svelte 5, mode kamera `usb`/`webcam`/`demo`)
+**Repo target:** `potohub-dekstop-app` (Tauri v2 + SvelteKit 2 + Svelte 5, mode kamera `usb`/`webcam`/`demo`)
 **Untuk siapa dokumen ini:** agen CLI (Claude Code / Gemini CLI) yang akan mengeksekusi perubahan.
 **Konteks:** lanjutan dari diskusi sebelumnya — API (`api-context`) sudah lengkap (`MediaType::Photo/Thumbnail/Video/Gif`, endpoint `gallery/upload-url` presign R2, `gallery/upload` register metadata). **Tidak perlu ubah backend Rust API.** Semua pekerjaan di dokumen ini ada di sisi `desktop-app-context`.
 

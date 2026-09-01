@@ -1,13 +1,15 @@
 <script lang="ts">
   import PinPad from '$lib/components/shared/PinPad.svelte';
+  import IdleBannerModal from '$lib/components/shared/IdleBannerModal.svelte';
   import { uiConfig } from '$lib/stores/uiConfig.svelte';
 
   interface Props {
     onStart: () => void;
     onOpenConfig: () => void;
+    background?: string;
   }
 
-  let { onStart, onOpenConfig }: Props = $props();
+  let { onStart, onOpenConfig, background }: Props = $props();
 
   let showPinModal = $state(false);
   let tapCount = $state(0);
@@ -34,18 +36,21 @@
   let startBtnStyle = $derived(uiConfig.getElementStyle('start', 'start_button', {
     bgColor: '#f5d9cc', textColor: '#1a0a00', fontSize: 'Sedang', fontFamily: 'Sans Serif',
   }));
+
+  const DEFAULT_BG = 'linear-gradient(135deg, #1e1b4b 0%, #2a2873 50%, #312e81 100%)';
+  let effectiveBg = $derived(background ?? uiConfig.getStepStyle('start').background ?? DEFAULT_BG);
 </script>
 
 <div
   class="relative w-full h-full overflow-hidden flex flex-col items-center justify-center font-['Plus_Jakarta_Sans',sans-serif]"
-  style="background: linear-gradient(135deg, #1e1b4b 0%, #2a2873 50%, #312e81 100%);"
+  style:background={effectiveBg}
 >
   <!-- Watermark Dinamis -->
-  <div
+  <!-- <div
     class="absolute top-1/2 left-[55%] -translate-x-1/2 -translate-y-1/2 text-[clamp(160px,28vw,380px)] font-black text-white/[0.028] select-none pointer-events-none leading-none whitespace-nowrap"
   >
     {uiConfig.config.boothName}
-  </div>
+  </div> -->
 
   <!-- Admin lock trigger — top right -->
   <button
@@ -120,6 +125,9 @@
   <p class="absolute bottom-[clamp(12px,2vh,20px)] left-0 right-0 text-center text-[clamp(9px,0.7vw,12px)] text-white/30 m-0 font-['Plus_Jakarta_Sans',sans-serif]">
     Powered by Potohub · v3.2
   </p>
+
+  <!-- Idle Promo Banner Popup Slider -->
+  <IdleBannerModal disabled={showPinModal} />
 
   <!-- PIN Modal for hidden trigger -->
   {#if showPinModal}

@@ -1,13 +1,16 @@
 <script lang="ts">
   import { uiConfig } from '$lib/stores/uiConfig.svelte';
   import PinPad from '$lib/components/shared/PinPad.svelte';
+  import IdleBannerModal from '$lib/components/shared/IdleBannerModal.svelte';
+  import { Lock } from '@lucide/svelte';
 
   interface Props {
     onStart: () => void;
     onOpenConfig: () => void;
+    background?: string;
   }
 
-  let { onStart, onOpenConfig }: Props = $props();
+  let { onStart, onOpenConfig, background }: Props = $props();
 
   let showPinModal = $state(false);
 
@@ -15,11 +18,16 @@
   let startBtnStyle = $derived(uiConfig.getElementStyle('start', 'start_button', {
     bgColor: '#ebf0f7', textColor: '#2a2873', fontSize: 'Sedang', fontFamily: 'Sans Serif',
   }));
+
+  let effectiveBg = $derived(
+    background ?? uiConfig.getStepStyle('start').background ?? '#ebf0f7'
+  );
 </script>
 
 <div
   class="relative w-full h-full flex flex-col items-center justify-center overflow-hidden select-none"
-  style="background: #ebf0f7; font-family: 'Poppins', sans-serif;"
+  style:background={effectiveBg}
+  style:font-family="'Poppins', sans-serif"
 >
   <button
     type="button"
@@ -27,15 +35,9 @@
     class="absolute top-5 right-6 opacity-40 hover:opacity-100 transition-opacity border-none p-2 rounded-full cursor-pointer z-20"
     style="background: #ebf0f7; box-shadow: 8px 8px 16px #c8d2e0, -8px -8px 16px #ffffff;"
     title="Operator PIN"
-  >⚙</button>
-
-  <div class="flex flex-col items-center gap-3 text-center px-4">
-    <h1
-      class="text-[clamp(48px,8vw,96px)] font-bold tracking-tight m-0"
-      style="color: var(--neu-primary, #2a2873);"
-    >{uiConfig.config.boothName}</h1>
-    <p class="text-base m-0" style="color: #64748b;">{uiConfig.config.tagline}</p>
-  </div>
+  >
+    <Lock />
+  </button>
 
   <button
     onclick={onStart}
@@ -52,6 +54,9 @@
   >
     {uiConfig.getElementLabel('start', 'start_button', 'Mulai')}
   </button>
+
+  <!-- Idle Promo Banner Popup Slider -->
+  <IdleBannerModal disabled={showPinModal} />
 
   {#if showPinModal}
     <div

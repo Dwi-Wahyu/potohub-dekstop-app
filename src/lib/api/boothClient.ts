@@ -6,7 +6,7 @@ import {
 } from "$lib/stores/uiConfig.svelte";
 import { boothConfig } from "$lib/stores/boothConfig.svelte";
 import { getActivation, saveActivation } from "$lib/db/local";
-import { cachedFetch } from "$lib/utils/offlineCache";
+import { cachedFetch, writeApiCache } from "$lib/utils/offlineCache";
 import { prefetchBoothAssets } from "./prefetch";
 
 const envs = import.meta.env as Record<string, string>;
@@ -169,6 +169,19 @@ export async function requireActiveBoothId(): Promise<string> {
   return boothId;
 }
 
+export async function getAuthHeaders(
+  contentType?: string,
+): Promise<Record<string, string>> {
+  const headers: Record<string, string> = {};
+  if (contentType) {
+    headers["Content-Type"] = contentType;
+  }
+  const activation = await getActivation();
+  if (activation?.token) {
+    headers["Authorization"] = `Bearer ${activation.token}`;
+  }
+  return headers;
+}
 
 export async function activateBooth(activationCode: string) {
   const res = await fetch(`${API_BASE}/booths/activate`, {
@@ -193,6 +206,7 @@ export async function activateBooth(activationCode: string) {
     organizationId: data.organization_id ?? null,
     templateVariant: data.ui_template_variant ?? "v1",
     activatedAt: new Date().toISOString(),
+    token: data.token ?? null,
   });
 
   uiConfig.save({ templateVariant: data.ui_template_variant ?? "v1" });
@@ -268,7 +282,9 @@ export async function fetchCategories(
   if (!targetBoothId || !isValidUUID(targetBoothId)) {
     throw new Error("Booth belum teraktivasi (ID tidak valid)");
   }
-  const res = await fetch(`${API_BASE}/booths/${targetBoothId}/categories`);
+  const res = await fetch(`${API_BASE}/booths/${targetBoothId}/categories`, {
+    headers: await getAuthHeaders(),
+  });
   if (!res.ok) throw new Error("Gagal memuat kategori");
   const json = await res.json();
   return Array.isArray(json) ? json : (json.data ?? json.categories ?? []);
@@ -285,7 +301,9 @@ export async function fetchTemplates(
   const qs = categoryId
     ? `?category_id=${categoryId}&is_active=true`
     : "?is_active=true";
-  const res = await fetch(`${API_BASE}/booths/${targetBoothId}/templates${qs}`);
+  const res = await fetch(`${API_BASE}/booths/${targetBoothId}/templates${qs}`, {
+    headers: await getAuthHeaders(),
+  });
   if (!res.ok) throw new Error("Gagal memuat template");
   const json = await res.json();
   return Array.isArray(json) ? json : (json.data ?? json.templates ?? []);
@@ -306,12 +324,50 @@ export interface BoothEmot {
 export async function fetchEmots(boothId?: string): Promise<BoothEmot[]> {
   const targetBoothId = boothId || (await getActiveBoothId());
   if (!targetBoothId || !isValidUUID(targetBoothId)) {
+    return [];
+  }
+  try {
+    const res = await fetch(`${API_BASE}/booths/${targetBoothId}/emots?is_active=true`, {
+      headers: await getAuthHeaders(),
+    });
+    if (!res.ok) {
+      console.warn(`[fetchEmots] Endpoint emots merespon status ${res.status}, beralih ke daftar emoji bawaan.`);
+      return [];
+    }
+    const json = await res.json();
+    return Array.isArray(json) ? json : (json.data ?? json.emots ?? []);
+  } catch (err) {
+    console.warn(`[fetchEmots] Gagal memuat emot remote, beralih ke daftar emoji bawaan:`, err);
+    return [];
+  }
+}
+
+export interface BoothBanner {
+  id: string;
+  organization_id: string;
+  title: string;
+  image_url: string;
+  start_date: string | null;
+  end_date: string | null;
+  is_active: boolean;
+  position: number;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export async function fetchBanners(boothId?: string): Promise<BoothBanner[]> {
+  const targetBoothId = boothId || (await getActiveBoothId());
+  if (!targetBoothId || !isValidUUID(targetBoothId)) {
     throw new Error("Booth belum teraktivasi (ID tidak valid)");
   }
-  const res = await fetch(`${API_BASE}/booths/${targetBoothId}/emots?is_active=true`);
-  if (!res.ok) throw new Error("Gagal memuat emot");
+
+  const res = await fetch(`${API_BASE}/booths/${targetBoothId}/banners`, {
+    headers: await getAuthHeaders(),
+  });
+
+  if (!res.ok) throw new Error("Gagal memuat banner");
   const json = await res.json();
-  return Array.isArray(json) ? json : (json.data ?? json.emots ?? []);
+  return Array.isArray(json) ? json : (json.data ?? json.banners ?? []);
 }
 
 const CAMERA_ROTATE_MAP: Record<number, string> = {
@@ -324,6 +380,7 @@ const CAMERA_ROTATE_MAP: Record<number, string> = {
 function applyRemoteSettings(settings: Record<string, any>) {
   const general = settings?.general ?? {};
   const timer = settings?.timer ?? {};
+  const softfile = settings?.softfile ?? {};
   boothConfig.save({
     pin: general.pin ?? boothConfig.config.pin,
     cameraRotate:
@@ -334,6 +391,8 @@ function applyRemoteSettings(settings: Record<string, any>) {
     photoFilter: general.photo_filter ?? boothConfig.config.photoFilter,
     countdownSecs:
       timer.first_countdown_time ?? boothConfig.config.countdownSecs,
+    emailEnabled: softfile.email_enabled ?? boothConfig.config.emailEnabled ?? true,
+    whatsappEnabled: softfile.whatsapp_enabled ?? boothConfig.config.whatsappEnabled ?? true,
   });
 }
 
@@ -343,11 +402,19 @@ export async function syncBoothSettings() {
   try {
     const res = await fetch(`${API_BASE}/booths/${boothId}/settings/sync`, {
       method: "POST",
+      headers: await getAuthHeaders(),
     });
     if (!res.ok) throw new Error("Sync gagal");
     const data = await res.json();
     applyRemoteSettings(data.settings ?? {});
     await fetchAndCacheUiConfig();
+    // Fetch & cache banners untuk booth
+    try {
+      const banners = await fetchBanners(boothId);
+      await writeApiCache(`banners:${boothId}`, banners);
+    } catch (e) {
+      console.warn("Sync banners gagal:", e);
+    }
     // Prefetch aset booth di background (tidak memblokir sync)
     void prefetchBoothAssets(boothId).catch((e) =>
       console.warn("Prefetch aset booth gagal:", e),
@@ -389,7 +456,7 @@ export async function createTransactionSession(
 
   const res = await fetch(`${API_BASE}/booths/${boothId}/transactions`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: await getAuthHeaders("application/json"),
     body: JSON.stringify({
       category_id: categoryId || null,
       frame_id: frameId || null,
@@ -414,6 +481,24 @@ export async function createTransactionSession(
 
 export type GalleryFileType = "photo" | "thumbnail" | "video" | "gif";
 
+export function toPascalCaseMediaType(
+  type: string,
+): "Photo" | "Thumbnail" | "Video" | "Gif" {
+  switch (type.toLowerCase()) {
+    case "photo":
+      return "Photo";
+    case "thumbnail":
+      return "Thumbnail";
+    case "video":
+      return "Video";
+    case "gif":
+    case "animation":
+      return "Gif";
+    default:
+      return "Photo";
+  }
+}
+
 export interface RequestUploadUrlResponse {
   upload_url: string;
   file_url: string;
@@ -428,12 +513,14 @@ export async function requestUploadUrl(
   fileExtension: string,
   contentType: string,
 ): Promise<RequestUploadUrlResponse> {
+  const pascalType = toPascalCaseMediaType(fileType);
   const res = await fetch(`${API_BASE}/booths/${boothId}/gallery/upload-url`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: await getAuthHeaders("application/json"),
     body: JSON.stringify({
       session_id: sessionId,
-      file_type: fileType,
+      file_type: pascalType,
+      media_type: pascalType,
       file_extension: fileExtension,
       content_type: contentType,
     }),
@@ -451,7 +538,13 @@ export async function requestUploadUrl(
 
   console.log(json);
 
-  return json.data ?? json;
+  const data = json.data ?? json;
+  return {
+    upload_url: data.upload_url,
+    file_url: data.file_url || data.public_url || "",
+    object_key: data.object_key || data.file_key || "",
+    expires_in: data.expires_in || data.expires_in_secs || 900,
+  };
 }
 
 /**
@@ -524,13 +617,15 @@ export async function uploadSessionMedia(
   height: number = 1800,
   fileSize: number = 0,
 ) {
+  const pascalType = toPascalCaseMediaType(fileType);
   const res = await fetch(`${API_BASE}/booths/${boothId}/gallery/upload`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: await getAuthHeaders("application/json"),
     body: JSON.stringify({
       session_id: sessionId,
       file_url: fileUrl,
-      file_type: fileType,
+      file_type: pascalType,
+      media_type: pascalType,
       width,
       height,
       file_size: fileSize,

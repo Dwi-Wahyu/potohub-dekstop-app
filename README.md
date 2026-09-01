@@ -120,7 +120,7 @@ export LIBCLANG_PATH="$(brew --prefix llvm)/lib"
 1. **Clone repository & Install NPM dependencies**:
    ```bash
    git clone <repo-url>
-   cd photobooth-dekstop-app
+   cd potohub-dekstop-app
    pnpm install
    ```
 
@@ -148,7 +148,7 @@ export LIBCLANG_PATH="$(brew --prefix llvm)/lib"
 ## 📖 Struktur Direktori & Dokumentasi
 
 ```
-photobooth-dekstop-app/
+potohub-dekstop-app/
 ├── src/                          # Svelte 5 Frontend
 │   ├── lib/
 │   │   ├── camera.svelte.ts      # Store status & kontrol kamera (gphoto IPC)
@@ -173,4 +173,4 @@ photobooth-dekstop-app/
 ## 🏷️ Arsip & Rollback CCAPI
 
 Jika ingin mengembalikan implementasi lama menggunakan Canon CCAPI (Wi-Fi HTTP), ikuti panduan pada:
-👉 [`docs/legacy-ccapi/README.md`](file:///home/dwiwahyuilahi/Personal/Projects/Photobooth%20App%20System/photobooth-dekstop-app/docs/legacy-ccapi/README.md) atau checkout git tag: `ccapi-backup-20260727`.
+👉 [`docs/legacy-ccapi/README.md`](file:///home/dwiwahyuilahi/Personal/Projects/Photobooth%20App%20System/potohub-dekstop-app/docs/legacy-ccapi/README.md) atau checkout git tag: `ccapi-backup-20260727`.

@@ -6,9 +6,10 @@
   interface Props {
     onSelect: (method: 'ticket' | 'cashless') => void;
     onBack: () => void;
+    background?: string;
   }
 
-  let { onSelect, onBack }: Props = $props();
+  let { onSelect, onBack, background }: Props = $props();
 
   let secs = $state(15 * 60);
   let timer: any = null;
@@ -26,18 +27,21 @@
   onDestroy(() => {
     if (timer) clearInterval(timer);
   });
+
+  const DEFAULT_BG = 'linear-gradient(135deg, #1e1b4b 0%, #2a2873 50%, #312e81 100%)';
+  let effectiveBg = $derived(background ?? uiConfig.getStepStyle('payment').background ?? DEFAULT_BG);
 </script>
 
 <div
   class="w-full h-full overflow-hidden flex flex-col font-['Plus_Jakarta_Sans',sans-serif] text-[#e6e1e5] relative"
-  style="background: linear-gradient(135deg, #1e1b4b 0%, #2a2873 50%, #312e81 100%);"
+  style:background={effectiveBg}
 >
   <!-- Watermark Dinamis -->
-  <div
+  <!-- <div
     class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-[clamp(180px,22vw,380px)] font-black text-white/[0.028] tracking-[-0.04em] whitespace-nowrap pointer-events-none select-none z-0"
   >
     {uiConfig.config.boothName}
-  </div>
+  </div> -->
 
   <!-- Header -->
   <header class="flex justify-between items-center px-12 py-7 shrink-0 relative z-10">

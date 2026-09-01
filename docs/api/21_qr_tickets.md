@@ -39,7 +39,7 @@ Dokumentasi spesifikasi API untuk pembuatan, pengelolaan, validasi, dan klaim **
       "booth_id": "c1f7a01d-5b32-411a-8c4e-5a022419a4e9",
       "organization_id": "d2f8b02e-6c43-522b-9d5f-6b033520b5fa",
       "category_id": "c1111111-2222-3333-4444-555555555555",
-      "token": "FT-2024-001-CLA-7K9P-1724488500",
+      "token": "7K9P",
       "ticket_type": "single",
       "bundle_id": "classic",
       "bundle_label": "Classic Footoo",
@@ -92,7 +92,7 @@ Dokumentasi spesifikasi API untuk pembuatan, pengelolaan, validasi, dan klaim **
   "booth_id": "c1f7a01d-5b32-411a-8c4e-5a022419a4e9",
   "organization_id": "d2f8b02e-6c43-522b-9d5f-6b033520b5fa",
   "category_id": "c1111111-2222-3333-4444-555555555555",
-  "token": "FT-2024-001-CLA-7K9P-1724488500",
+  "token": "7K9P",
   "ticket_type": "single",
   "bundle_id": "classic",
   "bundle_label": "Classic Footoo",
@@ -132,7 +132,7 @@ Dokumentasi spesifikasi API untuk pembuatan, pengelolaan, validasi, dan klaim **
 ### Validate (`POST /api/qr-tickets/validate`)
 ```json
 {
-  "token": "FT-2024-001-CLA-7K9P-1724488500",
+  "token": "7K9P",
   "booth_id": "c1f7a01d-5b32-411a-8c4e-5a022419a4e9"
 }
 ```
@@ -148,7 +148,7 @@ Dokumentasi spesifikasi API untuk pembuatan, pengelolaan, validasi, dan klaim **
 ### Redeem (`POST /api/qr-tickets/redeem`)
 ```json
 {
-  "token": "FT-2024-001-CLA-7K9P-1724488500",
+  "token": "7K9P",
   "booth_id": "c1f7a01d-5b32-411a-8c4e-5a022419a4e9"
 }
 ```

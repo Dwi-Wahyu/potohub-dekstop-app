@@ -12,6 +12,12 @@
   import V2Filter from './V2Filter.svelte';
   import V2Download from './V2Download.svelte';
 
+  interface Props {
+    customTutorialImg?: string;
+  }
+
+  let { customTutorialImg }: Props = $props();
+
   type V2Step =
     | 'landing'
     | 'tutorial'
@@ -96,7 +102,7 @@
   {#if step === 'landing'}
     <V2Landing background={getV2Bg('start')} onStart={handleStart} onOpenConfig={handleOpenConfig} />
   {:else if step === 'tutorial'}
-    <V2Tutorial background={getV2Bg('tutorial')} onNext={handleTutorialNext} onBack={() => (step = 'landing')} />
+    <V2Tutorial background={getV2Bg('tutorial')} {customTutorialImg} onNext={handleTutorialNext} onBack={() => (step = 'landing')} />
   {:else if step === 'payment'}
     <V2Payment background={getV2Bg('payment')} onSelect={handlePaymentSelect} onBack={() => (step = 'tutorial')} />
   {:else if step === 'qris'}

@@ -14,6 +14,12 @@
   import V1Complete from '$lib/components/v1/V1Complete.svelte';
   import V1TicketScan from '$lib/components/v1/V1TicketScan.svelte';
 
+  interface Props {
+    customTutorialImg?: string;
+  }
+
+  let { customTutorialImg }: Props = $props();
+
   let currentSubStep = $state<
     'welcome' | 'tutorial' | 'method_select' | 'category_frame' | 'print_qty' | 'ticket' | 'payment' | 'camera' | 'customize' | 'complete'
   >('welcome');
@@ -98,7 +104,7 @@
   {#if currentSubStep === 'welcome'}
     <CustomLanding background={getCustomBg('start')} onStart={handleStart} onOpenConfig={handleOpenConfig} />
   {:else if currentSubStep === 'tutorial'}
-    <V1Tutorial background={getCustomBg('tutorial')} onNext={handleTutorialNext} onBack={() => (currentSubStep = 'welcome')} />
+    <V1Tutorial background={getCustomBg('tutorial')} {customTutorialImg} onNext={handleTutorialNext} onBack={() => (currentSubStep = 'welcome')} />
   {:else if currentSubStep === 'category_frame'}
     <V1CategoryFrame background={getCustomBg('frame')} onNext={handleCategoryFrameNext} onBack={() => (currentSubStep = 'tutorial')} />
   {:else if currentSubStep === 'print_qty'}

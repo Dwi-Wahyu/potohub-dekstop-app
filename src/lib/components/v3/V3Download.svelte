@@ -137,7 +137,7 @@
         activeKbTarget = null;
         kbOpen = false;
       },
-      boothFlow.sessionId
+      boothFlow.sessionId ?? undefined
     );
   }
 
@@ -155,7 +155,7 @@
         activeKbTarget = null;
         kbOpen = false;
       },
-      boothFlow.sessionId
+      boothFlow.sessionId ?? undefined
     );
   }
 
@@ -500,7 +500,8 @@
           <button
             onpointerdown={(e) => {
               e.preventDefault();
-              handleSend();
+              if (activeKbTarget === 'email') handleSendEmail();
+              else handleSendWA();
             }}
             class="rounded-lg flex items-center justify-center font-black bg-[#FFC107] text-black text-xs border-none cursor-pointer"
             style="height: 46px; flex: 0 0 13%;"

@@ -171,13 +171,31 @@ class UIConfigStore {
       }
 
       const localAssetsRaw = localStorage.getItem(`potohub.ui-customize-local.${this.boothId}`) || localStorage.getItem(`potohub.ui-customize-local.default`);
+      let localTutorialImg = '';
       if (localAssetsRaw) {
         try {
-          const localAssets = JSON.parse(localAssetsRaw);
-          if (localAssets?.tutorialImageUrl && !parsedCfg.tutorialImageUrl) {
-            parsedCfg.tutorialImageUrl = localAssets.tutorialImageUrl;
+          localTutorialImg = JSON.parse(localAssetsRaw)?.tutorialImageUrl || '';
+        } catch {}
+      }
+      if (!localTutorialImg) {
+        try {
+          for (let i = 0; i < localStorage.length; i++) {
+            const k = localStorage.key(i);
+            if (k && k.startsWith('potohub.ui-customize-local.')) {
+              const item = localStorage.getItem(k);
+              if (item) {
+                const parsed = JSON.parse(item);
+                if (parsed?.tutorialImageUrl) {
+                  localTutorialImg = parsed.tutorialImageUrl;
+                  break;
+                }
+              }
+            }
           }
         } catch {}
+      }
+      if (localTutorialImg && !parsedCfg.tutorialImageUrl) {
+        parsedCfg.tutorialImageUrl = localTutorialImg;
       }
 
       this.config = { ...DEFAULT_UI_CONFIG, ...parsedCfg };

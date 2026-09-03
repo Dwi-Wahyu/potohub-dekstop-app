@@ -137,7 +137,7 @@
         activeKbTarget = null;
         kbOpen = false;
       },
-      boothFlow.sessionId
+      boothFlow.sessionId ?? undefined
     );
   }
 
@@ -155,7 +155,7 @@
         activeKbTarget = null;
         kbOpen = false;
       },
-      boothFlow.sessionId
+      boothFlow.sessionId ?? undefined
     );
   }
 
@@ -525,7 +525,8 @@
         <button
           onpointerdown={(e) => {
             e.preventDefault();
-            handleSend();
+            if (activeKbTarget === 'email') handleSendEmail();
+            else handleSendWA();
           }}
           class="rounded-lg flex items-center justify-center font-black border-[2px] border-black bg-black text-white cursor-pointer font-['Nunito',sans-serif]"
           style="height: 46px; flex: 0 0 13%; font-size: 13px; box-shadow: 2px 2px 0 0 rgba(0,0,0,0.35);"

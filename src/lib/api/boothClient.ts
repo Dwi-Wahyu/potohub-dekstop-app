@@ -23,6 +23,8 @@ export interface PublicUIConfigResponse {
     booth_name: string;
     tagline: string | null;
     show_step_indicator: boolean;
+    tutorial_asset_id?: string | null;
+    tutorial_image_url?: string | null;
   };
   text_styles: Array<{
     element_key: string;
@@ -87,12 +89,18 @@ function mapTextStyle(
 function mapPublicConfigToBoothUIConfig(
   data: PublicUIConfigResponse,
 ): Partial<BoothUIConfig> {
+  const tutorialImg =
+    data.general.tutorial_image_url ||
+    data.general.tutorial_asset_id ||
+    uiConfig.config.tutorialImageUrl ||
+    "";
   return {
     boothName: data.general.booth_name,
     tagline: data.general.tagline ?? "",
     showStepIndicator: data.general.show_step_indicator ?? true,
     templateVariant: data.template_variant,
     primaryColor: DEFAULT_UI_CONFIG.primaryColor,
+    tutorialImageUrl: tutorialImg,
     boothNameStyle: mapTextStyle(
       data.text_styles,
       "booth_name",

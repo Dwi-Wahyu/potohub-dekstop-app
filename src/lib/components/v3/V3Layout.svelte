@@ -14,6 +14,12 @@
   import V3Loading from './V3Loading.svelte';
   import V3Download from './V3Download.svelte';
 
+  interface Props {
+    customTutorialImg?: string;
+  }
+
+  let { customTutorialImg }: Props = $props();
+
   type V3Step =
     | 'start'
     | 'tutorial'
@@ -93,7 +99,7 @@
   {#if step === 'start'}
     <V3Start background={getV3Bg('start')} onStart={handleStart} onOpenConfig={handleOpenConfig} />
   {:else if step === 'tutorial'}
-    <V3Tutorial background={getV3Bg('tutorial')} onNext={handleTutorialNext} onBack={() => (step = 'start')} />
+    <V3Tutorial background={getV3Bg('tutorial')} {customTutorialImg} onNext={handleTutorialNext} onBack={() => (step = 'start')} />
   {:else if step === 'package'}
     <V3Package background={getV3Bg('package')} onSelectPackage={handleSelectPackage} onSelectMethod={handlePaymentSelectMethod} onBack={() => (step = 'tutorial')} />
   {:else if step === 'payment'}

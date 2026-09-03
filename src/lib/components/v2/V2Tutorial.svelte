@@ -7,9 +7,10 @@
     onNext: () => void;
     onBack: () => void;
     background?: string;
+    customTutorialImg?: string;
   }
 
-  let { onNext, onBack, background }: Props = $props();
+  let { onNext, onBack, background, customTutorialImg }: Props = $props();
 
   let secs = $state(60);
   let timer: any = null;
@@ -34,18 +35,33 @@
   const DEFAULT_BG = '#fafafa';
   let effectiveBg = $derived(background ?? uiConfig.getStepStyle('tutorial').background ?? DEFAULT_BG);
 
-  let tutorialImg = $derived(
-    uiConfig.config.tutorialImageUrl ||
-      (() => {
-        try {
-          const raw =
-            localStorage.getItem(`potohub.ui-customize-local.${uiConfig.boothId}`) ||
-            localStorage.getItem(`potohub.ui-customize-local.default`);
-          return raw ? JSON.parse(raw)?.tutorialImageUrl || '' : '';
-        } catch {
-          return '';
+  function getLocalTutorialImage(boothId: string): string {
+    try {
+      const direct =
+        localStorage.getItem(`potohub.ui-customize-local.${boothId}`) ||
+        localStorage.getItem(`potohub.ui-customize-local.default`);
+      if (direct) {
+        const parsed = JSON.parse(direct);
+        if (parsed?.tutorialImageUrl) return parsed.tutorialImageUrl;
+      }
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && key.startsWith('potohub.ui-customize-local.')) {
+          const item = localStorage.getItem(key);
+          if (item) {
+            const parsed = JSON.parse(item);
+            if (parsed?.tutorialImageUrl) return parsed.tutorialImageUrl;
+          }
         }
-      })()
+      }
+    } catch {}
+    return '';
+  }
+
+  let tutorialImg = $derived(
+    customTutorialImg ||
+      uiConfig.config.tutorialImageUrl ||
+      getLocalTutorialImage(uiConfig.boothId)
   );
 </script>
 

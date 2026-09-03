@@ -129,7 +129,7 @@
         activeKbTarget = null;
         kbOpen = false;
       },
-      boothFlow.sessionId
+      boothFlow.sessionId ?? undefined
     );
   }
 
@@ -142,7 +142,7 @@
         activeKbTarget = null;
         kbOpen = false;
       },
-      boothFlow.sessionId
+      boothFlow.sessionId ?? undefined
     );
   }
 

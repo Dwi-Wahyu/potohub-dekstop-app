@@ -48,12 +48,6 @@
   class="w-full h-full overflow-hidden flex flex-col relative font-['Plus_Jakarta_Sans',sans-serif] text-[#e6e1e5]"
   style:background={effectiveBg}
 >
-  <!-- Watermark -->
-  <div class="absolute inset-0 flex items-center justify-center pointer-events-none select-none z-0">
-    <span class="font-['Plus_Jakarta_Sans',sans-serif] font-black text-[clamp(180px,22vw,380px)] text-white/[0.028] tracking-[-0.04em] whitespace-nowrap leading-none">
-      {uiConfig.config.boothName}
-    </span>
-  </div>
 
   <div class="relative z-10 flex flex-col h-full text-[#e6e1e5]">
     <!-- Header -->
@@ -175,18 +169,13 @@
 
     <!-- Footer -->
     <footer class="shrink-0 flex flex-col items-center gap-4 px-12 pb-8">
-      <div class="flex items-center gap-2.5 text-sm text-[#e6e1e5]/70 font-medium">
-        <span class="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping"></span>
-        <span>Menunggu pembayaran (Simulasi)...</span>
-      </div>
-
       <!-- TODO: integrasikan ke API pembayaran setelah gap backend selesai -->
       <button
         onclick={simulatePayment}
         disabled={paid}
         class="bg-transparent border border-white/15 text-white/40 px-6 py-2 rounded-full text-xs font-medium cursor-pointer hover:border-white/35 hover:text-white/70 disabled:cursor-default"
       >
-        Simulasi Pembayaran Berhasil (Local State)
+        Simulasi Pembayaran Berhasil
       </button>
     </footer>
   </div>

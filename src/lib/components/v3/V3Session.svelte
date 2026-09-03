@@ -8,6 +8,7 @@
   import { formatTime } from '$lib/utils/shared';
   import { fetchTemplates, requireActiveBoothId, type BoothTemplate } from '$lib/api/boothClient';
   import { cachedFetch } from '$lib/utils/offlineCache';
+  import { getSortedPhotoSlots } from '$lib/utils/templateComposite';
   import { Check, Sparkles, ChevronRight } from '@lucide/svelte';
 
   interface Props {
@@ -20,7 +21,7 @@
   let { selectedFrame, onComplete, onBack, background }: Props = $props();
 
   let selectedTemplate = $state<BoothTemplate | null>(null);
-  let photoSlots = $derived(selectedTemplate?.design_data?.filter((l) => !l.isBackground && !l.isQr) ?? []);
+  let photoSlots = $derived(getSortedPhotoSlots(selectedTemplate?.design_data));
   let totalPhotos = $derived(photoSlots.length > 0 ? photoSlots.length : 3);
   let bgLayer = $derived(selectedTemplate?.design_data?.find((l) => l.isBackground));
   let bgUrl = $derived(bgLayer?.imageUrl || selectedTemplate?.frame_image_url || '');
@@ -272,7 +273,10 @@
       <div class="absolute bottom-6 left-6 w-8 h-8 border-b-4 border-l-4 border-white/30 rounded-bl-lg pointer-events-none"></div>
       <div class="absolute bottom-6 right-6 w-8 h-8 border-b-4 border-r-4 border-white/30 rounded-br-lg pointer-events-none"></div>
 
-      <div class="w-full max-w-[680px] aspect-[4/3] rounded-2xl overflow-hidden shadow-2xl bg-[#111827] relative flex items-center justify-center border-4 border-[#FFC107]">
+      <div class="w-full max-w-[720px] aspect-video rounded-2xl overflow-hidden shadow-2xl bg-[#111827] relative flex items-center justify-center border-4 border-[#FFC107]">
+        {#if boothFlow.isFlashActive}
+          <div class="absolute inset-0 bg-white z-40 pointer-events-none transition-opacity duration-150"></div>
+        {/if}
         <!-- Corner markers -->
         {#each ['top-2 left-2', 'top-2 right-2', 'bottom-2 left-2', 'bottom-2 right-2'] as pos}
           <div class={`absolute ${pos} w-5 h-5 border-2 border-[#FFC107] rounded-sm pointer-events-none z-10`}></div>
@@ -328,7 +332,3 @@
     </div>
   </div>
 </div>
-
-{#if boothFlow.isFlashActive}
-  <div class="fixed inset-0 bg-white z-[9999] pointer-events-none transition-opacity duration-150"></div>
-{/if}

@@ -7,6 +7,7 @@
     ChevronDown,
     CheckCircle2
   } from '@lucide/svelte';
+  import { goto } from '$app/navigation';
   import { boothConfig, type BoothCfg } from '$lib/stores/boothConfig.svelte';
   import { uiConfig } from '$lib/stores/uiConfig.svelte';
   import { syncBoothSettings } from '$lib/api/boothClient';
@@ -22,6 +23,7 @@
   let syncStatus = $state<string | null>(null);
   let lastSyncedAt = $state<string | null>(null);
   let boothName = $state<string | null>(null);
+  let fallbackMode = $state<'demo' | null>(null);
 
   const NEU_BG = '#ebf0f7';
   const NEU_PRIMARY = '#2a2873';
@@ -67,20 +69,27 @@
     }, 3000);
   }
 
-  // Isi nama device dari konfigurasi lokal yang sudah dimuat saat aplikasi
-  // start, lalu auto-sync sekali saat halaman dibuka — sehingga booth name &
-  // waktu sinkron terakhir langsung terisi tanpa harus klik tombol Sync dulu.
+  async function handleConnectDetected() {
+    fallbackMode = null;
+    await update('cameraMode', 'usb');
+  }
+
+  async function handleUseFallback(mode: 'demo') {
+    fallbackMode = mode;
+    await update('cameraMode', mode);
+  }
+
+  function handleOpenManualSettings() {
+    goto('/camera-manual-settings');
+  }
+
   onMount(() => {
     boothName = uiConfig.config.boothName || boothName;
     void handleSync();
+    void cameraStore.detect();
   });
 
   const ROTATE_OPTS = ['0° (Default)', '90° CW', '180°', '90° CCW'];
-  const CAMERA_MODES: Array<{ value: 'usb' | 'webcam' | 'demo'; label: string }> = [
-    { value: 'usb', label: 'USB (DSLR / CCAPI / gPhoto2)' },
-    { value: 'webcam', label: 'Webcam (Laptop / USB Cam)' },
-    { value: 'demo', label: 'Demo Mode (Simulasi)' }
-  ];
 </script>
 
 <div class="w-screen h-screen overflow-hidden">
@@ -459,37 +468,81 @@
               gap: 14px;
             "
           >
-            <!-- Mode Kamera Baru (§1 Poin 3) -->
-            <div style="display: flex; flex-direction: column; gap: 5px;">
-              <h1 style="font-size: 10px; font-weight: 700; color: #334155; text-transform: uppercase; letter-spacing: 0.06em;">
-                Mode Hardware Kamera
-              </h1>
-              <div style="position: relative;">
-                <select
-                  value={boothConfig.config.cameraMode}
-                  onchange={(e) => update('cameraMode', e.currentTarget.value as 'usb' | 'webcam' | 'demo')}
+            <!-- Mode Kamera: auto-detect via libgphoto2, bukan pilihan manual -->
+            <div style="display: flex; flex-direction: column; gap: 8px;">
+              <div style="display: flex; align-items: center; justify-content: space-between;">
+                <h1 style="font-size: 10px; font-weight: 700; color: #334155; text-transform: uppercase; letter-spacing: 0.06em; margin: 0;">
+                  Kamera Terdeteksi
+                </h1>
+                <button
+                  type="button"
+                  onclick={() => cameraStore.detect()}
+                  disabled={cameraStore.isDetecting}
                   style="
-                    width: 100%;
-                    appearance: none;
-                    background: {NEU_BG};
-                    box-shadow: {neuCfg.inset};
-                    border-radius: 12px;
-                    padding: 10px 36px 10px 14px;
-                    border: none;
-                    outline: none;
-                    font-size: 12px;
+                    font-size: 10px;
                     font-weight: 600;
                     color: #2a2873;
-                    font-family: 'Poppins',sans-serif;
+                    background: {NEU_BG};
+                    box-shadow: {neuCfg.btnSm};
+                    border: none;
+                    border-radius: 8px;
+                    padding: 4px 10px;
                     cursor: pointer;
                   "
                 >
-                  {#each CAMERA_MODES as m}
-                    <option value={m.value}>{m.label}</option>
-                  {/each}
-                </select>
-                <ChevronDown size={14} color="#94a3b8" style="position: absolute; right: 12px; top: 50%; transform: translateY(-50%); pointer-events: none;" />
+                  {cameraStore.isDetecting ? 'Mendeteksi...' : 'Refresh'}
+                </button>
               </div>
+
+              {#if cameraStore.detectedCameras.length > 0}
+                <!-- Kamera USB ketemu: tampilkan nama model langsung, seperti `gphoto2 --auto-detect` -->
+                <div style="background: {NEU_BG}; box-shadow: {neuCfg.inset}; border-radius: 12px; padding: 10px 14px; display: flex; flex-direction: column; gap: 4px;">
+                  <span style="font-size: 12px; font-weight: 700; color: #16a34a;">
+                    {cameraStore.detectedCameras[0].model}
+                  </span>
+                  <span style="font-size: 10px; color: #94a3b8; font-family: monospace;">
+                    {cameraStore.detectedCameras[0].port}
+                  </span>
+                </div>
+
+                {#if boothConfig.config.cameraMode === 'usb' && cameraStore.status === 'connected'}
+                  <div style="display: flex; align-items: center; gap: 8px;">
+                    <span style="font-size: 11px; color: #16a34a; flex: 1;">Kamera aktif & terhubung</span>
+                    <button
+                      type="button"
+                      onclick={handleOpenManualSettings}
+                      style="
+                        font-size: 11px; font-weight: 700; color: white;
+                        background: linear-gradient(135deg, #3d3aa0, {NEU_PRIMARY});
+                        border: none; border-radius: 10px; padding: 8px 14px; cursor: pointer;
+                      "
+                    >
+                      Atur ISO / Shutter / F
+                    </button>
+                  </div>
+                {:else}
+                  <button
+                    type="button"
+                    onclick={handleConnectDetected}
+                    disabled={cameraStore.status === 'connecting'}
+                    style="
+                      font-size: 12px; font-weight: 700; color: white;
+                      background: linear-gradient(135deg, #3d3aa0, {NEU_PRIMARY});
+                      border: none; border-radius: 12px; padding: 10px 14px; cursor: pointer;
+                    "
+                  >
+                    {cameraStore.status === 'connecting' ? 'Menghubungkan...' : 'Hubungkan Kamera Ini'}
+                  </button>
+                {/if}
+              {:else}
+                <!-- Tidak ada DSLR terdeteksi via USB -->
+                <p style="font-size: 11px" class="text-gray-400">
+                  {cameraStore.isDetecting ? 'Mencari kamera via USB…' : 'Tidak ada kamera terdeteksi.'}
+                </p>
+                {#if cameraStore.detectError}
+                  <p style="font-size: 10px; color: #dc2626; margin: 0;">{cameraStore.detectError}</p>
+                {/if}
+              {/if}
             </div>
 
             <div style="height: 1px; background: rgba(200,210,224,0.7);"></div>

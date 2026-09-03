@@ -149,3 +149,53 @@ export async function setAssetCacheMeta(
     console.warn("Failed to write asset_cache:", e);
   }
 }
+
+// ============================================================================
+// CAMERA PRESET (SQLite `camera_presets`) — ISO/Tv/Av tersimpan per model kamera
+// ============================================================================
+
+export interface CameraPreset {
+  model: string;
+  iso: string;
+  shutterSpeed: string;
+  aperture: string;
+  updatedAt: string;
+}
+
+export async function saveCameraPreset(
+  model: string,
+  iso: string,
+  shutterSpeed: string,
+  aperture: string,
+): Promise<void> {
+  const conn = await db();
+  await conn.execute(
+    `INSERT INTO camera_presets (model, iso, shutter_speed, aperture, updated_at)
+     VALUES ($1, $2, $3, $4, $5)
+     ON CONFLICT (model) DO UPDATE SET
+       iso = $2, shutter_speed = $3, aperture = $4, updated_at = $5`,
+    [model, iso, shutterSpeed, aperture, new Date().toISOString()],
+  );
+}
+
+export async function getCameraPreset(model: string): Promise<CameraPreset | null> {
+  try {
+    const conn = await db();
+    const rows = await conn.select<any[]>(
+      "SELECT * FROM camera_presets WHERE model = $1",
+      [model],
+    );
+    if (!rows.length) return null;
+    const r = rows[0];
+    return {
+      model: r.model,
+      iso: r.iso,
+      shutterSpeed: r.shutter_speed,
+      aperture: r.aperture,
+      updatedAt: r.updated_at,
+    };
+  } catch (e) {
+    console.warn("Gagal membaca camera_presets:", e);
+    return null;
+  }
+}

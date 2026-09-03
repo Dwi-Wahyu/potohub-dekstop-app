@@ -1,8 +1,38 @@
 import type { BoothTemplate } from '$lib/api/boothClient';
 import { boothFlow } from '$lib/stores/booth.svelte';
 import type { Sticker } from '$lib/utils/stickers';
+import { resolveFilterCss } from '$lib/utils/filters';
 import { invoke } from '@tauri-apps/api/core';
 import QRCode from 'qrcode';
+
+export interface TemplateDesignLayer {
+  id?: number;
+  order?: number;
+  layer?: number;
+  isBackground?: boolean;
+  isQr?: boolean;
+  x?: number;
+  y?: number;
+  [key: string]: unknown;
+}
+
+/**
+ * Mengurutkan layer foto (bukan background, bukan QR) berdasarkan atribut `order`
+ * yang di-assign admin di dashboard. Fallback ke `id` jika `order` tidak ada.
+ * SATU-SATUNYA sumber kebenaran untuk urutan pengisian foto ke slot template —
+ * jangan buat logic sorting duplikat di komponen lain, selalu import fungsi ini.
+ */
+export function getSortedPhotoSlots<T extends TemplateDesignLayer>(
+  designData: T[] | null | undefined
+): T[] {
+  return (designData || [])
+    .filter((l) => !l.isBackground && !l.isQr)
+    .sort((a, b) => {
+      const orderA = typeof a.order === 'number' ? a.order : typeof a.id === 'number' ? a.id : 0;
+      const orderB = typeof b.order === 'number' ? b.order : typeof b.id === 'number' ? b.id : 0;
+      return orderA - orderB;
+    });
+}
 
 async function loadImage(src: string): Promise<HTMLImageElement | null> {
   if (!src) return null;
@@ -100,13 +130,8 @@ export async function compositeTemplateImage(
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
   // Photo slots sorted strictly by capture order (order -> id -> 0)
-  const photoSlots = (template.design_data || [])
-    .filter((l) => !l.isBackground && !l.isQr)
-    .sort((a, b) => {
-      const orderA = typeof a.order === 'number' ? a.order : typeof a.id === 'number' ? a.id : 0;
-      const orderB = typeof b.order === 'number' ? b.order : typeof b.id === 'number' ? b.id : 0;
-      return orderA - orderB;
-    });
+  const photoSlots = getSortedPhotoSlots(template.design_data);
+  const effectiveFilter = resolveFilterCss(filterCss);
 
   // Draw layers in ascending order of z-index / layer number (bottommost to topmost)
   const layersInDrawOrder = [...(template.design_data || [])].sort((a, b) => {
@@ -165,8 +190,8 @@ export async function compositeTemplateImage(
       if (photoSrc) {
         const photoImg = await loadImage(photoSrc);
         if (photoImg) {
-          if (filterCss && filterCss !== 'none') {
-            ctx.filter = filterCss;
+          if (effectiveFilter && effectiveFilter !== 'none') {
+            ctx.filter = effectiveFilter;
           }
           drawCoverImage(ctx, photoImg, drawX, drawY, layerW, layerH);
           ctx.filter = 'none';

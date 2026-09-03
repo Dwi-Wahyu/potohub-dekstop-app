@@ -64,6 +64,12 @@ pub enum GphotoError {
     UnsupportedSetting(String),
     #[error("operasi kamera gagal: {0}")]
     Operation(String),
+    #[error("nilai '{value}' tidak valid untuk pengaturan '{key}'. Pilihan valid dari kamera ini: {valid}")]
+    InvalidChoice {
+        key: String,
+        value: String,
+        valid: String,
+    },
 }
 
 impl From<gphoto2::Error> for GphotoError {
@@ -76,6 +82,28 @@ impl From<gphoto2::Error> for GphotoError {
 pub struct DeviceInfo {
     pub manufacturer: Option<String>,
     pub productname: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct DetectedCamera {
+    pub model: String,
+    pub port: String,
+}
+
+/// Non-invasive: hanya me-list kamera yang terpasang (setara `gphoto2 --auto-detect`),
+/// TIDAK membuka sesi/koneksi ke kamera. Aman dipanggil kapan saja.
+pub async fn detect() -> Result<Vec<DetectedCamera>, GphotoError> {
+    let context = Context::new().map_err(|e| GphotoError::Connection(e.to_string()))?;
+    let cameras = context
+        .list_cameras()
+        .wait()
+        .map_err(|e| GphotoError::Connection(e.to_string()))?
+        .map(|desc| DetectedCamera {
+            model: desc.model,
+            port: desc.port,
+        })
+        .collect();
+    Ok(cameras)
 }
 
 pub async fn connect() -> Result<(Camera, DeviceInfo), GphotoError> {
@@ -148,6 +176,14 @@ pub async fn set_setting(
 
     match &widget {
         Widget::Radio(radio) => {
+            let valid_choices: Vec<String> = radio.choices_iter().collect();
+            if !valid_choices.iter().any(|c| c == value) {
+                return Err(GphotoError::InvalidChoice {
+                    key: frontend_key.to_string(),
+                    value: value.to_string(),
+                    valid: valid_choices.join(", "),
+                });
+            }
             radio
                 .set_choice(value)
                 .map_err(|e| GphotoError::Operation(e.to_string()))?;
@@ -173,13 +209,24 @@ pub async fn set_setting(
                 .map_err(|e| GphotoError::Operation(e.to_string()))?;
         }
         Widget::Range(range) => {
-            if let Ok(float_val) = value.parse::<f32>() {
-                range.set_value(float_val);
-                camera
-                    .set_config(range)
-                    .wait()
-                    .map_err(|e| GphotoError::Operation(e.to_string()))?;
+            let parsed = value
+                .parse::<f32>()
+                .map_err(|_| GphotoError::Operation(format!("nilai '{value}' bukan angka valid")))?;
+            let (range_bounds, _step) = range.range_and_step();
+            let min = *range_bounds.start();
+            let max = *range_bounds.end();
+            if parsed < min || parsed > max {
+                return Err(GphotoError::InvalidChoice {
+                    key: frontend_key.to_string(),
+                    value: value.to_string(),
+                    valid: format!("{min} sampai {max}"),
+                });
             }
+            range.set_value(parsed);
+            camera
+                .set_config(range)
+                .wait()
+                .map_err(|e| GphotoError::Operation(e.to_string()))?;
         }
         _ => return Err(GphotoError::UnsupportedSetting(key.to_string())),
     }
@@ -187,21 +234,22 @@ pub async fn set_setting(
     Ok(())
 }
 
-pub async fn trigger_popup_flash(camera: &Camera) {
-    if let Ok(toggle) = camera
-        .config_key::<gphoto2::widget::ToggleWidget>("popupflash")
-        .wait()
-    {
-        toggle.set_toggled(true);
-        let _ = camera.set_config(&toggle).wait();
-    }
-}
+// pub async fn trigger_popup_flash(camera: &Camera) {
+//     if let Ok(toggle) = camera
+//         .config_key::<gphoto2::widget::ToggleWidget>("popupflash")
+//         .wait()
+//     {
+//         toggle.set_toggled(true);
+//         let _ = camera.set_config(&toggle).wait();
+//     }
+// }
 
 pub async fn capture_photo(
     camera: &Camera,
     save_dir: &std::path::Path,
 ) -> Result<Vec<u8>, GphotoError> {
-    trigger_popup_flash(camera).await;
+    // Popup flash disabled per user request
+    // trigger_popup_flash(camera).await;
 
     let file_path = camera
         .capture_image()

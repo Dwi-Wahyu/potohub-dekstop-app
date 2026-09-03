@@ -213,7 +213,7 @@
   style:font-family="'Poppins', sans-serif"
 >
   <!-- Timer pill -->
-  <div class="absolute top-6 left-1/2 -translate-x-1/2 flex items-center gap-2 bg-white/10 backdrop-blur-sm text-white/80 rounded-full px-5 py-2.5 text-sm font-semibold border border-white/10 z-10">
+  <div class="absolute top-6 right-6 -translate-x-1/2 flex items-center gap-2 bg-white/10 backdrop-blur-sm text-white/80 rounded-full px-5 py-2.5 text-sm font-semibold border border-white/10 z-10">
     <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
       <circle cx="12" cy="12" r="10" /><path d="M12 6v6h4.5" stroke-linecap="round" />
     </svg>
@@ -242,11 +242,6 @@
               Memproses Foto...
             </div>
           {/if}
-        </div>
-        <div class="flex flex-col items-center gap-1.5 py-3 px-3 bg-[#111]">
-          <span class="text-white/80 text-[11px] font-black tracking-[0.25em] uppercase">
-            {uiConfig.config.boothName}
-          </span>
         </div>
       </div>
     </div>

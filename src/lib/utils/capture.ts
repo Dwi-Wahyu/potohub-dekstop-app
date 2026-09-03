@@ -17,11 +17,11 @@ export async function runCaptureSequence(
     boothFlow.countdown = null;
     const captureTs = Date.now(); // t=0 untuk window klip — SEBELUM shutter, seakurat mungkin
 
-    // Trigger visual screen flash effect
+    // Trigger visual screen flash effect - hold for 2 seconds (2000ms)
     boothFlow.isFlashActive = true;
     setTimeout(() => {
       boothFlow.isFlashActive = false;
-    }, 300);
+    }, 2000);
 
     try {
       const bytes = await cameraStore.capture();

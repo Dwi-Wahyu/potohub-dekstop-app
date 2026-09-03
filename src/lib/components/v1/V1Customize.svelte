@@ -9,6 +9,7 @@
   import { formatTime } from '$lib/utils/shared';
   import { fetchTemplates, fetchEmots, requireActiveBoothId, type BoothTemplate, type BoothEmot } from '$lib/api/boothClient';
   import { cachedFetch } from '$lib/utils/offlineCache';
+  import { getSortedPhotoSlots } from '$lib/utils/templateComposite';
 
   interface Props {
     photos: string[];
@@ -22,16 +23,7 @@
 
   let selectedTemplate = $state<BoothTemplate | null>(null);
   let emotsData = $state<BoothEmot[]>([]);
-  let photoSlots = $derived(
-    selectedTemplate?.design_data
-      ?.filter((l) => !l.isBackground && !l.isQr)
-      ?.slice()
-      ?.sort((a, b) => {
-        const orderA = typeof a.order === 'number' ? a.order : typeof a.id === 'number' ? a.id : 0;
-        const orderB = typeof b.order === 'number' ? b.order : typeof b.id === 'number' ? b.id : 0;
-        return orderA - orderB;
-      }) ?? []
-  );
+  let photoSlots = $derived(getSortedPhotoSlots(selectedTemplate?.design_data));
   let bgLayer = $derived(selectedTemplate?.design_data?.find((l) => l.isBackground));
   let bgUrl = $derived(bgLayer?.imageUrl || selectedTemplate?.frame_image_url || '');
 

@@ -8,6 +8,7 @@
   import { formatTime } from '$lib/utils/shared';
   import { fetchTemplates, requireActiveBoothId, type BoothTemplate } from '$lib/api/boothClient';
   import { cachedFetch } from '$lib/utils/offlineCache';
+  import { getSortedPhotoSlots } from '$lib/utils/templateComposite';
 
   interface Props {
     onComplete: (photos: string[]) => void;
@@ -19,7 +20,7 @@
   let { onComplete, onBack, frameConfigId = '', background }: Props = $props();
 
   let selectedTemplate = $state<BoothTemplate | null>(null);
-  let photoSlots = $derived(selectedTemplate?.design_data?.filter((l) => !l.isBackground && !l.isQr) ?? []);
+  let photoSlots = $derived(getSortedPhotoSlots(selectedTemplate?.design_data));
   let totalPhotos = $derived(photoSlots.length > 0 ? photoSlots.length : 4);
   let bgLayer = $derived(selectedTemplate?.design_data?.find((l) => l.isBackground));
   let bgUrl = $derived(bgLayer?.imageUrl || selectedTemplate?.frame_image_url || '');
@@ -117,15 +118,19 @@
 >
 
   <div class="relative z-10 flex flex-row items-center justify-center w-full box-border gap-[clamp(40px,4.5vw,88px)] px-[clamp(40px,5vw,100px)] py-6">
-    <!-- Viewfinder card -->
+    <!-- Viewfinder card (16:9 ratio) -->
     <div
-      class="shrink-0 rounded-[26px] overflow-hidden relative bg-[#0a0910]"
+      class="shrink-0 rounded-[26px] overflow-hidden relative bg-[#0a0910] aspect-video"
       style="
-        width: calc((100vh - 48px) * 0.75);
+        width: calc((100vh - 48px) * (16 / 9));
+        max-width: 58vw;
         height: calc(100vh - 48px);
         box-shadow: 0 0 0 1px rgba(255,255,255,0.06), 0 64px 140px rgba(0,0,0,0.95);
       "
     >
+      {#if boothFlow.isFlashActive}
+        <div class="absolute inset-0 bg-white z-40 pointer-events-none transition-opacity duration-150"></div>
+      {/if}
       {#if cameraStore.isLiveviewActive}
         {#if cameraStore.cameraMode === 'webcam'}
           <video
@@ -158,7 +163,7 @@
         </div>
       {/if}
 
-      {#if isRunning}
+      <!-- {#if isRunning}
         <div class="absolute top-5 left-1/2 -translate-x-1/2 flex items-center gap-2 bg-[#06060a]/80 backdrop-blur-md border border-red-500/30 px-[18px] py-2 rounded-full z-20">
           <span class="w-[7px] h-[7px] rounded-full bg-red-500 inline-block animate-pulse"></span>
           <span class="text-[11px] font-extrabold text-white tracking-[0.15em]">REKAM</span>
@@ -167,7 +172,7 @@
         <div class="absolute bottom-[116px] left-1/2 -translate-x-1/2 bg-[#06060a]/75 backdrop-blur-md border border-white/10 px-[22px] py-[7px] rounded-full text-[13px] text-white/75 font-semibold z-20">
           Foto {boothFlow.photosTaken.length + 1} dari {totalPhotos}
         </div>
-      {/if}
+      {/if} -->
 
       {#if boothFlow.countdown !== null && boothFlow.countdown > 0}
         <div class="absolute inset-0 flex items-center justify-center pointer-events-none z-30">
@@ -316,7 +321,3 @@
     </div>
   </div>
 </div>
-
-{#if boothFlow.isFlashActive}
-  <div class="fixed inset-0 bg-white z-[9999] pointer-events-none transition-opacity duration-150"></div>
-{/if}

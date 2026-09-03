@@ -224,6 +224,9 @@
         <div class="flex-1 overflow-y-auto p-3 flex flex-col gap-2.5">
           {#each categoriesData as cat}
             {@const sel = cat.id === categoryId}
+            {@const firstTemplate = templatesData.find((t) => t.category_id === cat.id)}
+            {@const bgLayer = firstTemplate?.design_data?.find((l) => l.isBackground)}
+            {@const catImg = cat.banner_url || (cat as any).image_url || (cat as any).icon_url || firstTemplate?.preview_image_url || firstTemplate?.frame_image_url || bgLayer?.imageUrl}
             <button
               onclick={() => {
                 categoryId = cat.id;
@@ -244,11 +247,18 @@
                 border: 1.5px solid {sel ? uiConfig.config.primaryColor : 'transparent'};
               "
             >
-              <div class="w-[52px] h-[52px] rounded-xl shrink-0 flex items-center justify-center overflow-hidden bg-[#313135]">
-                <svg width="48" height="48" viewBox="0 0 48 48" fill="none" class="text-slate-400">
-                  <circle cx="24" cy="20" r="8" fill="currentColor" />
-                  <path d="M12 40 C12 30 36 30 36 40" fill="currentColor" />
-                </svg>
+              <div class="w-[52px] h-[52px] rounded-xl shrink-0 flex items-center justify-center overflow-hidden bg-[#313135] relative border border-white/10">
+                {#if catImg}
+                  <img
+                    src={catImg}
+                    alt={cat.name}
+                    class="w-full h-full object-cover block"
+                  />
+                {:else}
+                  <div class="w-full h-full flex items-center justify-center bg-gradient-to-br from-indigo-500/20 to-purple-500/20 text-white/70 font-bold text-lg uppercase">
+                    {cat.name.charAt(0)}
+                  </div>
+                {/if}
               </div>
               <div>
                 <div class="text-sm font-bold" style="color: {sel ? uiConfig.config.primaryColor : '#f0edf8'}">

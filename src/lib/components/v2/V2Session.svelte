@@ -8,6 +8,7 @@
   import { formatTime } from '$lib/utils/shared';
   import { fetchTemplates, requireActiveBoothId, type BoothTemplate } from '$lib/api/boothClient';
   import { cachedFetch } from '$lib/utils/offlineCache';
+  import { getSortedPhotoSlots } from '$lib/utils/templateComposite';
   import { QrCode, Camera, RefreshCw, ArrowRight } from '@lucide/svelte';
 
   interface Props {
@@ -20,7 +21,7 @@
   let { selectedFrame, onComplete, onBack, background }: Props = $props();
 
   let selectedTemplate = $state<BoothTemplate | null>(null);
-  let photoSlots = $derived(selectedTemplate?.design_data?.filter((l) => !l.isBackground && !l.isQr) ?? []);
+  let photoSlots = $derived(getSortedPhotoSlots(selectedTemplate?.design_data));
   let totalPhotos = $derived(photoSlots.length > 0 ? photoSlots.length : 4);
   let bgLayer = $derived(selectedTemplate?.design_data?.find((l) => l.isBackground));
   let bgUrl = $derived(bgLayer?.imageUrl || selectedTemplate?.frame_image_url || '');
@@ -179,9 +180,12 @@
     <div
       class="flex-[0_0_70%] h-full bg-black rounded-3xl border-[3px] border-black flex items-center justify-center relative overflow-hidden shadow-sm"
     >
-      <!-- Dashed mockup guide -->
+      {#if boothFlow.isFlashActive}
+        <div class="absolute inset-0 bg-white z-40 pointer-events-none transition-opacity duration-150"></div>
+      {/if}
+      <!-- Dashed mockup guide (16:9 ratio) -->
       <div
-        class="w-[50%] aspect-[3/4] border-2 border-dashed border-white/40 rounded-[32px] pointer-events-none z-10"
+        class="w-[60%] aspect-video border-2 border-dashed border-white/40 rounded-[32px] pointer-events-none z-10"
       ></div>
 
       {#if cameraStore.isLiveviewActive}
@@ -362,7 +366,3 @@
     </div>
   </div>
 </div>
-
-{#if boothFlow.isFlashActive}
-  <div class="fixed inset-0 bg-white z-[9999] pointer-events-none transition-opacity duration-150"></div>
-{/if}

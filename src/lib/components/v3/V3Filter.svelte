@@ -6,6 +6,7 @@
   import StickerCanvas from '$lib/components/shared/StickerCanvas.svelte';
   import { fetchEmots, fetchTemplates, requireActiveBoothId, type BoothEmot, type BoothTemplate } from '$lib/api/boothClient';
   import { cachedFetch } from '$lib/utils/offlineCache';
+  import { getSortedPhotoSlots } from '$lib/utils/templateComposite';
   import { Check, Sparkles } from '@lucide/svelte';
   import type { Sticker, StickerType } from '$lib/utils/stickers';
 
@@ -23,16 +24,7 @@
   let selectedFilter = $state('none');
   let emotsData = $state<BoothEmot[]>([]);
   let selectedTemplate = $state<BoothTemplate | null>(null);
-  let photoSlots = $derived(
-    selectedTemplate?.design_data
-      ?.filter((l) => !l.isBackground && !l.isQr)
-      ?.slice()
-      ?.sort((a, b) => {
-        const orderA = typeof a.order === 'number' ? a.order : typeof a.id === 'number' ? a.id : 0;
-        const orderB = typeof b.order === 'number' ? b.order : typeof b.id === 'number' ? b.id : 0;
-        return orderA - orderB;
-      }) ?? []
-  );
+  let photoSlots = $derived(getSortedPhotoSlots(selectedTemplate?.design_data));
   let bgLayer = $derived(selectedTemplate?.design_data?.find((l) => l.isBackground));
   let bgUrl = $derived(bgLayer?.imageUrl || selectedTemplate?.frame_image_url || '');
 

@@ -25,6 +25,11 @@ async fn connect_camera(state: State<'_, AppState>) -> Result<DeviceInfo, Gphoto
 }
 
 #[tauri::command]
+async fn detect_camera() -> Result<Vec<gphoto::DetectedCamera>, GphotoError> {
+    gphoto::detect().await
+}
+
+#[tauri::command]
 async fn disconnect_camera(state: State<'_, AppState>) -> Result<(), GphotoError> {
     *state.camera.lock().await = None;
     Ok(())
@@ -264,6 +269,18 @@ pub fn run() {
             sql: "ALTER TABLE booth_activation ADD COLUMN token TEXT;",
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 5,
+            description: "create camera_presets table",
+            sql: "CREATE TABLE IF NOT EXISTS camera_presets (
+                model TEXT PRIMARY KEY,
+                iso TEXT NOT NULL,
+                shutter_speed TEXT NOT NULL,
+                aperture TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );",
+            kind: MigrationKind::Up,
+        },
     ];
 
     tauri::Builder::default()
@@ -305,6 +322,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             connect_camera,
+            detect_camera,
             disconnect_camera,
             is_camera_connected,
             get_camera_setting,

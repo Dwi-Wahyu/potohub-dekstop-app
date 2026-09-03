@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { getCameraPreset } from "$lib/db/local";
 
 export type ConnectionStatus = "idle" | "connecting" | "connected" | "error";
 
@@ -7,12 +8,18 @@ export type DeviceInfo = {
   productname?: string;
 };
 
+export type DetectedCamera = { model: string; port: string };
+
 class CameraStore {
   status = $state<ConnectionStatus>("idle");
   errorMessage = $state<string | null>(null);
   device = $state<DeviceInfo | null>(null);
   cameraMode = $state<"usb" | "webcam" | "demo">("usb");
   cameraBaseUrl = $state<string>("http://192.168.1.100:8080");
+
+  detectedCameras = $state<DetectedCamera[]>([]);
+  isDetecting = $state(false);
+  detectError = $state<string | null>(null);
 
   isCapturing = $state(false);
   isLiveviewActive = $state(false);
@@ -23,6 +30,23 @@ class CameraStore {
   private clipChunks: { blob: Blob; timestamp: number }[] = [];
   private readonly RING_BUFFER_MS = 8000;
 
+  /**
+   * Deteksi kamera USB yang terpasang (setara `gphoto2 --auto-detect`).
+   * Non-invasive — tidak membuka sesi kamera, aman dipanggil berulang (mis. tombol Refresh).
+   */
+  async detect() {
+    this.isDetecting = true;
+    this.detectError = null;
+    try {
+      this.detectedCameras = await invoke<DetectedCamera[]>("detect_camera");
+    } catch (err) {
+      this.detectError = String(err);
+      this.detectedCameras = [];
+    } finally {
+      this.isDetecting = false;
+    }
+  }
+
   async connect(mode: "usb" | "webcam" | "demo" = "usb") {
     this.status = "connecting";
     this.errorMessage = null;
@@ -32,6 +56,16 @@ class CameraStore {
       try {
         this.device = await invoke<DeviceInfo>("connect_camera");
         this.status = "connected";
+
+        const model = this.device?.manufacturer ?? this.device?.productname;
+        if (model) {
+          const preset = await getCameraPreset(model);
+          if (preset) {
+            await this.setSetting("iso", preset.iso);
+            await this.setSetting("tv", preset.shutterSpeed);
+            await this.setSetting("av", preset.aperture);
+          }
+        }
       } catch (err) {
         this.status = "error";
         this.errorMessage = String(err);

@@ -1,0 +1,37 @@
+$ gphoto2 --get-config iso
+Label: ISO Speed
+Readonly: 0
+Type: RADIO
+Current: 400
+Choice: 0 Auto
+Choice: 1 100
+Choice: 2 200
+Choice: 3 400
+Choice: 4 800
+Choice: 5 1600
+Choice: 6 3200
+Choice: 7 6400
+END
+
+$ gphoto2 --get-config shutterspeed
+Label: Shutter Speed
+Readonly: 0
+Type: RADIO
+Current: 1/50
+Choice: 0 bulb
+Choice: 1 30
+Choice: 2 25
+...
+Choice: 52 1/4000
+END
+
+$ gphoto2 --get-config aperture
+Label: Aperture
+Readonly: 0
+Type: RADIO
+Current: 5
+Choice: 0 4.5
+Choice: 1 5
+...
+Choice: 16 29
+END

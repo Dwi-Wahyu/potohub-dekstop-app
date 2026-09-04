@@ -11,22 +11,47 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # 1. Install MSYS2, pkg-config, dan libgphoto2 untuk Windows
+      - name: Setup MSYS2
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            base-devel
+            mingw-w64-x86_64-toolchain
+            mingw-w64-x86_64-pkg-config
+            mingw-w64-x86_64-libgphoto2
+          path-type: inherit
+
       - name: Install pnpm
         uses: pnpm/action-setup@v4
         with:
-          version: 9 # Menggunakan pnpm versi 9 (terbaru)
+          version: 9
 
       - name: Install Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: 'pnpm' # Opsional: Mengaktifkan cache pnpm agar proses build selanjutnya lebih cepat
+          cache: 'pnpm'
 
-      - name: Install Rust
+      # 2. Rust harus menggunakan GNU (bukan MSVC bawaan Windows)
+      # agar bisa melakukan linking dengan library dari MSYS2
+      - name: Install Rust (GNU Toolchain)
         uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable-x86_64-pc-windows-gnu
+          targets: x86_64-pc-windows-gnu
+
+      - name: Inject Environment Variables
+        shell: bash
+        run: |
+          echo "R2_PUBLIC_URL=${{ secrets.R2_PUBLIC_URL }}" >> .env
+          echo "PUBLIC_API_BASE_URL=${{ secrets.PUBLIC_API_BASE_URL }}" >> .env
+          echo "ADMIN_DASHBOARD_URL=${{ secrets.ADMIN_DASHBOARD_URL }}" >> .env
 
       - name: Install frontend dependencies
-        run: pnpm install # Perintah diubah menjadi pnpm
+        run: pnpm install
 
       - name: Build Tauri App
         uses: tauri-apps/tauri-action@v0

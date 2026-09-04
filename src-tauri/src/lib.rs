@@ -323,19 +323,37 @@ pub fn run() {
             {
                 if let Ok(exe_path) = std::env::current_exe() {
                     if let Some(exe_dir) = exe_path.parent() {
-                        let camlibs = exe_dir.join("camlibs");
-                        let iolibs = exe_dir.join("iolibs");
+                        // Cek lokasi camlibs & iolibs (Production/Installed vs Dev Mode)
+                        let (camlibs, iolibs, dll_dir) = if exe_dir.join("camlibs").exists() {
+                            (exe_dir.join("camlibs"), exe_dir.join("iolibs"), exe_dir.to_path_buf())
+                        } else {
+                            // Fallback Dev Mode: cari folder src-tauri/gphoto-libs
+                            let dev_gphoto = exe_dir.join("../../gphoto-libs");
+                            if dev_gphoto.join("camlibs").exists() {
+                                (dev_gphoto.join("camlibs"), dev_gphoto.join("iolibs"), dev_gphoto)
+                            } else {
+                                let dev_gphoto2 = exe_dir.join("../../../gphoto-libs");
+                                if dev_gphoto2.join("camlibs").exists() {
+                                    (dev_gphoto2.join("camlibs"), dev_gphoto2.join("iolibs"), dev_gphoto2)
+                                } else {
+                                    (exe_dir.join("camlibs"), exe_dir.join("iolibs"), exe_dir.to_path_buf())
+                                }
+                            }
+                        };
 
-                        // Gunakan forward slash '/' agar libltdl (MinGW) membaca path dengan benar
-                        let camlibs_str = camlibs.to_string_lossy().replace('\\', "/");
-                        let iolibs_str = iolibs.to_string_lossy().replace('\\', "/");
+                        let camlibs_str = camlibs.canonicalize().unwrap_or(camlibs).to_string_lossy().replace('\\', "/");
+                        let iolibs_str = iolibs.canonicalize().unwrap_or(iolibs).to_string_lossy().replace('\\', "/");
 
-                        std::env::set_var("CAMLIBS", &camlibs_str);
-                        std::env::set_var("IOLIBS", &iolibs_str);
+                        // Clean UNC prefix (e.g. //?/C:/...) if added by canonicalize
+                        let camlibs_clean = camlibs_str.trim_start_matches("//?/").trim_start_matches("\\\\?\\").to_string();
+                        let iolibs_clean = iolibs_str.trim_start_matches("//?/").trim_start_matches("\\\\?\\").to_string();
+
+                        std::env::set_var("CAMLIBS", &camlibs_clean);
+                        std::env::set_var("IOLIBS", &iolibs_clean);
 
                         if let Some(current_path) = std::env::var_os("PATH") {
-                            let mut new_path = exe_dir.to_path_buf().into_os_string();
-                            new_path.push(";");
+                            let mut new_path = dll_dir.into_os_string();
+                            new_path.push(";C:\\msys64\\mingw64\\bin;");
                             new_path.push(current_path);
                             std::env::set_var("PATH", new_path);
                         }

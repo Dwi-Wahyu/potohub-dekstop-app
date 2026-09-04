@@ -339,8 +339,9 @@ pub fn run() {
                         };
 
                         let clean_path = |p: std::path::PathBuf| -> String {
-                            let s = p.to_string_lossy().to_string();
-                            s.replace("\\\\?\\", "").replace("//?/", "").replace('\\', "/")
+                            let resolved = p.canonicalize().unwrap_or(p);
+                            let s = resolved.to_string_lossy().to_string();
+                            s.trim_start_matches("//?/").trim_start_matches("\\\\?\\").replace('\\', "/")
                         };
 
                         let camlibs_str = clean_path(camlibs_path);

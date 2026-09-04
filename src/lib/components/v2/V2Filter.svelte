@@ -1,6 +1,9 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { boothFlow } from '$lib/stores/booth.svelte';
+  import { boothConfig } from '$lib/stores/boothConfig.svelte';
+  import { cameraStore } from '$lib/camera.svelte';
+  import { getLiveviewTransformStyle } from '$lib/utils/shared';
   import { uiConfig } from '$lib/stores/uiConfig.svelte';
   import StickerPicker from '$lib/components/shared/StickerPicker.svelte';
   import StickerCanvas from '$lib/components/shared/StickerCanvas.svelte';
@@ -235,6 +238,7 @@
                                   src={capturedPhoto}
                                   alt={`Photo ${targetIdx + 1}`}
                                   class={`w-full h-full object-cover block ${f.style}`}
+                                  style="transform: {getLiveviewTransformStyle(boothConfig.config, cameraStore.cameraMode)};"
                                 />
                               {/if}
                             </div>
@@ -296,6 +300,7 @@
                                   src={capturedPhoto}
                                   alt={`Photo ${targetIdx + 1}`}
                                   class={`w-full h-full object-cover block ${f.style}`}
+                                  style="transform: {getLiveviewTransformStyle(boothConfig.config, cameraStore.cameraMode)};"
                                 />
                               {/if}
                             </div>

@@ -2,6 +2,8 @@
   import { onDestroy, onMount } from "svelte";
   import { cameraStore } from "$lib/camera.svelte";
   import { printerStore } from "$lib/printer.svelte";
+  import { boothConfig } from "$lib/stores/boothConfig.svelte";
+  import { getLiveviewTransformStyle } from "$lib/utils/shared";
 
   let frameSrc = $state("");
   let videoEl = $state<HTMLVideoElement | null>(null);
@@ -73,7 +75,7 @@
           class="w-full h-full object-contain scale-x-[-1]"
         ></video>
       {:else if frameSrc}
-        <img src={frameSrc} alt="Live preview kamera" class="w-full h-full object-contain" />
+        <img src={frameSrc} alt="Live preview kamera" class="w-full h-full object-contain" style="transform: {getLiveviewTransformStyle(boothConfig.config, cameraStore.cameraMode)};" />
       {:else}
         <p class="text-neutral-500">Menunggu live view...</p>
       {/if}

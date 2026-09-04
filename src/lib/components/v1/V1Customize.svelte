@@ -6,7 +6,9 @@
   import StickerPicker from '$lib/components/shared/StickerPicker.svelte';
   import StickerCanvas from '$lib/components/shared/StickerCanvas.svelte';
   import type { Sticker, StickerType } from '$lib/utils/stickers';
-  import { formatTime } from '$lib/utils/shared';
+  import { cameraStore } from '$lib/camera.svelte';
+  import { boothConfig } from '$lib/stores/boothConfig.svelte';
+  import { formatTime, getLiveviewTransformStyle } from '$lib/utils/shared';
   import { fetchTemplates, fetchEmots, requireActiveBoothId, type BoothTemplate, type BoothEmot } from '$lib/api/boothClient';
   import { cachedFetch } from '$lib/utils/offlineCache';
   import { getSortedPhotoSlots } from '$lib/utils/templateComposite';
@@ -231,7 +233,7 @@
                               src={capturedPhoto}
                               alt={`Photo ${slotIdx + 1}`}
                               class="w-full h-full object-cover block"
-                              style="filter: {currentFilterCss === 'none' ? 'none' : currentFilterCss};"
+                              style="filter: {currentFilterCss === 'none' ? 'none' : currentFilterCss}; transform: {getLiveviewTransformStyle(boothConfig.config, cameraStore.cameraMode)};"
                             />
                           {:else}
                             <div class="w-full h-full flex items-center justify-center text-white/40 text-[9px]">

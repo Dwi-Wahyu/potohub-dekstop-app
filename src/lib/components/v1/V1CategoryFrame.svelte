@@ -2,7 +2,8 @@
   import { onMount, onDestroy } from 'svelte';
   import { uiConfig } from '$lib/stores/uiConfig.svelte';
   import { cameraStore } from '$lib/camera.svelte';
-  import { formatTime } from '$lib/utils/shared';
+  import { formatTime, getLiveviewTransformStyle } from '$lib/utils/shared';
+  import { boothConfig } from '$lib/stores/boothConfig.svelte';
   import { fetchCategories, fetchTemplates, requireActiveBoothId, type BoothCategory, type BoothTemplate } from '$lib/api/boothClient';
   import { cachedFetch } from '$lib/utils/offlineCache';
 
@@ -408,6 +409,7 @@
                                 src={frameSrc}
                                 alt="Live view"
                                 class="w-full h-full object-cover block"
+                                style="transform: {getLiveviewTransformStyle(boothConfig.config, cameraStore.cameraMode)};"
                               />
                             {:else}
                               <div class="w-full h-full flex items-center justify-center text-white/40 text-[10px] animate-pulse">

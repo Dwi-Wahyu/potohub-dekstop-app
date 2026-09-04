@@ -2,6 +2,8 @@
   import { onMount, onDestroy } from 'svelte';
   import { uiConfig } from '$lib/stores/uiConfig.svelte';
   import { cameraStore } from '$lib/camera.svelte';
+  import { boothConfig } from '$lib/stores/boothConfig.svelte';
+  import { getLiveviewTransformStyle } from '$lib/utils/shared';
   import { QrCode, Check } from '@lucide/svelte';
   import {
     fetchCategories,
@@ -291,7 +293,7 @@
                           style="transform: scaleX(-1);"
                         ></video>
                       {:else if frameSrc}
-                        <img src={frameSrc} alt="Live feed" class="w-full h-full object-cover block" />
+                        <img src={frameSrc} alt="Live feed" class="w-full h-full object-cover block" style="transform: {getLiveviewTransformStyle(boothConfig.config, cameraStore.cameraMode)};" />
                       {/if}
                     {:else}
                       <span class="text-sm font-bold text-black/30 font-['Nunito',sans-serif]">{i + 1}</span>

@@ -140,10 +140,7 @@ export function getLiveviewTransformStyle(
   if (config.mirrorOn) {
     parts.push('scaleX(-1)');
   }
-  // Canon DSLR USB liveview output from gphoto2 capture_preview is natively vertically inverted.
-  // In USB mode, scaleY(-1) is applied by default (when flipVertical is false), and flipVertical toggles it.
-  const applyVerticalFlip = cameraMode === 'usb' ? !config.flipVertical : !!config.flipVertical;
-  if (applyVerticalFlip) {
+  if (config.flipVertical) {
     parts.push('scaleY(-1)');
   }
   return parts.length > 0 ? parts.join(' ') : 'none';

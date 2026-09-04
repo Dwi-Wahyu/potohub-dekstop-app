@@ -1,5 +1,6 @@
 import type { BoothTemplate } from '$lib/api/boothClient';
 import { boothFlow } from '$lib/stores/booth.svelte';
+import { boothConfig } from '$lib/stores/boothConfig.svelte';
 import type { Sticker } from '$lib/utils/stickers';
 import { resolveFilterCss, applyFilterToCanvas } from '$lib/utils/filters';
 import { invoke } from '@tauri-apps/api/core';
@@ -197,6 +198,14 @@ export async function compositeTemplateImage(
           slotCanvas.height = slotH;
           const slotCtx = slotCanvas.getContext('2d');
           if (slotCtx) {
+            if (boothConfig.config.mirrorOn) {
+              slotCtx.translate(slotW, 0);
+              slotCtx.scale(-1, 1);
+            }
+            if (boothConfig.config.flipVertical) {
+              slotCtx.translate(0, slotH);
+              slotCtx.scale(1, -1);
+            }
             drawCoverImage(slotCtx, photoImg, 0, 0, slotW, slotH);
             if (effectiveFilter && effectiveFilter !== 'none') {
               try {

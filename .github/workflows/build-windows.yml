@@ -11,7 +11,6 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 1. Install MSYS2, pkg-config, dan libgphoto2 untuk Windows
       - name: Setup MSYS2
         uses: msys2/setup-msys2@v2
         with:
@@ -22,7 +21,14 @@ jobs:
             mingw-w64-x86_64-toolchain
             mingw-w64-x86_64-pkg-config
             mingw-w64-x86_64-libgphoto2
-          path-type: inherit
+
+      # --- LANGKAH BARU: Mendaftarkan pkg-config dan gphoto2 ke PATH Windows ---
+      - name: Expose MSYS2 to Windows PATH
+        shell: bash
+        run: |
+          echo "C:/msys64/mingw64/bin" >> $GITHUB_PATH
+          echo "PKG_CONFIG_PATH=C:/msys64/mingw64/lib/pkgconfig" >> $GITHUB_ENV
+      # ------------------------------------------------------------------------
 
       - name: Install pnpm
         uses: pnpm/action-setup@v4
@@ -35,8 +41,6 @@ jobs:
           node-version: 22
           cache: 'pnpm'
 
-      # 2. Rust harus menggunakan GNU (bukan MSVC bawaan Windows)
-      # agar bisa melakukan linking dengan library dari MSYS2
       - name: Install Rust (GNU Toolchain)
         uses: dtolnay/rust-toolchain@stable
         with:

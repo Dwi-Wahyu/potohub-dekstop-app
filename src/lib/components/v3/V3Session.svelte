@@ -282,7 +282,7 @@
                     {@const capturedPhoto = boothFlow.photosTaken[targetIdx]}
                     <div class="w-full h-full bg-black/40 relative overflow-hidden">
                       {#if capturedPhoto}
-                        <img src={capturedPhoto} alt={`Photo ${targetIdx + 1}`} class="w-full h-full object-cover block" />
+                        <img src={capturedPhoto} alt={`Photo ${targetIdx + 1}`} class="w-full h-full object-cover block" style="transform: {getLiveviewTransformStyle(boothConfig.config, cameraStore.cameraMode)};" />
                         {#if allDone}
                           <button
                             type="button"
@@ -398,6 +398,7 @@
             src={boothFlow.photosTaken[activeRetakeIdx]}
             alt={`Photo slot ${activeRetakeIdx + 1}`}
             class="absolute inset-0 w-full h-full object-cover z-20"
+            style="transform: {getLiveviewTransformStyle(boothConfig.config, cameraStore.cameraMode)};"
           />
         {/if}
 

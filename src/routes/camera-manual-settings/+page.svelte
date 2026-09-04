@@ -29,6 +29,7 @@
   };
 
   onMount(async () => {
+    boothConfig.init();
     // Halaman ini cuma valid kalau kamera USB sudah terhubung.
     // Kalau belum, lempar balik ke /settings supaya user connect dulu.
     if (cameraStore.status !== 'connected' || cameraStore.cameraMode !== 'usb') {

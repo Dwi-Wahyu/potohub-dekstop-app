@@ -326,12 +326,14 @@ pub fn run() {
                         let dev_gphoto_dir = exe_dir.join("../../gphoto-libs");
                         let dev_gphoto_dir_alt = exe_dir.join("../../../gphoto-libs");
 
-                        let (camlibs_path, iolibs_path, gphoto_root) = if exe_dir.join("camlibs").exists() {
+                        let (camlibs_path, iolibs_path, gphoto_root) = if dev_gphoto_dir.join("camlibs/ptp2.dll").exists() {
+                            (dev_gphoto_dir.join("camlibs"), dev_gphoto_dir.join("iolibs"), dev_gphoto_dir)
+                        } else if dev_gphoto_dir_alt.join("camlibs/ptp2.dll").exists() {
+                            (dev_gphoto_dir_alt.join("camlibs"), dev_gphoto_dir_alt.join("iolibs"), dev_gphoto_dir_alt)
+                        } else if exe_dir.join("camlibs/ptp2.dll").exists() {
                             (exe_dir.join("camlibs"), exe_dir.join("iolibs"), exe_dir.to_path_buf())
                         } else if dev_gphoto_dir.join("camlibs").exists() {
                             (dev_gphoto_dir.join("camlibs"), dev_gphoto_dir.join("iolibs"), dev_gphoto_dir)
-                        } else if dev_gphoto_dir_alt.join("camlibs").exists() {
-                            (dev_gphoto_dir_alt.join("camlibs"), dev_gphoto_dir_alt.join("iolibs"), dev_gphoto_dir_alt)
                         } else {
                             (exe_dir.join("camlibs"), exe_dir.join("iolibs"), exe_dir.to_path_buf())
                         };

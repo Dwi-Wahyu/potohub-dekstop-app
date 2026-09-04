@@ -24,6 +24,11 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "resources": {
+      "gphoto-libs/*": ".",
+      "gphoto-libs/camlibs/*": "camlibs",
+      "gphoto-libs/iolibs/*": "iolibs"
+    },
     "externalBin": ["binaries/ffmpeg"],
     "icon": [
       "icons/32x32.png",

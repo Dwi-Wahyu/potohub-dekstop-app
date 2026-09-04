@@ -318,6 +318,27 @@ pub fn run() {
                     });
                 }
             }
+
+            #[cfg(target_os = "windows")]
+            {
+                if let Ok(exe_path) = std::env::current_exe() {
+                    if let Some(exe_dir) = exe_path.parent() {
+                        let camlibs = exe_dir.join("camlibs");
+                        let iolibs = exe_dir.join("iolibs");
+
+                        std::env::set_var("CAMLIBS", camlibs.to_string_lossy().as_ref());
+                        std::env::set_var("IOLIBS", iolibs.to_string_lossy().as_ref());
+
+                        if let Some(current_path) = std::env::var_os("PATH") {
+                            let mut new_path = exe_dir.to_path_buf().into_os_string();
+                            new_path.push(";");
+                            new_path.push(current_path);
+                            std::env::set_var("PATH", new_path);
+                        }
+                    }
+                }
+            }
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

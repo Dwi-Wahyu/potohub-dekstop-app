@@ -326,8 +326,12 @@ pub fn run() {
                         let camlibs = exe_dir.join("camlibs");
                         let iolibs = exe_dir.join("iolibs");
 
-                        std::env::set_var("CAMLIBS", camlibs.to_string_lossy().as_ref());
-                        std::env::set_var("IOLIBS", iolibs.to_string_lossy().as_ref());
+                        // Gunakan forward slash '/' agar libltdl (MinGW) membaca path dengan benar
+                        let camlibs_str = camlibs.to_string_lossy().replace('\\', "/");
+                        let iolibs_str = iolibs.to_string_lossy().replace('\\', "/");
+
+                        std::env::set_var("CAMLIBS", &camlibs_str);
+                        std::env::set_var("IOLIBS", &iolibs_str);
 
                         if let Some(current_path) = std::env::var_os("PATH") {
                             let mut new_path = exe_dir.to_path_buf().into_os_string();

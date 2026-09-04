@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "potohub-dekstop-app",
+  "productName": "PotoHub Booth Client",
   "version": "0.1.0",
   "identifier": "com.dwiwahyuilahi.potohub-dekstop-app",
   "build": {
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "potohub-dekstop-app",
+        "title": "PotoHub Booth Client",
         "width": 800,
         "height": 600
       }
@@ -27,6 +27,10 @@
     "windows": {
       "nsis": {
         "installerIcon": "icons/icon.ico"
+      },
+      "wix": {
+        "dialogImagePath": "static/dialog.bmp",
+        "bannerPath": "static/banner.bmp"
       }
     },
     "resources": {

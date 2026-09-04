@@ -323,40 +323,43 @@ pub fn run() {
             {
                 if let Ok(exe_path) = std::env::current_exe() {
                     if let Some(exe_dir) = exe_path.parent() {
-                        // Cek lokasi camlibs & iolibs (Production/Installed vs Dev Mode)
-                        let (camlibs, iolibs, dll_dir) = if exe_dir.join("camlibs").exists() {
+                        let dev_gphoto_dir = exe_dir.join("../../gphoto-libs");
+                        let dev_gphoto_dir_alt = exe_dir.join("../../../gphoto-libs");
+
+                        let (camlibs_path, iolibs_path, gphoto_root) = if exe_dir.join("camlibs").exists() {
                             (exe_dir.join("camlibs"), exe_dir.join("iolibs"), exe_dir.to_path_buf())
+                        } else if dev_gphoto_dir.join("camlibs").exists() {
+                            (dev_gphoto_dir.join("camlibs"), dev_gphoto_dir.join("iolibs"), dev_gphoto_dir)
+                        } else if dev_gphoto_dir_alt.join("camlibs").exists() {
+                            (dev_gphoto_dir_alt.join("camlibs"), dev_gphoto_dir_alt.join("iolibs"), dev_gphoto_dir_alt)
                         } else {
-                            // Fallback Dev Mode: cari folder src-tauri/gphoto-libs
-                            let dev_gphoto = exe_dir.join("../../gphoto-libs");
-                            if dev_gphoto.join("camlibs").exists() {
-                                (dev_gphoto.join("camlibs"), dev_gphoto.join("iolibs"), dev_gphoto)
-                            } else {
-                                let dev_gphoto2 = exe_dir.join("../../../gphoto-libs");
-                                if dev_gphoto2.join("camlibs").exists() {
-                                    (dev_gphoto2.join("camlibs"), dev_gphoto2.join("iolibs"), dev_gphoto2)
-                                } else {
-                                    (exe_dir.join("camlibs"), exe_dir.join("iolibs"), exe_dir.to_path_buf())
-                                }
-                            }
+                            (exe_dir.join("camlibs"), exe_dir.join("iolibs"), exe_dir.to_path_buf())
                         };
 
-                        let camlibs_str = camlibs.canonicalize().unwrap_or(camlibs).to_string_lossy().replace('\\', "/");
-                        let iolibs_str = iolibs.canonicalize().unwrap_or(iolibs).to_string_lossy().replace('\\', "/");
+                        let clean_path = |p: std::path::PathBuf| -> String {
+                            let s = p.to_string_lossy().to_string();
+                            s.replace("\\\\?\\", "").replace("//?/", "").replace('\\', "/")
+                        };
 
-                        // Clean UNC prefix (e.g. //?/C:/...) if added by canonicalize
-                        let camlibs_clean = camlibs_str.trim_start_matches("//?/").trim_start_matches("\\\\?\\").to_string();
-                        let iolibs_clean = iolibs_str.trim_start_matches("//?/").trim_start_matches("\\\\?\\").to_string();
+                        let camlibs_str = clean_path(camlibs_path);
+                        let iolibs_str = clean_path(iolibs_path);
+                        let gphoto_root_str = clean_path(gphoto_root);
 
-                        std::env::set_var("CAMLIBS", &camlibs_clean);
-                        std::env::set_var("IOLIBS", &iolibs_clean);
+                        std::env::set_var("CAMLIBS", &camlibs_str);
+                        std::env::set_var("IOLIBS", &iolibs_str);
+                        std::env::set_var("CAMLIBDIR", &camlibs_str);
+                        std::env::set_var("IOLIBDIR", &iolibs_str);
+                        std::env::set_var("LTDL_LIBRARY_PATH", format!("{};{}", iolibs_str, camlibs_str));
 
                         if let Some(current_path) = std::env::var_os("PATH") {
-                            let mut new_path = dll_dir.into_os_string();
-                            new_path.push(";C:\\msys64\\mingw64\\bin;");
-                            new_path.push(current_path);
+                            let msys_bin = "C:\\msys64\\mingw64\\bin";
+                            let gphoto_win_path = gphoto_root_str.replace('/', "\\");
+                            let new_path = format!("{};{};{}", gphoto_win_path, msys_bin, current_path.to_string_lossy());
                             std::env::set_var("PATH", new_path);
                         }
+
+                        println!("[gphoto2-setup] CAMLIBS = {}", camlibs_str);
+                        println!("[gphoto2-setup] IOLIBS  = {}", iolibs_str);
                     }
                 }
             }

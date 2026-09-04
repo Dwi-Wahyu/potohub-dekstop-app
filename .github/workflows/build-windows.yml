@@ -19,26 +19,32 @@ jobs:
           install: >-
             base-devel
             mingw-w64-x86_64-toolchain
-            mingw-w64-x86_64-pkgconf
+            mingw-w64-x86_64-pkg-config
             mingw-w64-x86_64-libgphoto2
 
-      # --- LANGKAH PERBAIKAN UTAMA ---
-      - name: Fix pkg-config and MSYS2 Paths for Windows
-        shell: bash
+      # --- PERBAIKAN: Menggunakan PowerShell Native Windows ---
+      - name: Configure MSYS2 Environment for Windows
+        shell: pwsh
         run: |
-          # 1. Hapus symlink palsu yang tidak bisa dibaca Windows
-          rm -f /c/msys64/mingw64/bin/pkg-config.exe
+          # Cari lokasi instalasi MSYS2 secara dinamis
+          $msysRoot = "C:\msys64"
+          if (-not (Test-Path $msysRoot)) {
+              $msysRoot = "D:\a\_temp\msys64" # Lokasi fallback di beberapa runner GitHub
+          }
+          Write-Host "Menggunakan MSYS2 di: $msysRoot"
           
-          # 2. Copy file .exe aslinya agar menjadi file executable sungguhan
-          cp /c/msys64/mingw64/bin/pkgconf.exe /c/msys64/mingw64/bin/pkg-config.exe
+          # Tentukan folder bin dan pkgconfig
+          $mingwBin = "$msysRoot\mingw64\bin"
+          $usrBin = "$msysRoot\usr\bin"
+          $pkgConfigLib = "$msysRoot\mingw64\lib\pkgconfig"
           
-          # 3. Gunakan backslash (\) ala Windows untuk PATH
-          echo "C:\msys64\mingw64\bin" >> $GITHUB_PATH
-          echo "C:\msys64\usr\bin" >> $GITHUB_PATH
+          # Daftarkan ke PATH dengan format Windows (\), bukan Linux (/)
+          echo "$mingwBin" >> $env:GITHUB_PATH
+          echo "$usrBin" >> $env:GITHUB_PATH
           
-          # 4. Beritahu Rust di mana letak konfigurasi libgphoto2
-          echo "PKG_CONFIG_PATH=C:\msys64\mingw64\lib\pkgconfig" >> $GITHUB_ENV
-      # ------------------------------
+          # Daftarkan lokasi file .pc milik libgphoto2
+          echo "PKG_CONFIG_PATH=$pkgConfigLib" >> $env:GITHUB_ENV
+      # --------------------------------------------------------
 
       - name: Install pnpm
         uses: pnpm/action-setup@v4

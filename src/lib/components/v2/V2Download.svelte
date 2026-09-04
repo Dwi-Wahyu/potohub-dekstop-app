@@ -46,7 +46,13 @@
   let compositeUrl = $state<string | null>(null);
   let selectedTemplate = $state<BoothTemplate | null>(null);
 
-  const ADMIN_DASHBOARD_PUBLIC_URL = (import.meta.env as Record<string, string>).VITE_ADMIN_DASHBOARD_URL ?? 'http://localhost:5173';
+  const envs = import.meta.env as Record<string, string>;
+  const rawAdminDashboardUrl =
+    envs.ADMIN_DASHBOARD_URL ||
+    envs.VITE_ADMIN_DASHBOARD_URL ||
+    envs.PUBLIC_ADMIN_DASHBOARD_URL ||
+    'http://localhost:3000';
+  const ADMIN_DASHBOARD_PUBLIC_URL = rawAdminDashboardUrl.replace(/\/+$/, '');
 
   onMount(async () => {
     interval = setInterval(() => {
@@ -94,7 +100,7 @@
       const sessId = session.session_id || session.id || 'demo-session';
       boothFlow.sessionId = sessId;
 
-      const softfileUrl = `${ADMIN_DASHBOARD_PUBLIC_URL}/s/${sessId}`;
+      const softfileUrl = `${ADMIN_DASHBOARD_PUBLIC_URL}/softfile/${sessId}`;
       qrDataUrl = await QRCode.toDataURL(softfileUrl, { margin: 1, width: 200 });
 
       await saveSessionAssets(
@@ -108,7 +114,7 @@
       );
     } catch (err) {
       console.error('Failed to create session / save assets in V2Download:', err);
-      const fallbackUrl = `${ADMIN_DASHBOARD_PUBLIC_URL}/s/${boothFlow.sessionId || 'demo-session'}`;
+      const fallbackUrl = `${ADMIN_DASHBOARD_PUBLIC_URL}/softfile/${boothFlow.sessionId || 'demo-session'}`;
       qrDataUrl = await QRCode.toDataURL(fallbackUrl, { margin: 1, width: 200 }).catch(() => '');
     } finally {
       isSaving = false;

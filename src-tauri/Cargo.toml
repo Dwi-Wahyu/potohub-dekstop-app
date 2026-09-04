@@ -1,5 +1,5 @@
 [package]
-name = "PotoHub Booth Client"
+name = "potoHub-booth-client"
 version = "0.1.0"
 description = "Modern PhotoBooth Client"
 authors = ["you"]

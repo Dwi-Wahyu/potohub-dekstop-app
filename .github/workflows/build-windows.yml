@@ -19,7 +19,7 @@ jobs:
           install: >-
             base-devel
             mingw-w64-x86_64-toolchain
-            mingw-w64-x86_64-pkgconf
+            mingw-w64-x86_64-pkg-config
             mingw-w64-x86_64-libgphoto2
 
       # --- PERBAIKAN: Auto-Detect File Executable ---
@@ -29,14 +29,21 @@ jobs:
           $msysRoot = "C:\msys64"
           $msysBin = "$msysRoot\mingw64\bin"
           
-          # 1. Cari file secara dinamis: pkgconf.exe ATAU x86_64...pkg-config.exe
+          # 1. Cari file secara dinamis dengan multiple paths
           $targetExe = ""
-          if (Test-Path "$msysBin\pkgconf.exe") {
-              $targetExe = "$msysBin\pkgconf.exe"
-          } elseif (Test-Path "$msysBin\x86_64-w64-mingw32-pkg-config.exe") {
-              $targetExe = "$msysBin\x86_64-w64-mingw32-pkg-config.exe"
-          } elseif (Test-Path "$msysBin\pkg-config.exe") {
-              $targetExe = "$msysBin\pkg-config.exe"
+          $searchPaths = @(
+              "$msysBin\pkgconf.exe",
+              "$msysBin\pkg-config.exe",
+              "$msysBin\x86_64-w64-mingw32-pkg-config.exe",
+              "$msysRoot\usr\bin\pkgconf.exe",
+              "$msysRoot\usr\bin\pkg-config.exe"
+          )
+
+          foreach ($path in $searchPaths) {
+              if (Test-Path $path) {
+                  $targetExe = $path
+                  break
+              }
           }
           
           # 2. Jika tetap tidak ada, hentikan dan tampilkan isi folder untuk debugging

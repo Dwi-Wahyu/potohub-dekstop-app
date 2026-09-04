@@ -1,8 +1,6 @@
 <script lang="ts">
   import type { Sticker } from '$lib/utils/stickers';
   import type { Snippet } from 'svelte';
-  import { toPng } from 'html-to-image';
-  import { boothFlow } from '$lib/stores/booth.svelte';
 
   interface Props {
     stickers: Sticker[];

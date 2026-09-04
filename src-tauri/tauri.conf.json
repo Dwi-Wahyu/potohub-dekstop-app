@@ -24,6 +24,11 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "windows": {
+      "nsis": {
+        "installerIcon": "icons/icon.ico"
+      }
+    },
     "resources": {
       "gphoto-libs/*": ".",
       "gphoto-libs/camlibs/*": "camlibs",

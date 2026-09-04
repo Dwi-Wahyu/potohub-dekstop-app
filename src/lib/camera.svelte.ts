@@ -30,6 +30,18 @@ class CameraStore {
   private clipChunks: { blob: Blob; timestamp: number }[] = [];
   private readonly RING_BUFFER_MS = 8000;
 
+  private formatError(err: unknown): string {
+    if (typeof err === "string") return err;
+    if (err && typeof err === "object") {
+      const values = Object.values(err);
+      if (values.length > 0 && typeof values[0] === "string") {
+        return values[0];
+      }
+      return JSON.stringify(err);
+    }
+    return String(err);
+  }
+
   /**
    * Deteksi kamera USB yang terpasang (setara `gphoto2 --auto-detect`).
    * Non-invasive — tidak membuka sesi kamera, aman dipanggil berulang (mis. tombol Refresh).
@@ -40,7 +52,7 @@ class CameraStore {
     try {
       this.detectedCameras = await invoke<DetectedCamera[]>("detect_camera");
     } catch (err) {
-      this.detectError = String(err);
+      this.detectError = this.formatError(err);
       this.detectedCameras = [];
     } finally {
       this.isDetecting = false;
@@ -85,7 +97,7 @@ class CameraStore {
         }
       } catch (err) {
         this.status = "error";
-        this.errorMessage = String(err);
+        this.errorMessage = this.formatError(err);
       }
     } else if (mode === "webcam") {
       try {

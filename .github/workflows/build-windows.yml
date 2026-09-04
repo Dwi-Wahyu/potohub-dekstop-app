@@ -22,13 +22,18 @@ jobs:
             mingw-w64-x86_64-pkg-config
             mingw-w64-x86_64-libgphoto2
 
-      # --- LANGKAH BARU: Mendaftarkan pkg-config dan gphoto2 ke PATH Windows ---
       - name: Expose MSYS2 to Windows PATH
         shell: bash
         run: |
+          # Daftarkan folder bin MSYS2 ke PATH
           echo "C:/msys64/mingw64/bin" >> $GITHUB_PATH
+          echo "C:/msys64/usr/bin" >> $GITHUB_PATH
+          
+          # Beritahu di mana letak konfigurasi libgphoto2
           echo "PKG_CONFIG_PATH=C:/msys64/mingw64/lib/pkgconfig" >> $GITHUB_ENV
-      # ------------------------------------------------------------------------
+          
+          # PAKSA Rust untuk menggunakan file pkg-config.exe ini
+          echo "PKG_CONFIG=C:/msys64/mingw64/bin/pkg-config.exe" >> $GITHUB_ENV
 
       - name: Install pnpm
         uses: pnpm/action-setup@v4

@@ -1,7 +1,7 @@
 import type { BoothTemplate } from '$lib/api/boothClient';
 import { boothFlow } from '$lib/stores/booth.svelte';
 import type { Sticker } from '$lib/utils/stickers';
-import { resolveFilterCss } from '$lib/utils/filters';
+import { resolveFilterCss, applyFilterToCanvas } from '$lib/utils/filters';
 import { invoke } from '@tauri-apps/api/core';
 import QRCode from 'qrcode';
 
@@ -190,11 +190,25 @@ export async function compositeTemplateImage(
       if (photoSrc) {
         const photoImg = await loadImage(photoSrc);
         if (photoImg) {
-          if (effectiveFilter && effectiveFilter !== 'none') {
-            ctx.filter = effectiveFilter;
+          const slotW = Math.max(1, Math.round(layerW));
+          const slotH = Math.max(1, Math.round(layerH));
+          const slotCanvas = document.createElement('canvas');
+          slotCanvas.width = slotW;
+          slotCanvas.height = slotH;
+          const slotCtx = slotCanvas.getContext('2d');
+          if (slotCtx) {
+            drawCoverImage(slotCtx, photoImg, 0, 0, slotW, slotH);
+            if (effectiveFilter && effectiveFilter !== 'none') {
+              try {
+                slotCtx.filter = effectiveFilter;
+                drawCoverImage(slotCtx, photoImg, 0, 0, slotW, slotH);
+              } catch {}
+            }
+            applyFilterToCanvas(slotCtx, slotW, slotH, filterCss);
+            ctx.drawImage(slotCanvas, drawX, drawY, layerW, layerH);
+          } else {
+            drawCoverImage(ctx, photoImg, drawX, drawY, layerW, layerH);
           }
-          drawCoverImage(ctx, photoImg, drawX, drawY, layerW, layerH);
-          ctx.filter = 'none';
         }
       }
     }

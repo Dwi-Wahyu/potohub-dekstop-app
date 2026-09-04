@@ -96,3 +96,31 @@ export async function sendSoftFile(
     return sendSoftfileWA(trimmed, onSent, sessionId);
   }
 }
+
+export function getLiveviewTransformStyle(
+  config: {
+    mirrorOn?: boolean;
+    flipVertical?: boolean;
+    cameraRotate?: string;
+  },
+  cameraMode: 'usb' | 'webcam' | 'demo' = 'usb'
+): string {
+  const parts: string[] = [];
+  if (config.cameraRotate === '90° CW') {
+    parts.push('rotate(90deg)');
+  } else if (config.cameraRotate === '180°') {
+    parts.push('rotate(180deg)');
+  } else if (config.cameraRotate === '90° CCW') {
+    parts.push('rotate(270deg)');
+  }
+  if (config.mirrorOn) {
+    parts.push('scaleX(-1)');
+  }
+  // Canon DSLR USB liveview output from gphoto2 capture_preview is natively vertically inverted.
+  // In USB mode, scaleY(-1) is applied by default (when flipVertical is false), and flipVertical toggles it.
+  const applyVerticalFlip = cameraMode === 'usb' ? !config.flipVertical : !!config.flipVertical;
+  if (applyVerticalFlip) {
+    parts.push('scaleY(-1)');
+  }
+  return parts.length > 0 ? parts.join(' ') : 'none';
+}

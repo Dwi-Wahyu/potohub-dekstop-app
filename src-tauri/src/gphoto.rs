@@ -248,13 +248,31 @@ pub async fn capture_photo(
     camera: &Camera,
     save_dir: &std::path::Path,
 ) -> Result<Vec<u8>, GphotoError> {
-    // Popup flash disabled per user request
-    // trigger_popup_flash(camera).await;
+    // Retry hingga 3 kali jika kamera sedang sibuk (PTP Device Busy 0x2019 / AF lock)
+    let mut last_err = None;
+    let mut file_path = None;
 
-    let file_path = camera
-        .capture_image()
-        .wait()
-        .map_err(|e| GphotoError::Operation(e.to_string()))?;
+    for attempt in 1..=3 {
+        match camera.capture_image().wait() {
+            Ok(fp) => {
+                file_path = Some(fp);
+                break;
+            }
+            Err(e) => {
+                eprintln!("[gphoto2] capture_image attempt {} failed: {}", attempt, e);
+                last_err = Some(e);
+                tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+            }
+        }
+    }
+
+    let file_path = file_path.ok_or_else(|| {
+        GphotoError::Operation(
+            last_err
+                .map(|e| e.to_string())
+                .unwrap_or_else(|| "Gagal mengambil foto dari kamera".into()),
+        )
+    })?;
     let camera_file = camera
         .fs()
         .download(&file_path.folder(), &file_path.name())

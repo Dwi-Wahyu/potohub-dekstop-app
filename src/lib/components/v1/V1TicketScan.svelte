@@ -100,15 +100,13 @@
   <header class="w-full flex items-center justify-between z-20">
     <button
       onclick={onBack}
-      class="px-5 py-2.5 rounded-full bg-white/10 hover:bg-white/20 border border-white/10 text-xs font-semibold tracking-wider transition-colors cursor-pointer"
+      class="flex items-center gap-1.5 border border-white/10 text-white/30 px-5 py-[9px] rounded-full bg-transparent cursor-pointer font-['Plus_Jakarta_Sans',sans-serif] text-sm font-medium transition-colors duration-150 hover:text-white/60 hover:border-white/20"
     >
-      ← Kembali
+      <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+        <path d="M15.75 19.5L8.25 12l7.5-7.5" stroke-linecap="round" stroke-linejoin="round" />
+      </svg>
+      Kembali
     </button>
-    <div class="text-right">
-      <span class="text-xs font-bold uppercase tracking-[0.2em] text-[#93c5fd]">
-        {uiConfig.config.boothName} — Scan Tiket QR
-      </span>
-    </div>
   </header>
 
   <!-- Main Viewport -->
@@ -136,16 +134,16 @@
     <!-- Status Messages -->
     {#if successMessage}
       <div class="px-6 py-3 rounded-full bg-emerald-500/20 border border-emerald-500/50 text-emerald-300 text-xs font-semibold animate-pulse text-center">
-        ✓ {successMessage}
+        {successMessage}
       </div>
     {:else if errorMessage}
       <div class="px-6 py-3 rounded-2xl bg-red-500/20 border border-red-500/50 text-red-300 text-xs font-semibold text-center max-w-sm">
-        ⚠️ {errorMessage}
+        {errorMessage}
       </div>
     {/if}
 
     <!-- Manual Code Input Fallback -->
-    <div class="w-full max-w-xs flex flex-col gap-2 mt-1">
+    <!-- <div class="w-full max-w-xs flex flex-col gap-2 mt-1">
       <p class="text-[11px] font-semibold text-white/40 text-center uppercase tracking-widest">Atau Masukkan Kode Tiket</p>
       <div class="flex gap-2">
         <input
@@ -163,6 +161,6 @@
           Kirim
         </button>
       </div>
-    </div>
+    </div> -->
   </div>
 </div>

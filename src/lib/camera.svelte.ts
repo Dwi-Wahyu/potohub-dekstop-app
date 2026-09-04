@@ -48,12 +48,29 @@ class CameraStore {
   }
 
   async connect(mode: "usb" | "webcam" | "demo" = "usb") {
+    if (this.status === "connecting") return;
+
+    if (mode === "usb") {
+      try {
+        const isConnected = await invoke<boolean>("is_camera_connected").catch(() => false);
+        if (isConnected) {
+          this.status = "connected";
+          this.cameraMode = "usb";
+          if (!this.device) {
+            this.device = await invoke<DeviceInfo>("connect_camera").catch(() => null);
+          }
+          return;
+        }
+      } catch {}
+    }
+
     this.status = "connecting";
     this.errorMessage = null;
     this.cameraMode = mode;
 
     if (mode === "usb") {
       try {
+        await invoke("disconnect_camera").catch(() => {});
         this.device = await invoke<DeviceInfo>("connect_camera");
         this.status = "connected";
 

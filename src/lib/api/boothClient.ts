@@ -389,6 +389,18 @@ function applyRemoteSettings(settings: Record<string, any>) {
   const general = settings?.general ?? {};
   const timer = settings?.timer ?? {};
   const softfile = settings?.softfile ?? {};
+
+  const localSaved = typeof localStorage !== 'undefined' ? localStorage.getItem(`booth_settings_${boothConfig.boothId}`) : null;
+  let hasLocalConfig = false;
+  if (localSaved) {
+    try {
+      const parsed = JSON.parse(localSaved);
+      if (parsed && typeof parsed.countdownSecs === 'number') {
+        hasLocalConfig = true;
+      }
+    } catch {}
+  }
+
   boothConfig.save({
     pin: general.pin ?? boothConfig.config.pin,
     cameraRotate:
@@ -397,8 +409,9 @@ function applyRemoteSettings(settings: Record<string, any>) {
     mirrorOn: general.mirror ?? boothConfig.config.mirrorOn,
     paymentPage: general.payment_page ?? boothConfig.config.paymentPage,
     photoFilter: general.photo_filter ?? boothConfig.config.photoFilter,
-    countdownSecs:
-      timer.first_countdown_time ?? boothConfig.config.countdownSecs,
+    countdownSecs: hasLocalConfig
+      ? boothConfig.config.countdownSecs
+      : (timer.first_countdown_time ?? boothConfig.config.countdownSecs),
     emailEnabled: softfile.email_enabled ?? boothConfig.config.emailEnabled ?? true,
     whatsappEnabled: softfile.whatsapp_enabled ?? boothConfig.config.whatsappEnabled ?? true,
   });

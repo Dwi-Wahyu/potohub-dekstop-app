@@ -5,11 +5,11 @@
   import { uiConfig } from '$lib/stores/uiConfig.svelte';
   import { boothConfig } from '$lib/stores/boothConfig.svelte';
   import { runCaptureSequence } from '$lib/utils/capture';
-  import { formatTime } from '$lib/utils/shared';
+  import { formatTime, getLiveviewTransformStyle } from '$lib/utils/shared';
   import { fetchTemplates, requireActiveBoothId, type BoothTemplate } from '$lib/api/boothClient';
   import { cachedFetch } from '$lib/utils/offlineCache';
   import { getSortedPhotoSlots } from '$lib/utils/templateComposite';
-  import { QrCode, Camera, RefreshCw, ArrowRight } from '@lucide/svelte';
+  import { QrCode, Camera, RefreshCw, ArrowRight, Search, RotateCw } from '@lucide/svelte';
 
   interface Props {
     selectedFrame: string;
@@ -27,6 +27,7 @@
   let bgUrl = $derived(bgLayer?.imageUrl || selectedTemplate?.frame_image_url || '');
 
   let isRunning = $state(false);
+  let selectedRetakeIndex = $state<number | null>(null);
   let sessionSecs = $state(5 * 60);
   let timer: any = null;
   let liveviewInterval: any = null;
@@ -100,6 +101,7 @@
   async function startCapture() {
     if (isRunning) return;
     isRunning = true;
+    selectedRetakeIndex = null;
     boothFlow.photosTaken = [];
     await runCaptureSequence(totalPhotos, boothConfig.config.countdownSecs);
     isRunning = false;
@@ -108,11 +110,82 @@
   function handleRetake() {
     if (boothFlow.photosTaken.length > 0) {
       boothFlow.photosTaken = boothFlow.photosTaken.slice(0, -1);
+      selectedRetakeIndex = null;
+    }
+  }
+
+  async function handleRetakeSingle(index: number) {
+    if (isRunning) return;
+    isRunning = true;
+
+    for (let c = boothConfig.config.countdownSecs; c > 0; c--) {
+      boothFlow.countdown = c;
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+    boothFlow.countdown = null;
+    const captureTs = Date.now();
+
+    boothFlow.isFlashActive = true;
+    setTimeout(() => {
+      boothFlow.isFlashActive = false;
+    }, 2000);
+
+    try {
+      const bytes = await cameraStore.capture();
+      let photoUrl = '';
+      if (bytes) {
+        const blob = new Blob([bytes], { type: 'image/jpeg' });
+        photoUrl = URL.createObjectURL(blob);
+      } else {
+        const canvas = document.createElement('canvas');
+        canvas.width = 640;
+        canvas.height = 480;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.fillStyle = '#3b82f6';
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          ctx.fillStyle = '#ffffff';
+          ctx.font = '30px sans-serif';
+          ctx.fillText(`Photo ${index + 1}`, 240, 240);
+          photoUrl = canvas.toDataURL('image/jpeg');
+        }
+      }
+
+      if (photoUrl) {
+        const updated = [...boothFlow.photosTaken];
+        updated[index] = photoUrl;
+        boothFlow.photosTaken = updated;
+      }
+
+      if (boothConfig.config.enableLiveviewVideo) {
+        cameraStore
+          .extractLiveviewClip(
+            captureTs,
+            boothConfig.config.liveviewClipPreSecs,
+            boothConfig.config.liveviewClipPostSecs
+          )
+          .then((clipBlob) => {
+            const clipUrl = clipBlob ? URL.createObjectURL(clipBlob) : null;
+            const next = [...boothFlow.liveviewClips];
+            next[index] = clipUrl;
+            boothFlow.liveviewClips = next;
+          })
+          .catch((err) =>
+            console.error('Gagal ekstrak liveview clip retake slot', index, err)
+          );
+      }
+    } catch (err) {
+      console.error('Retake capture error:', err);
+    } finally {
+      isRunning = false;
     }
   }
 
   let allDone = $derived(boothFlow.photosTaken.length === totalPhotos);
   let sessionsDone = $derived(boothFlow.photosTaken.length);
+  let activeRetakeIdx = $derived(
+    selectedRetakeIndex !== null ? selectedRetakeIndex : (allDone ? 0 : null)
+  );
 
   const STEPPER_LABELS = ['Tutorial', 'Payment', 'Frames', 'Photo Session', 'Edit & Filter', 'Scan File'];
   const activeIdx = 3;
@@ -183,45 +256,64 @@
       {#if boothFlow.isFlashActive}
         <div class="absolute inset-0 bg-white z-40 pointer-events-none transition-opacity duration-150"></div>
       {/if}
+
       <!-- Dashed mockup guide (16:9 ratio) -->
       <div
         class="w-[60%] aspect-video border-2 border-dashed border-white/40 rounded-[32px] pointer-events-none z-10"
       ></div>
 
+      <!-- Permanent Liveview Feed Layer -->
       {#if cameraStore.isLiveviewActive}
         {#if cameraStore.cameraMode === 'webcam'}
           <video
+            use:playStream={cameraStore.stream}
             bind:this={videoEl}
             autoplay
             playsinline
             muted
             class="absolute inset-0 w-full h-full object-cover"
-            style="transform: scaleX(-1);"
+            style="transform: {getLiveviewTransformStyle(boothConfig.config, cameraStore.cameraMode)};"
           ></video>
         {:else if frameSrc}
           <img
             src={frameSrc}
             alt="Livefeed"
             class="absolute inset-0 w-full h-full object-cover"
+            style="transform: {getLiveviewTransformStyle(boothConfig.config, cameraStore.cameraMode)};"
           />
         {/if}
       {/if}
 
+      <!-- Captured Photo Overlay Layer - Shown when allDone and not running retake -->
+      {#if allDone && !isRunning && activeRetakeIdx !== null && boothFlow.photosTaken[activeRetakeIdx]}
+        <img
+          src={boothFlow.photosTaken[activeRetakeIdx]}
+          alt={`Photo slot ${activeRetakeIdx + 1}`}
+          class="absolute inset-0 w-full h-full object-cover z-20"
+        />
+      {/if}
+
+      <!-- Top-left Retake button when allDone and not running capture -->
+      {#if allDone && !isRunning && activeRetakeIdx !== null && boothFlow.photosTaken[activeRetakeIdx]}
+        <div class="absolute top-6 left-6 z-30 flex items-center gap-2 font-['Nunito',sans-serif]">
+          <button
+            onclick={() => handleRetakeSingle(activeRetakeIdx!)}
+            class="flex items-center gap-2 bg-black/80 hover:bg-black text-white border-2 border-white/80 px-5 py-2.5 rounded-full font-bold text-sm shadow-[4px_4px_0_0_rgba(0,0,0,1)] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none cursor-pointer transition-all"
+          >
+            <RotateCw size={16} strokeWidth={2.5} />
+            <span>Ulang Foto {activeRetakeIdx + 1}</span>
+          </button>
+        </div>
+      {/if}
+
+      <!-- Countdown Overlay -->
       {#if boothFlow.countdown !== null && boothFlow.countdown > 0}
-        <!-- STATE 1: Countdown -->
-        <div class="absolute inset-0 flex items-center justify-center bg-black/30 backdrop-blur-sm z-20">
+        <div class="absolute inset-0 flex items-center justify-center bg-black/30 backdrop-blur-sm z-30">
           <div class="text-[18rem] text-white font-black leading-none drop-shadow-[0_0_30px_rgba(255,255,255,0.8)] font-['Nunito',sans-serif]">
             {boothFlow.countdown}
           </div>
         </div>
-      {:else if allDone}
-        <!-- STATE 3: All Done -->
-        <div class="absolute inset-0 flex flex-col items-center justify-center bg-black/60 backdrop-blur-md z-20">
-          <h2 class="text-white text-5xl font-black italic mb-4">All Done!</h2>
-          <p class="text-white/80 text-xl tracking-widest uppercase font-['Nunito',sans-serif]">Great poses!</p>
-        </div>
-      {:else if !isRunning}
-        <!-- STATE 4: Idle / Ready -->
+      {:else if !isRunning && !allDone}
         <div class="absolute inset-0 flex flex-col items-center justify-center z-20 pointer-events-none font-['Nunito',sans-serif]">
           <div class="text-white/80 text-6xl font-black uppercase tracking-[0.2em] mb-4 drop-shadow-[0_0_20px_rgba(255,255,255,0.3)]">
             Ready?
@@ -233,7 +325,7 @@
       {/if}
 
       <!-- Photo counter badge -->
-      <div class="absolute top-6 left-6 px-6 py-2 border-2 border-white rounded-full text-white font-bold text-xl tracking-widest bg-black/50 backdrop-blur-md z-20 font-['Nunito',sans-serif]">
+      <div class={`absolute top-6 left-6 px-6 py-2 border-2 border-white rounded-full text-white font-bold text-xl tracking-widest bg-black/50 backdrop-blur-md z-20 font-['Nunito',sans-serif] ${allDone ? 'hidden' : ''}`}>
         Photo {Math.min(sessionsDone + 1, totalPhotos)} / {totalPhotos}
       </div>
 
@@ -263,15 +355,18 @@
             {#if selectedTemplate.design_data}
               {#each selectedTemplate.design_data as layer, idx (layer.id ?? idx)}
                 {@const layerZIndex = selectedTemplate.design_data.length - idx}
+                {@const isPhotoSlot = !layer.isBackground && !layer.isQr}
+                {@const slotIdx = isPhotoSlot ? photoSlots.findIndex((s) => s.id === layer.id || s === layer) : -1}
+                {@const targetIdx = slotIdx >= 0 ? slotIdx : 0}
                 <div
-                  class="absolute overflow-hidden"
+                  class={`absolute overflow-hidden ${layer.isBackground ? 'pointer-events-none' : ''}`}
                   style="
                     left: {((layer.x || 0) / tWidth) * 100}%;
                     top: {((layer.y || 0) / tHeight) * 100}%;
                     width: {((layer.w || 200) / tWidth) * 100}%;
                     height: {((layer.h || 200) / tHeight) * 100}%;
                     transform: rotate({layer.rot || 0}deg);
-                    z-index: {layerZIndex};
+                    z-index: {allDone && isPhotoSlot ? 40 + targetIdx : layerZIndex};
                   "
                 >
                   {#if layer.isBackground}
@@ -287,12 +382,25 @@
                       QR Code
                     </div>
                   {:else}
-                    {@const slotIdx = photoSlots.findIndex((s) => s.id === layer.id || s === layer)}
-                    {@const targetIdx = slotIdx >= 0 ? slotIdx : 0}
                     {@const capturedPhoto = boothFlow.photosTaken[targetIdx]}
                     <div class="w-full h-full bg-black/40 relative overflow-hidden">
                       {#if capturedPhoto}
                         <img src={capturedPhoto} alt={`Photo ${targetIdx + 1}`} class="w-full h-full object-cover block" />
+                        {#if allDone}
+                          <button
+                            type="button"
+                            onclick={(e) => {
+                              e.stopPropagation();
+                              selectedRetakeIndex = targetIdx;
+                            }}
+                            class={`absolute inset-0 bg-black/30 hover:bg-black/50 transition-colors flex items-center justify-center cursor-pointer z-50 border-none group ${activeRetakeIdx === targetIdx ? 'ring-2 ring-yellow-400' : ''}`}
+                            title="Lihat & Take Ulang"
+                          >
+                            <div class="w-7 h-7 rounded-full bg-white/90 text-black flex items-center justify-center shadow-lg transform transition-transform group-hover:scale-110">
+                              <Search size={14} strokeWidth={2.5} />
+                            </div>
+                          </button>
+                        {/if}
                       {:else if cameraStore.isLiveviewActive}
                         {#if cameraStore.cameraMode === 'webcam'}
                           <video
@@ -301,10 +409,10 @@
                             playsinline
                             muted
                             class="w-full h-full object-cover block"
-                            style="transform: scaleX(-1);"
+                            style="transform: {getLiveviewTransformStyle(boothConfig.config, cameraStore.cameraMode)};"
                           ></video>
                         {:else if frameSrc}
-                          <img src={frameSrc} alt="Live view" class="w-full h-full object-cover block" />
+                          <img src={frameSrc} alt="Live view" class="w-full h-full object-cover block" style="transform: {getLiveviewTransformStyle(boothConfig.config, cameraStore.cameraMode)};" />
                         {:else}
                           <div class="w-full h-full flex items-center justify-center text-white/40 text-[9px] animate-pulse">
                             {targetIdx + 1}

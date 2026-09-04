@@ -5,12 +5,13 @@
     ClockCheck,
     ChevronLeft,
     ChevronDown,
-    CheckCircle2
+    CheckCircle2,
+    Save
   } from '@lucide/svelte';
   import { goto } from '$app/navigation';
   import { boothConfig, type BoothCfg } from '$lib/stores/boothConfig.svelte';
   import { uiConfig } from '$lib/stores/uiConfig.svelte';
-  import { syncBoothSettings } from '$lib/api/boothClient';
+  import { syncBoothSettings, getActiveBoothId } from '$lib/api/boothClient';
   import { cameraStore } from '$lib/camera.svelte';
 
   interface Props {
@@ -24,6 +25,7 @@
   let lastSyncedAt = $state<string | null>(null);
   let boothName = $state<string | null>(null);
   let fallbackMode = $state<'demo' | null>(null);
+  let saveNotice = $state<string | null>(null);
 
   const NEU_BG = '#ebf0f7';
   const NEU_PRIMARY = '#2a2873';
@@ -41,6 +43,14 @@
     }
   }
 
+  function handleManualSave() {
+    boothConfig.save();
+    saveNotice = 'Pengaturan Berhasil Disimpan!';
+    setTimeout(() => {
+      saveNotice = null;
+    }, 2500);
+  }
+
   function formatDate(isoString: string): string {
     const date = new Date(isoString);
     return new Intl.DateTimeFormat('id-ID', {
@@ -49,7 +59,6 @@
       year: 'numeric',
       hour: '2-digit',
       minute: '2-digit',
-      // timeZone: 'Asia/Jakarta', // opsional
     }).format(date);
   }
 
@@ -83,7 +92,11 @@
     goto('/camera-manual-settings');
   }
 
-  onMount(() => {
+  onMount(async () => {
+    const boothId = await getActiveBoothId();
+    if (boothId) {
+      await boothConfig.init(boothId);
+    }
     boothName = uiConfig.config.boothName || boothName;
     void handleSync();
     void cameraStore.detect();
@@ -92,7 +105,7 @@
   const ROTATE_OPTS = ['0° (Default)', '90° CW', '180°', '90° CCW'];
 </script>
 
-<div class="w-screen h-screen overflow-hidden">
+<div class="w-screen h-screen overflow-hidden relative">
   <div
     style="
       width: 100%;
@@ -235,7 +248,6 @@
           <div>
             <p style="font-size: 11px; font-weight: 700; color: #334155; margin: 0;">Last Synchronized At</p>
             <p style="font-size: 11px; color: #64748b; margin: 0;">
-                <!-- Tampilkan waktu tersinkronisasi terakhir secara persisten -->
                 {#if syncStatus}
                  {syncStatus}
                 {:else if lastSyncedAt}
@@ -271,17 +283,18 @@
       <!-- Two-column content -->
       <div style="flex: 1; min-height: 0; display: flex; gap: 16px;">
         <!-- Left: Fitur Aktif -->
-        <div style="width: 34%; flex-shrink: 0; display: flex; flex-direction: column; gap: 8%;">
+        <div style="width: 34%; flex-shrink: 0; display: flex; flex-direction: column; gap: 8px;">
           <p style="font-size: 10px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.1em; margin: 4px 0 0 0;">
             Fitur Aktif
           </p>
           <div
+            class="custom-scrollbar"
             style="
               flex: 1;
               background: {NEU_BG};
               box-shadow: {neuCfg.card};
               border-radius: 20px;
-              padding: 14px;
+              padding: 14px 14px 72px 14px;
               overflow-y: auto;
               display: flex;
               flex-direction: column;
@@ -456,12 +469,13 @@
             General Setting
           </p>
           <div
+            class="custom-scrollbar"
             style="
               flex: 1;
               background: {NEU_BG};
               box-shadow: {neuCfg.card};
               border-radius: 20px;
-              padding: 18px;
+              padding: 18px 18px 72px 18px;
               overflow-y: auto;
               display: flex;
               flex-direction: column;
@@ -495,7 +509,7 @@
               </div>
 
               {#if cameraStore.detectedCameras.length > 0}
-                <!-- Kamera USB ketemu: tampilkan nama model langsung, seperti `gphoto2 --auto-detect` -->
+                <!-- Kamera USB ketemu: tampilkan nama model langsung -->
                 <div style="background: {NEU_BG}; box-shadow: {neuCfg.inset}; border-radius: 12px; padding: 10px 14px; display: flex; flex-direction: column; gap: 4px;">
                   <span style="font-size: 12px; font-weight: 700; color: #16a34a;">
                     {cameraStore.detectedCameras[0].model}
@@ -588,9 +602,35 @@
               <div style="display: flex; flex-direction: column; gap: 5px; flex: 1;">
                 <h1 style="font-size: 10px; font-weight: 700; color: #334155; text-transform: uppercase; letter-spacing: 0.06em;">Countdown (dtk)</h1>
                 <div style="display: flex; align-items: center; gap: 6px;">
-                  <button onclick={() => update('countdownSecs', Math.max(3, boothConfig.config.countdownSecs - 1))} style="width: 32px; height: 32px; border-radius: 9px; background: {NEU_BG}; box-shadow: {neuCfg.btnSm}; border: none; cursor: pointer; font-weight: 700; font-size: 16px; color: #334155; display: flex; align-items: center; justify-content: center;">−</button>
-                  <div style="flex: 1; background: {NEU_BG}; box-shadow: {neuCfg.inset}; border-radius: 10px; padding: 6px 0; text-align: center; font-size: 13px; font-weight: 700; color: #334155;">{boothConfig.config.countdownSecs}</div>
-                  <button onclick={() => update('countdownSecs', Math.min(15, boothConfig.config.countdownSecs + 1))} style="width: 32px; height: 32px; border-radius: 9px; background: {NEU_BG}; box-shadow: {neuCfg.btnSm}; border: none; cursor: pointer; font-weight: 700; font-size: 16px; color: #334155; display: flex; align-items: center; justify-content: center;">+</button>
+                  <button onclick={() => update('countdownSecs', Math.max(1, boothConfig.config.countdownSecs - 1))} style="width: 32px; height: 32px; border-radius: 9px; background: {NEU_BG}; box-shadow: {neuCfg.btnSm}; border: none; cursor: pointer; font-weight: 700; font-size: 16px; color: #334155; display: flex; align-items: center; justify-content: center;">−</button>
+                  <input
+                    type="number"
+                    min={1}
+                    max={99}
+                    value={boothConfig.config.countdownSecs}
+                    oninput={(e) => {
+                      const val = parseInt(e.currentTarget.value, 10);
+                      if (!isNaN(val) && val >= 1) {
+                        update('countdownSecs', val);
+                      }
+                    }}
+                    style="
+                      flex: 1;
+                      width: 100%;
+                      background: {NEU_BG};
+                      box-shadow: {neuCfg.inset};
+                      border-radius: 10px;
+                      padding: 6px 0;
+                      text-align: center;
+                      font-size: 13px;
+                      font-weight: 700;
+                      color: #334155;
+                      border: none;
+                      outline: none;
+                      font-family: 'Poppins', sans-serif;
+                    "
+                  />
+                  <button onclick={() => update('countdownSecs', Math.min(99, boothConfig.config.countdownSecs + 1))} style="width: 32px; height: 32px; border-radius: 9px; background: {NEU_BG}; box-shadow: {neuCfg.btnSm}; border: none; cursor: pointer; font-weight: 700; font-size: 16px; color: #334155; display: flex; align-items: center; justify-content: center;">+</button>
                 </div>
               </div>
 
@@ -599,7 +639,33 @@
                 <h1 style="font-size: 10px; font-weight: 700; color: #334155; text-transform: uppercase; letter-spacing: 0.06em;">Stok Kertas</h1>
                 <div style="display: flex; align-items: center; gap: 6px;">
                   <button onclick={() => update('paperCount', Math.max(0, boothConfig.config.paperCount - 1))} style="width: 32px; height: 32px; border-radius: 9px; background: {NEU_BG}; box-shadow: {neuCfg.btnSm}; border: none; cursor: pointer; font-weight: 700; font-size: 16px; color: #334155; display: flex; align-items: center; justify-content: center;">−</button>
-                  <div style="flex: 1; background: {NEU_BG}; box-shadow: {neuCfg.inset}; border-radius: 10px; padding: 6px 0; text-align: center; font-size: 13px; font-weight: 700; color: #334155;">{boothConfig.config.paperCount}</div>
+                  <input
+                    type="number"
+                    min={0}
+                    max={999}
+                    value={boothConfig.config.paperCount}
+                    oninput={(e) => {
+                      const val = parseInt(e.currentTarget.value, 10);
+                      if (!isNaN(val) && val >= 0) {
+                        update('paperCount', val);
+                      }
+                    }}
+                    style="
+                      flex: 1;
+                      width: 100%;
+                      background: {NEU_BG};
+                      box-shadow: {neuCfg.inset};
+                      border-radius: 10px;
+                      padding: 6px 0;
+                      text-align: center;
+                      font-size: 13px;
+                      font-weight: 700;
+                      color: #334155;
+                      border: none;
+                      outline: none;
+                      font-family: 'Poppins', sans-serif;
+                    "
+                  />
                   <button onclick={() => update('paperCount', Math.min(999, boothConfig.config.paperCount + 1))} style="width: 32px; height: 32px; border-radius: 9px; background: {NEU_BG}; box-shadow: {neuCfg.btnSm}; border: none; cursor: pointer; font-weight: 700; font-size: 16px; color: #334155; display: flex; align-items: center; justify-content: center;">+</button>
                 </div>
               </div>
@@ -609,7 +675,33 @@
                 <h1 style="font-size: 10px; font-weight: 700; color: #334155; text-transform: uppercase; letter-spacing: 0.06em;">Batas Peringatan</h1>
                 <div style="display: flex; align-items: center; gap: 6px;">
                   <button onclick={() => update('paperThreshold', Math.max(1, boothConfig.config.paperThreshold - 1))} style="width: 32px; height: 32px; border-radius: 9px; background: {NEU_BG}; box-shadow: {neuCfg.btnSm}; border: none; cursor: pointer; font-weight: 700; font-size: 16px; color: #334155; display: flex; align-items: center; justify-content: center;">−</button>
-                  <div style="flex: 1; background: {NEU_BG}; box-shadow: {neuCfg.inset}; border-radius: 10px; padding: 6px 0; text-align: center; font-size: 13px; font-weight: 700; color: #334155;">{boothConfig.config.paperThreshold}</div>
+                  <input
+                    type="number"
+                    min={1}
+                    max={100}
+                    value={boothConfig.config.paperThreshold}
+                    oninput={(e) => {
+                      const val = parseInt(e.currentTarget.value, 10);
+                      if (!isNaN(val) && val >= 1) {
+                        update('paperThreshold', val);
+                      }
+                    }}
+                    style="
+                      flex: 1;
+                      width: 100%;
+                      background: {NEU_BG};
+                      box-shadow: {neuCfg.inset};
+                      border-radius: 10px;
+                      padding: 6px 0;
+                      text-align: center;
+                      font-size: 13px;
+                      font-weight: 700;
+                      color: #334155;
+                      border: none;
+                      outline: none;
+                      font-family: 'Poppins', sans-serif;
+                    "
+                  />
                   <button onclick={() => update('paperThreshold', Math.min(100, boothConfig.config.paperThreshold + 1))} style="width: 32px; height: 32px; border-radius: 9px; background: {NEU_BG}; box-shadow: {neuCfg.btnSm}; border: none; cursor: pointer; font-weight: 700; font-size: 16px; color: #334155; display: flex; align-items: center; justify-content: center;">+</button>
                 </div>
               </div>
@@ -736,4 +828,80 @@
       </div>
     </div>
   </div>
+
+  <!-- Floating Save Button -->
+  <div
+    style="
+      position: fixed;
+      bottom: 24px;
+      right: 28px;
+      z-index: 50;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    "
+  >
+    {#if saveNotice}
+      <div
+        style="
+          background: #22c55e;
+          color: white;
+          padding: 10px 18px;
+          border-radius: 12px;
+          font-size: 12px;
+          font-weight: 700;
+          box-shadow: 0 4px 16px rgba(34, 197, 94, 0.35);
+        "
+      >
+        {saveNotice}
+      </div>
+    {/if}
+
+    <button
+      type="button"
+      onclick={handleManualSave}
+      style="
+        padding: 14px 26px;
+        border-radius: 16px;
+        background: linear-gradient(135deg, #3d3aa0, {NEU_PRIMARY});
+        border: none;
+        cursor: pointer;
+        font-family: 'Poppins', sans-serif;
+        font-weight: 700;
+        font-size: 13px;
+        color: white;
+        box-shadow: 0 8px 24px rgba(42,40,115,0.4);
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        transition: transform 0.15s ease, box-shadow 0.15s ease;
+      "
+      onmouseenter={(e) => (e.currentTarget.style.transform = 'translateY(-2px)')}
+      onmouseleave={(e) => (e.currentTarget.style.transform = 'translateY(0)')}
+    >
+      <Save size={18} />
+      <span>Simpan Pengaturan</span>
+    </button>
+  </div>
 </div>
+
+<style>
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  .custom-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    background: rgba(148, 163, 184, 0.35);
+    border-radius: 10px;
+  }
+  .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: rgba(148, 163, 184, 0.6);
+  }
+  .custom-scrollbar {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(148, 163, 184, 0.35) transparent;
+  }
+</style>

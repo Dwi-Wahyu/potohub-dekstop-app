@@ -79,14 +79,14 @@
 
   <!-- Header -->
   <header class="flex justify-between items-center shrink-0 relative z-10">
-    <button
+   <button
       onclick={onBack}
-      class="group border border-white/10 text-white/30 px-5 py-[9px] rounded-full bg-transparent flex items-center gap-2 cursor-pointer transition-colors duration-150 font-['Plus_Jakarta_Sans',sans-serif] font-semibold text-sm hover:border-white/20 hover:text-white/50"
-      title="Kembali"
+      class="flex items-center gap-1.5 border border-white/10 text-white/30 px-5 py-[9px] rounded-full bg-transparent cursor-pointer font-['Plus_Jakarta_Sans',sans-serif] text-sm font-medium transition-colors duration-150 hover:text-white/60 hover:border-white/20"
     >
-      <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+      <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
         <path d="M15.75 19.5L8.25 12l7.5-7.5" stroke-linecap="round" stroke-linejoin="round" />
       </svg>
+      Kembali
     </button>
 
     <h1 class="m-0 text-4xl font-bold tracking-wider bg-gradient-to-r from-white to-gray-400 bg-clip-text text-transparent">

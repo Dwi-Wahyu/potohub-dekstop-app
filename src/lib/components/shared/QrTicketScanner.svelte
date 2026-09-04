@@ -414,9 +414,9 @@
 
   <!-- Idle / Search Central Guide Reticle -->
   {#if showCenterGuide && !lastDetectedPoints && status !== 'error'}
-    <div class="absolute inset-10 border-2 border-dashed border-white/25 rounded-2xl pointer-events-none z-10 flex items-center justify-center">
+    <div class="absolute inset-10 pointer-events-none z-10 flex items-center justify-center">
       <!-- Animated Scan Line -->
-      <div class="w-full h-0.5 bg-gradient-to-r from-transparent via-white/50 to-transparent animate-pulse"></div>
+      <!-- <div class="w-full h-0.5 bg-gradient-to-r from-transparent via-white/50 to-transparent animate-pulse"></div> -->
 
       <!-- Reticle corner markers -->
       <div class="absolute -top-1 -left-1 w-4 h-4 border-t-2 border-l-2 border-white/70"></div>
@@ -427,7 +427,7 @@
   {/if}
 
   <!-- Status HUD Badge -->
-  {#if statusMessage}
+  <!-- {#if statusMessage}
     <div
       class={`absolute bottom-4 left-1/2 -translate-x-1/2 px-4 py-2 rounded-full text-xs font-semibold tracking-wide backdrop-blur-md z-20 flex items-center gap-2 shadow-lg border transition-all duration-200 ${
         status === 'success'
@@ -450,5 +450,5 @@
       {/if}
       <span>{statusMessage}</span>
     </div>
-  {/if}
+  {/if} -->
 </div>

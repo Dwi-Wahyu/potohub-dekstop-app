@@ -19,28 +19,46 @@ jobs:
           install: >-
             base-devel
             mingw-w64-x86_64-toolchain
-            mingw-w64-x86_64-pkg-config
+            mingw-w64-x86_64-pkgconf
             mingw-w64-x86_64-libgphoto2
 
-      # --- PERBAIKAN FINAL: Enkoding UTF-8 dan Jalur Absolut Windows ---
+      # --- PERBAIKAN: Auto-Detect File Executable ---
       - name: Configure MSYS2 Environment for Windows
         shell: pwsh
         run: |
-          $msysBin = "C:\msys64\mingw64\bin"
-          $pkgConfigExe = "$msysBin\pkg-config.exe"
-          $pkgConfigPath = "C:\msys64\mingw64\lib\pkgconfig"
+          $msysRoot = "C:\msys64"
+          $msysBin = "$msysRoot\mingw64\bin"
           
-          # Validasi apakah MSYS2 benar-benar terinstal dan file exe ada
-          if (-not (Test-Path $pkgConfigExe)) {
-              Write-Error "CRITICAL: pkg-config.exe tidak ditemukan di $pkgConfigExe"
+          # 1. Cari file secara dinamis: pkgconf.exe ATAU x86_64...pkg-config.exe
+          $targetExe = ""
+          if (Test-Path "$msysBin\pkgconf.exe") {
+              $targetExe = "$msysBin\pkgconf.exe"
+          } elseif (Test-Path "$msysBin\x86_64-w64-mingw32-pkg-config.exe") {
+              $targetExe = "$msysBin\x86_64-w64-mingw32-pkg-config.exe"
+          } elseif (Test-Path "$msysBin\pkg-config.exe") {
+              $targetExe = "$msysBin\pkg-config.exe"
+          }
+          
+          # 2. Jika tetap tidak ada, hentikan dan tampilkan isi folder untuk debugging
+          if ($targetExe -eq "") {
+              Write-Error "CRITICAL: Tidak dapat menemukan satupun file pkg-config/pkgconf di $msysBin"
+              Write-Host "Daftar file berawalan 'pkg' yang sebenarnya ada di folder tersebut:"
+              Get-ChildItem -Path $msysBin -Filter "*pkg*.exe" | Select-Object Name
               exit 1
           }
           
-          # WAJIB menggunakan Out-File -Encoding utf8. Jika pakai >> Actions tidak bisa membacanya!
+          Write-Host "==============================================="
+          Write-Host "Berhasil menemukan executable di: $targetExe"
+          Write-Host "==============================================="
+          
+          $pkgConfigLib = "$msysRoot\mingw64\lib\pkgconfig"
+          
+          # 3. Inject ke environment GitHub Actions dengan UTF-8
           "$msysBin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-          "PKG_CONFIG=$pkgConfigExe" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          "PKG_CONFIG_PATH=$pkgConfigPath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-      # -----------------------------------------------------------------
+          "$msysRoot\usr\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          "PKG_CONFIG=$targetExe" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "PKG_CONFIG_PATH=$pkgConfigLib" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+      # ----------------------------------------------
 
       - name: Install pnpm
         uses: pnpm/action-setup@v4

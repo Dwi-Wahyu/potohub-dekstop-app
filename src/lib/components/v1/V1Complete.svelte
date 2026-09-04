@@ -126,30 +126,46 @@
     if (timer) clearInterval(timer);
   });
 
+  let sendError = $state('');
+
   async function handleSendEmail() {
     if (!email.trim() || emailSent) return;
-    await sendSoftfileEmail(
+    sendError = '';
+    const ok = await sendSoftfileEmail(
       email,
-      () => {
-        emailSent = true;
-        activeKbTarget = null;
-        kbOpen = false;
+      (success) => {
+        if (success) {
+          emailSent = true;
+          activeKbTarget = null;
+          kbOpen = false;
+        }
       },
       boothFlow.sessionId ?? undefined
     );
+    if (!ok && !emailSent) {
+      sendError = 'Gagal mengirim Email. Periksa konfigurasi SMTP / App Password.';
+      setTimeout(() => (sendError = ''), 4000);
+    }
   }
 
   async function handleSendWA() {
     if (!phone.trim() || waSent) return;
-    await sendSoftfileWA(
+    sendError = '';
+    const ok = await sendSoftfileWA(
       phone,
-      () => {
-        waSent = true;
-        activeKbTarget = null;
-        kbOpen = false;
+      (success) => {
+        if (success) {
+          waSent = true;
+          activeKbTarget = null;
+          kbOpen = false;
+        }
       },
       boothFlow.sessionId ?? undefined
     );
+    if (!ok && !waSent) {
+      sendError = 'Gagal mengirim WhatsApp. Periksa token Fonnte & format nomor WA.';
+      setTimeout(() => (sendError = ''), 4000);
+    }
   }
 
   const ROWS_ALPHA = [
@@ -361,6 +377,10 @@
                 </button>
               </div>
             </div>
+          {/if}
+
+          {#if sendError}
+            <p class="text-[11px] text-red-500 font-bold m-0 mt-1">{sendError}</p>
           {/if}
         {/if}
       </div>

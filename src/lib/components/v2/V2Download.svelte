@@ -129,6 +129,8 @@
     if (timer === 0) onDone();
   });
 
+  let sendErrMsg = $state('');
+
   async function handleSendEmail() {
     const valid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
     if (!valid) {
@@ -136,15 +138,22 @@
       setTimeout(() => (error = false), 1600);
       return;
     }
-    await sendSoftfileEmail(
+    sendErrMsg = '';
+    const ok = await sendSoftfileEmail(
       email,
-      () => {
-        emailSent = true;
-        activeKbTarget = null;
-        kbOpen = false;
+      (success) => {
+        if (success) {
+          emailSent = true;
+          activeKbTarget = null;
+          kbOpen = false;
+        }
       },
       boothFlow.sessionId ?? undefined
     );
+    if (!ok && !emailSent) {
+      sendErrMsg = 'Gagal mengirim email. Periksa SMTP & App Password di Settings.';
+      setTimeout(() => (sendErrMsg = ''), 4000);
+    }
   }
 
   async function handleSendWA() {
@@ -154,15 +163,22 @@
       setTimeout(() => (error = false), 1600);
       return;
     }
-    await sendSoftfileWA(
+    sendErrMsg = '';
+    const ok = await sendSoftfileWA(
       phone,
-      () => {
-        waSent = true;
-        activeKbTarget = null;
-        kbOpen = false;
+      (success) => {
+        if (success) {
+          waSent = true;
+          activeKbTarget = null;
+          kbOpen = false;
+        }
       },
       boothFlow.sessionId ?? undefined
     );
+    if (!ok && !waSent) {
+      sendErrMsg = 'Gagal mengirim WA. Periksa Token Fonnte & format nomor WA di Settings.';
+      setTimeout(() => (sendErrMsg = ''), 4000);
+    }
   }
 
   let sessionCode = $derived(generateSessionCode(uiConfig.config.boothName));
@@ -420,6 +436,12 @@
               <p class="text-xs text-red-500 font-bold tracking-wide flex items-center gap-1.5 font-['Nunito',sans-serif] m-0">
                 <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 8v4m0 4h.01" stroke-linecap="round"/></svg>
                 Format input tidak valid
+              </p>
+            {/if}
+            {#if sendErrMsg}
+              <p class="text-xs text-red-600 font-bold tracking-wide flex items-center gap-1.5 font-['Nunito',sans-serif] m-0 mt-1">
+                <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 8v4m0 4h.01" stroke-linecap="round"/></svg>
+                {sendErrMsg}
               </p>
             {/if}
           </div>

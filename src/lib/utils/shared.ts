@@ -20,73 +20,97 @@ const API_BASE = rawBase.replace(/\/+$/, "");
 
 export async function sendSoftfileEmail(
   email: string,
-  onSent: () => void,
+  onSent: (success?: boolean) => void,
   sessionId?: string
-): Promise<void> {
+): Promise<boolean> {
   const trimmed = email.trim();
   if (!trimmed) {
-    onSent();
-    return;
+    onSent(false);
+    return false;
+  }
+  if (!sessionId || sessionId === '00000000-0000-0000-0000-000000000000') {
+    console.warn('[sendSoftfileEmail] Invalid or missing sessionId:', sessionId);
+    return false;
   }
   try {
     const res = await fetch(`${API_BASE}/public/softfile/send-email`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        session_id: sessionId || '00000000-0000-0000-0000-000000000000',
+        session_id: sessionId,
         email: trimmed,
       }),
     });
     if (res.ok) {
-      console.log('[sendSoftfileEmail] Softfile email request sent successfully');
+      const data = await res.json();
+      if (data.email_sent || data.success) {
+        console.log('[sendSoftfileEmail] Softfile email request sent successfully');
+        await delay(300);
+        onSent(true);
+        return true;
+      } else {
+        console.warn('[sendSoftfileEmail] Server returned failure:', data.message);
+      }
+    } else {
+      console.warn('[sendSoftfileEmail] Request failed with status:', res.status);
     }
   } catch (err) {
     console.warn('[sendSoftfileEmail] Request failed:', err);
-  } finally {
-    await delay(300);
-    onSent();
   }
+  return false;
 }
 
 export async function sendSoftfileWA(
   phone: string,
-  onSent: () => void,
+  onSent: (success?: boolean) => void,
   sessionId?: string
-): Promise<void> {
+): Promise<boolean> {
   const trimmed = phone.trim();
   if (!trimmed) {
-    onSent();
-    return;
+    onSent(false);
+    return false;
+  }
+  if (!sessionId || sessionId === '00000000-0000-0000-0000-000000000000') {
+    console.warn('[sendSoftfileWA] Invalid or missing sessionId:', sessionId);
+    return false;
   }
   try {
     const res = await fetch(`${API_BASE}/public/softfile/send-wa`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        session_id: sessionId || '00000000-0000-0000-0000-000000000000',
+        session_id: sessionId,
         phone: trimmed,
       }),
     });
     if (res.ok) {
-      console.log('[sendSoftfileWA] Softfile WhatsApp request sent successfully');
+      const data = await res.json();
+      if (data.wa_sent || data.success) {
+        console.log('[sendSoftfileWA] Softfile WhatsApp request sent successfully');
+        await delay(300);
+        onSent(true);
+        return true;
+      } else {
+        console.warn('[sendSoftfileWA] Server returned failure:', data.message);
+      }
+    } else {
+      console.warn('[sendSoftfileWA] Request failed with status:', res.status);
     }
   } catch (err) {
     console.warn('[sendSoftfileWA] Request failed:', err);
-  } finally {
-    await delay(300);
-    onSent();
   }
+  return false;
 }
 
 export async function sendSoftFile(
   target: string,
-  onSent: () => void,
+  onSent: (success?: boolean) => void,
   sessionId?: string
-): Promise<void> {
+): Promise<boolean> {
   const trimmed = target.trim();
   if (!trimmed) {
-    onSent();
-    return;
+    onSent(false);
+    return false;
   }
 
   const isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed);

@@ -22,16 +22,23 @@ jobs:
             mingw-w64-x86_64-pkgconf
             mingw-w64-x86_64-libgphoto2
 
-      - name: Expose MSYS2 to Windows PATH
+      # --- LANGKAH PERBAIKAN UTAMA ---
+      - name: Fix pkg-config and MSYS2 Paths for Windows
         shell: bash
         run: |
-          echo "C:/msys64/mingw64/bin" >> $GITHUB_PATH
-          echo "C:/msys64/usr/bin" >> $GITHUB_PATH
+          # 1. Hapus symlink palsu yang tidak bisa dibaca Windows
+          rm -f /c/msys64/mingw64/bin/pkg-config.exe
           
-          echo "PKG_CONFIG_PATH=C:/msys64/mingw64/lib/pkgconfig" >> $GITHUB_ENV
+          # 2. Copy file .exe aslinya agar menjadi file executable sungguhan
+          cp /c/msys64/mingw64/bin/pkgconf.exe /c/msys64/mingw64/bin/pkg-config.exe
           
-          # Solusi utama: Arahkan ke pkgconf.exe, bukan pkg-config.exe
-          echo "PKG_CONFIG=C:/msys64/mingw64/bin/pkgconf.exe" >> $GITHUB_ENV
+          # 3. Gunakan backslash (\) ala Windows untuk PATH
+          echo "C:\msys64\mingw64\bin" >> $GITHUB_PATH
+          echo "C:\msys64\usr\bin" >> $GITHUB_PATH
+          
+          # 4. Beritahu Rust di mana letak konfigurasi libgphoto2
+          echo "PKG_CONFIG_PATH=C:\msys64\mingw64\lib\pkgconfig" >> $GITHUB_ENV
+      # ------------------------------
 
       - name: Install pnpm
         uses: pnpm/action-setup@v4

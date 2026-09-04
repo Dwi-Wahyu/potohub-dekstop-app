@@ -20,7 +20,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Install frontend dependencies
-        run: pnpm install # Ubah ke yarn install atau pnpm install jika Anda menggunakannya
+        run: npm install # Ubah ke yarn install atau pnpm install jika Anda menggunakannya
 
       - name: Build Tauri App
         uses: tauri-apps/tauri-action@v0

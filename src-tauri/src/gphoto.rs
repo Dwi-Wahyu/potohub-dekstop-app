@@ -90,9 +90,39 @@ pub struct DetectedCamera {
     pub port: String,
 }
 
+static INIT_GPHOTO: std::sync::Once = std::sync::Once::new();
+
+pub fn ensure_gphoto_initialized() {
+    INIT_GPHOTO.call_once(|| {
+        unsafe extern "C" fn gp_log_callback(
+            level: libgphoto2_sys::GPLogLevel,
+            domain: *const std::os::raw::c_char,
+            message: *const std::os::raw::c_char,
+            _data: *mut std::ffi::c_void,
+        ) {
+            let domain_str = std::ffi::CStr::from_ptr(domain).to_string_lossy();
+            let message_str = std::ffi::CStr::from_ptr(message).to_string_lossy();
+            if matches!(level, libgphoto2_sys::GPLogLevel::GP_LOG_ERROR) {
+                eprintln!("[gphoto2-error] {}: {}", domain_str, message_str);
+            } else {
+                eprintln!("[gphoto2-debug] {}: {}", domain_str, message_str);
+            }
+        }
+
+        unsafe {
+            libgphoto2_sys::gp_log_add_func(
+                libgphoto2_sys::GPLogLevel::GP_LOG_ERROR,
+                Some(gp_log_callback),
+                std::ptr::null_mut(),
+            );
+        }
+    });
+}
+
 /// Non-invasive: hanya me-list kamera yang terpasang (setara `gphoto2 --auto-detect`),
 /// TIDAK membuka sesi/koneksi ke kamera. Aman dipanggil kapan saja.
 pub async fn detect() -> Result<Vec<DetectedCamera>, GphotoError> {
+    ensure_gphoto_initialized();
     let context = Context::new().map_err(|e| GphotoError::Connection(e.to_string()))?;
     let cameras = context
         .list_cameras()
@@ -107,6 +137,7 @@ pub async fn detect() -> Result<Vec<DetectedCamera>, GphotoError> {
 }
 
 pub async fn connect() -> Result<(Camera, DeviceInfo), GphotoError> {
+    ensure_gphoto_initialized();
     let context = Context::new().map_err(|e| GphotoError::Connection(e.to_string()))?;
     let camera = context
         .autodetect_camera()

@@ -12,3 +12,8 @@ vite.config.ts.timestamp-*
 src-tauri/binaries/ffmpeg-x86_64-unknown-linux-gnu
 src-tauri/binaries/*
 !src-tauri/binaries/.gitkeep
+
+src-tauri/gphoto-libs/*
+!src-tauri/gphoto-libs/.gitkeep
+!src-tauri/gphoto-libs/camlibs/.gitkeep
+!src-tauri/gphoto-libs/iolibs/.gitkeep

@@ -286,7 +286,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(
             tauri_plugin_log::Builder::new()
-                .level(tauri_plugin_log::log::LevelFilter::Info)
+                .level(tauri_plugin_log::log::LevelFilter::Debug)
                 .build(),
         )
         .plugin(tauri_plugin_sql::Builder::new().build())
@@ -326,14 +326,37 @@ pub fn run() {
                         let dev_gphoto_dir = exe_dir.join("../../gphoto-libs");
                         let dev_gphoto_dir_alt = exe_dir.join("../../../gphoto-libs");
 
-                        let (camlibs_path, iolibs_path, gphoto_root) = if dev_gphoto_dir.join("camlibs/ptp2.dll").exists() {
+                        let has_dlls = |dir: &std::path::Path| -> bool {
+                            if let Ok(entries) = std::fs::read_dir(dir) {
+                                entries.filter_map(|e| e.ok()).any(|e| {
+                                    e.path().extension().map_or(false, |ext| ext.eq_ignore_ascii_case("dll"))
+                                })
+                            } else {
+                                false
+                            }
+                        };
+
+                        let msys_camlibs_glob = std::path::PathBuf::from("C:/msys64/mingw64/lib/libgphoto2");
+                        let msys_iolibs_glob = std::path::PathBuf::from("C:/msys64/mingw64/lib/libgphoto2_port");
+                        let find_msys_subfolder = |base: &std::path::Path| -> Option<std::path::PathBuf> {
+                            if let Ok(entries) = std::fs::read_dir(base) {
+                                for entry in entries.flatten() {
+                                    if entry.path().is_dir() {
+                                        return Some(entry.path());
+                                    }
+                                }
+                            }
+                            None
+                        };
+
+                        let (camlibs_path, iolibs_path, gphoto_root) = if has_dlls(&dev_gphoto_dir.join("camlibs")) {
                             (dev_gphoto_dir.join("camlibs"), dev_gphoto_dir.join("iolibs"), dev_gphoto_dir)
-                        } else if dev_gphoto_dir_alt.join("camlibs/ptp2.dll").exists() {
+                        } else if has_dlls(&dev_gphoto_dir_alt.join("camlibs")) {
                             (dev_gphoto_dir_alt.join("camlibs"), dev_gphoto_dir_alt.join("iolibs"), dev_gphoto_dir_alt)
-                        } else if exe_dir.join("camlibs/ptp2.dll").exists() {
+                        } else if has_dlls(&exe_dir.join("camlibs")) {
                             (exe_dir.join("camlibs"), exe_dir.join("iolibs"), exe_dir.to_path_buf())
-                        } else if dev_gphoto_dir.join("camlibs").exists() {
-                            (dev_gphoto_dir.join("camlibs"), dev_gphoto_dir.join("iolibs"), dev_gphoto_dir)
+                        } else if let (Some(c), Some(i)) = (find_msys_subfolder(&msys_camlibs_glob), find_msys_subfolder(&msys_iolibs_glob)) {
+                            (c, i, std::path::PathBuf::from("C:/msys64/mingw64/bin"))
                         } else {
                             (exe_dir.join("camlibs"), exe_dir.join("iolibs"), exe_dir.to_path_buf())
                         };
@@ -356,8 +379,10 @@ pub fn run() {
 
                         if let Some(current_path) = std::env::var_os("PATH") {
                             let msys_bin = "C:\\msys64\\mingw64\\bin";
-                            let gphoto_win_path = gphoto_root_str.replace('/', "\\");
-                            let new_path = format!("{};{};{}", gphoto_win_path, msys_bin, current_path.to_string_lossy());
+                            let gphoto_win = gphoto_root_str.replace('/', "\\");
+                            let camlibs_win = camlibs_str.replace('/', "\\");
+                            let iolibs_win = iolibs_str.replace('/', "\\");
+                            let new_path = format!("{};{};{};{};{}", gphoto_win, camlibs_win, iolibs_win, msys_bin, current_path.to_string_lossy());
                             std::env::set_var("PATH", new_path);
                         }
 

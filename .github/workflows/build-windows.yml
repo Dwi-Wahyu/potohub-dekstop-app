@@ -3,6 +3,7 @@ on:
   push:
     branches:
       - main
+  workflow_dispatch:
 
 jobs:
   build-windows:
@@ -23,11 +24,27 @@ jobs:
             mingw-w64-x86_64-libgphoto2
 
       - name: Configure MSYS2 Environment for Windows
-        shell: bash
+        shell: msys2 {0}
         run: |
           which pkg-config || pacman -S --noconfirm mingw-w64-x86_64-pkg-config
-          export PKG_CONFIG_PATH=/mingw64/lib/pkgconfig
-          echo "PKG_CONFIG_PATH=$PKG_CONFIG_PATH" >> $GITHUB_ENV
+          echo "PKG_CONFIG_PATH=/mingw64/lib/pkgconfig" >> $GITHUB_ENV
+
+      - name: Prepare libgphoto2 DLLs for Tauri Bundling
+        shell: msys2 {0}
+        run: |
+          mkdir -p src-tauri/gphoto-libs/camlibs
+          mkdir -p src-tauri/gphoto-libs/iolibs
+          cp -r /mingw64/lib/libgphoto2/*/* src-tauri/gphoto-libs/camlibs/ 2>/dev/null || true
+          cp -r /mingw64/lib/libgphoto2_port/*/* src-tauri/gphoto-libs/iolibs/ 2>/dev/null || true
+          cp /mingw64/bin/libgphoto2-6.dll src-tauri/gphoto-libs/ 2>/dev/null || true
+          cp /mingw64/bin/libgphoto2_port-12.dll src-tauri/gphoto-libs/ 2>/dev/null || true
+          cp /mingw64/bin/libexif-12.dll src-tauri/gphoto-libs/ 2>/dev/null || true
+          cp /mingw64/bin/libusb-1.0.dll src-tauri/gphoto-libs/ 2>/dev/null || true
+          cp /mingw64/bin/libltdl-7.dll src-tauri/gphoto-libs/ 2>/dev/null || true
+          cp /mingw64/bin/libintl-8.dll src-tauri/gphoto-libs/ 2>/dev/null || true
+          cp /mingw64/bin/libiconv-2.dll src-tauri/gphoto-libs/ 2>/dev/null || true
+          cp /mingw64/bin/libgcc_s_seh-1.dll src-tauri/gphoto-libs/ 2>/dev/null || true
+          cp /mingw64/bin/libwinpthread-1.dll src-tauri/gphoto-libs/ 2>/dev/null || true
 
       - name: Install pnpm
         uses: pnpm/action-setup@v4

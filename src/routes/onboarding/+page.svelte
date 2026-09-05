@@ -4,10 +4,11 @@
   import { activateBooth, loginUser, isTokenValid } from '$lib/api/boothClient';
   import { prefetchBoothAssets } from '$lib/api/prefetch';
   import { getActivation, saveActivation } from '$lib/db/local';
-  import { Eye, EyeOff, Camera, Settings, ArrowRight } from '@lucide/svelte';
+  import { Eye, EyeOff, Lock, ArrowRight } from '@lucide/svelte';
   import { setWindowDecorations } from '$lib/utils/windowControl';
 
-  let step = $state<'welcome' | 'login' | 'activation' | 'destination'>('welcome');
+  let step = $state<'welcome' | 'login' | 'activation'>('welcome');
+  let loginPurpose = $state<'journey' | 'settings'>('journey');
   let email = $state('');
   let password = $state('');
   let showPassword = $state(false);
@@ -30,19 +31,49 @@
     void setWindowDecorations(true);
     const activation = await getActivation();
     isActivated = Boolean(activation && activation.boothId);
-
-    const urlParams = new URLSearchParams(window.location.search);
-    const stepParam = urlParams.get('step');
-
-    if (stepParam === 'destination') {
-      const tokenValid = await isTokenValid(activation?.token);
-      if (tokenValid && isActivated) {
-        step = 'destination';
-      } else {
-        step = isActivated ? 'login' : 'welcome';
-      }
-    }
   });
+
+  async function handleStart() {
+    error = '';
+    loading = true;
+    try {
+      const activation = await getActivation();
+      const tokenValid = await isTokenValid(activation?.token);
+      if (isActivated && tokenValid) {
+        await goto('/?journey=1');
+        return;
+      }
+      loginPurpose = 'journey';
+      step = 'login';
+    } catch (e) {
+      console.error(e);
+      loginPurpose = 'journey';
+      step = 'login';
+    } finally {
+      loading = false;
+    }
+  }
+
+  async function handleLockClick() {
+    error = '';
+    loading = true;
+    try {
+      const activation = await getActivation();
+      const tokenValid = await isTokenValid(activation?.token);
+      if (isActivated && tokenValid) {
+        await goto('/settings');
+        return;
+      }
+      loginPurpose = 'settings';
+      step = 'login';
+    } catch (e) {
+      console.error(e);
+      loginPurpose = 'settings';
+      step = 'login';
+    } finally {
+      loading = false;
+    }
+  }
 
   async function handleLogin() {
     if (!email.trim() || !password) {
@@ -55,16 +86,18 @@
       const data = await loginUser(email.trim(), password);
       const activation = await getActivation();
       if (activation && activation.boothId) {
-        // App already activated -> move to destination choice step
         if (data.token) {
           await saveActivation({
             ...activation,
             token: data.token
           });
         }
-        step = 'destination';
+        if (loginPurpose === 'settings') {
+          await goto('/settings');
+        } else {
+          await goto('/?journey=1');
+        }
       } else {
-        // Newly installed / not activated app -> proceed to activation code step
         step = 'activation';
       }
     } catch (e) {
@@ -84,11 +117,10 @@
     error = '';
     try {
       const data = await activateBooth(code.trim());
-      // Prefetch aset booth (background download) — tidak memblokir navigasi
       void prefetchBoothAssets(data.booth_id ?? code.trim()).catch((e) =>
         console.warn('Prefetch aset booth gagal:', e)
       );
-      step = 'destination';
+      await goto('/?journey=1');
     } catch (e) {
       console.error(e);
       error = e instanceof Error ? e.message : 'Aktivasi gagal.';
@@ -149,6 +181,36 @@
       "
     ></div>
   {/each}
+
+  {#if step === 'welcome'}
+    <!-- Lock button on top right of screen (ujung kanan) -->
+    <button
+      type="button"
+      onclick={handleLockClick}
+      disabled={loading}
+      title="Pengaturan Booth"
+      style="
+        position: absolute;
+        top: 32px;
+        right: 32px;
+        width: 52px;
+        height: 52px;
+        border-radius: 16px;
+        background: {BG};
+        box-shadow: {neu.raisedSm};
+        border: none;
+        cursor: {loading ? 'not-allowed' : 'pointer'};
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: {NAVY};
+        transition: transform 0.15s, box-shadow 0.15s;
+        z-index: 10;
+      "
+    >
+      <Lock size={22} />
+    </button>
+  {/if}
 
   <!-- Center card panel -->
   <div
@@ -237,10 +299,8 @@
       <!-- MULAI button -->
       <button
         type="button"
-        onclick={() => {
-          step = 'login';
-          error = '';
-        }}
+        onclick={handleStart}
+        disabled={loading}
         style="
           display: flex;
           align-items: center;
@@ -249,7 +309,7 @@
           border-radius: 999px;
           background: linear-gradient(135deg, #3d3aa0, {NAVY});
           border: none;
-          cursor: pointer;
+          cursor: {loading ? 'not-allowed' : 'pointer'};
           color: #fff;
           font-family: 'Poppins', sans-serif;
           font-size: 1rem;
@@ -259,9 +319,10 @@
           box-shadow: 8px 8px 20px #c0cad8, -4px -4px 10px #ffffff, 0 4px 20px rgba(42,40,115,0.3);
           transition: transform 0.15s, box-shadow 0.15s;
           margin-bottom: 18px;
+          opacity: {loading ? 0.7 : 1};
         "
       >
-        Mulai
+        {loading ? 'Memuat...' : 'Mulai'}
         <ArrowRight size={18} />
       </button>
 
@@ -434,7 +495,7 @@
             background: {BG};
             box-shadow: {neu.raisedSm};
             border: none;
-            cursor: loading ? 'not-allowed' : 'pointer';
+            cursor: {loading ? 'not-allowed' : 'pointer'};
             font-family: 'Poppins', sans-serif;
             font-size: 0.9rem;
             font-weight: 700;
@@ -454,7 +515,7 @@
             border-radius: 16px;
             background: linear-gradient(135deg, #3d3aa0, {NAVY});
             border: none;
-            cursor: loading ? 'not-allowed' : 'pointer';
+            cursor: {loading ? 'not-allowed' : 'pointer'};
             color: #fff;
             font-family: 'Poppins', sans-serif;
             font-size: 0.95rem;
@@ -585,7 +646,7 @@
             background: {BG};
             box-shadow: {neu.raisedSm};
             border: none;
-            cursor: loading ? 'not-allowed' : 'pointer';
+            cursor: {loading ? 'not-allowed' : 'pointer'};
             font-family: 'Poppins', sans-serif;
             font-size: 0.9rem;
             font-weight: 700;
@@ -605,7 +666,7 @@
             border-radius: 16px;
             background: linear-gradient(135deg, #3d3aa0, {NAVY});
             border: none;
-            cursor: loading ? 'not-allowed' : 'pointer';
+            cursor: {loading ? 'not-allowed' : 'pointer'};
             color: #fff;
             font-family: 'Poppins', sans-serif;
             font-size: 0.95rem;
@@ -616,157 +677,6 @@
           "
         >
           {loading ? 'Memverifikasi...' : 'Aktivasi'}
-        </button>
-      </div>
-
-    {:else if step === 'destination'}
-      <!-- Destination / Navigation Choice step -->
-      <div
-        style="
-          width: 80px;
-          height: 80px;
-          border-radius: 24px;
-          background: {BG};
-          box-shadow: {neu.raisedSm};
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          margin-bottom: 24px;
-        "
-      >
-        <div
-          style="
-            width: 56px;
-            height: 56px;
-            border-radius: 16px;
-            background: linear-gradient(135deg, #3d3aa0, {NAVY});
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            box-shadow: 4px 4px 10px rgba(42,40,115,0.35);
-          "
-        >
-          <ArrowRight size={26} color="white" />
-        </div>
-      </div>
-
-      <h2
-        style="
-          margin: 0 0 8px;
-          font-size: 1.8rem;
-          font-weight: 800;
-          color: #334155;
-          letter-spacing: -0.02em;
-        "
-      >
-        Pilih Navigasi
-      </h2>
-
-      <div
-        style="
-          padding: 6px 20px;
-          border-radius: 999px;
-          margin-bottom: 28px;
-          background: {BG};
-          box-shadow: {neu.insetPill};
-        "
-      >
-        <p style="margin: 0; font-size: 0.72rem; font-weight: 600; color: #7c8faa; letter-spacing: 0.12em; text-transform: uppercase;">
-          Verifikasi Sukses · Pilih Halaman Tujuan
-        </p>
-      </div>
-
-      <div style="width: 100%; display: flex; flex-direction: column; gap: 16px;">
-        <!-- Option 1: Sesi Foto (Customer Journey) -->
-        <button
-          type="button"
-          onclick={() => goto('/?journey=1')}
-          style="
-            width: 100%;
-            display: flex;
-            align-items: center;
-            gap: 20px;
-            padding: 20px 24px;
-            border-radius: 24px;
-            background: {BG};
-            box-shadow: {neu.raisedSm};
-            border: none;
-            cursor: pointer;
-            text-align: left;
-            box-sizing: border-box;
-            transition: transform 0.15s, box-shadow 0.15s;
-          "
-        >
-          <div
-            style="
-              width: 52px;
-              height: 52px;
-              border-radius: 16px;
-              background: linear-gradient(135deg, #3d3aa0, {NAVY});
-              display: flex;
-              align-items: center;
-              justify-content: center;
-              flex-shrink: 0;
-              box-shadow: 4px 4px 10px rgba(42,40,115,0.3);
-            "
-          >
-            <Camera size={26} color="white" />
-          </div>
-          <div style="flex: 1;">
-            <h3 style="margin: 0 0 4px; font-size: 1.05rem; font-weight: 800; color: {NAVY}; font-family: 'Poppins', sans-serif;">
-              Sesi Foto (Customer Journey)
-            </h3>
-            <p style="margin: 0; font-size: 0.8rem; font-weight: 600; color: #64748b;">
-              Masuk ke layar utama booth untuk pelanggan
-            </p>
-          </div>
-          <ArrowRight size={22} color="#7c8faa" />
-        </button>
-
-        <!-- Option 2: Pengaturan Aplikasi -->
-        <button
-          type="button"
-          onclick={() => goto('/settings')}
-          style="
-            width: 100%;
-            display: flex;
-            align-items: center;
-            gap: 20px;
-            padding: 20px 24px;
-            border-radius: 24px;
-            background: {BG};
-            box-shadow: {neu.raisedSm};
-            border: none;
-            cursor: pointer;
-            text-align: left;
-            box-sizing: border-box;
-            transition: transform 0.15s, box-shadow 0.15s;
-          "
-        >
-          <div
-            style="
-              width: 52px;
-              height: 52px;
-              border-radius: 16px;
-              background: linear-gradient(135deg, #475569, #1e293b);
-              display: flex;
-              align-items: center;
-              justify-content: center;
-              flex-shrink: 0;
-              box-shadow: 4px 4px 10px rgba(30,41,59,0.3);
-            "
-          >
-            <Settings size={26} color="white" />
-          </div>
-          <div style="flex: 1;">
-            <h3 style="margin: 0 0 4px; font-size: 1.05rem; font-weight: 800; color: #1e293b; font-family: 'Poppins', sans-serif;">
-              Pengaturan Aplikasi
-            </h3>
-            <p style="margin: 0; font-size: 0.8rem; font-weight: 600; color: #64748b;">
-              Konfigurasi booth, kamera, printer, & sistem
-            </p>
-          </div>
-          <ArrowRight size={22} color="#7c8faa" />
         </button>
       </div>
     {/if}

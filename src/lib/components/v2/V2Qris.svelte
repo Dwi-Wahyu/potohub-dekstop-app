@@ -124,7 +124,7 @@
 
   <!-- Main content -->
   <div class="relative z-10 flex flex-col items-center flex-1 justify-center gap-0">
-    <p class="text-xs tracking-[0.35em] uppercase text-black/40 mb-3 font-['Nunito',sans-serif] font-black">Scan &amp; Pay</p>
+    <!-- <p class="text-xs tracking-[0.35em] uppercase text-black/40 mb-3 font-['Nunito',sans-serif] font-black">Scan &amp; Pay</p> -->
     <h2 class="text-3xl font-bold mb-1">Pembayaran QRIS</h2>
     <div class="w-16 h-[2px] bg-black mb-8"></div>
 

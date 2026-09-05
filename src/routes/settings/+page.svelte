@@ -10,7 +10,7 @@
   });
 
   function handleBack() {
-    goto('/onboarding?step=destination');
+    goto('/onboarding');
   }
 
   async function handleLogout() {

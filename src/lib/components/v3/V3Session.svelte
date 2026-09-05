@@ -35,6 +35,7 @@
   let videoEl = $state<HTMLVideoElement | null>(null);
 
   function playStream(node: HTMLVideoElement, stream: MediaStream | null) {
+    cameraStore.setVideoElement(node);
     if (stream) {
       node.srcObject = stream;
       node.muted = true;
@@ -43,6 +44,7 @@
     }
     return {
       update(newStream: MediaStream | null) {
+        cameraStore.setVideoElement(node);
         if (newStream) {
           node.srcObject = newStream;
           node.muted = true;
@@ -53,6 +55,7 @@
         }
       },
       destroy() {
+        cameraStore.setVideoElement(null);
         node.srcObject = null;
       }
     };
@@ -389,7 +392,15 @@
               class="w-full h-full object-cover"
               style="transform: {getLiveviewTransformStyle(boothConfig.config, cameraStore.cameraMode)};"
             />
+          {:else}
+            <div class="w-full h-full flex items-center justify-center text-white/40 text-sm font-bold">
+              Loading Live Preview...
+            </div>
           {/if}
+        {:else}
+          <div class="w-full h-full flex items-center justify-center text-white/40 text-sm font-bold">
+            Kamera Offline
+          </div>
         {/if}
 
         <!-- Captured Photo Overlay Layer - Shown when allDone and not running retake -->

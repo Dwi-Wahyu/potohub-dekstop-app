@@ -5,7 +5,7 @@
   import { uiConfig } from '$lib/stores/uiConfig.svelte';
   import { boothConfig } from '$lib/stores/boothConfig.svelte';
   import { cameraStore } from '$lib/camera.svelte';
-  import { fetchAndCacheUiConfig, isTokenValid } from '$lib/api/boothClient';
+  import { fetchAndCacheUiConfig } from '$lib/api/boothClient';
   import { prefetchBoothAssets } from '$lib/api/prefetch';
   import V1Layout from '$lib/components/v1/V1Layout.svelte';
   import V2Layout from '$lib/components/v2/V2Layout.svelte';
@@ -39,15 +39,8 @@
       return;
     }
 
-    // Pengecekan keabsahan JWT Token saat aplikasi pertama kali dibuka
-    const tokenValid = await isTokenValid(activation.token);
-    if (tokenValid) {
-      // Token valid & perangkat teraktivasi -> Buka Halaman Navigasi pertama kali
-      await goto('/onboarding?step=destination');
-    } else {
-      // Token stale / expired / tidak valid -> Lempar ke onboarding login
-      await goto('/onboarding');
-    }
+    // Jika aplikasi dibuka tanpa query journey=1 -> Arahkan ke /onboarding
+    await goto('/onboarding');
   });
 </script>
 

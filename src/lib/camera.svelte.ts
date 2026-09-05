@@ -186,9 +186,23 @@ class CameraStore {
     });
   }
 
+  setVideoElement(el: HTMLVideoElement | null) {
+    if (el) {
+      this.videoElement = el;
+    } else if (this.videoElement === el) {
+      this.videoElement = null;
+    }
+  }
+
   async startLiveview(videoEl?: HTMLVideoElement | null) {
+    if (this.status === "idle") {
+      await this.connect(this.cameraMode);
+    }
     if (this.status !== "connected") return;
     this.errorMessage = null;
+    if (videoEl) {
+      this.videoElement = videoEl;
+    }
     if (this.cameraMode === "usb") {
       try {
         await invoke("start_liveview");
@@ -198,18 +212,20 @@ class CameraStore {
       }
     } else if (this.cameraMode === "webcam") {
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: { width: { ideal: 1280 }, height: { ideal: 960 } },
-          audio: false
-        });
-        this.stream = stream;
+        if (!this.stream) {
+          const stream = await navigator.mediaDevices.getUserMedia({
+            video: { width: { ideal: 1280 }, height: { ideal: 960 } },
+            audio: false
+          });
+          this.stream = stream;
+          this.startWebcamRecorder(stream);
+        }
         this.isLiveviewActive = true;
-        this.startWebcamRecorder(stream);
         if (videoEl) {
-          videoEl.srcObject = stream;
+          videoEl.srcObject = this.stream;
           videoEl.muted = true;
           videoEl.playsInline = true;
-          await videoEl.play();
+          await videoEl.play().catch(() => {});
           this.videoElement = videoEl;
         }
       } catch (err) {

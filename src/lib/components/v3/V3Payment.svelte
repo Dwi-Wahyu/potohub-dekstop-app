@@ -171,7 +171,7 @@
           disabled={paid}
           class="w-full py-2.5 border-2 border-[#0E8E5E] text-[#0E8E5E] rounded-full font-bold text-xs tracking-widest uppercase hover:bg-[#f0faf5] transition-colors cursor-pointer bg-white"
         >
-          {paid ? 'Pembayaran Berhasil! ✓' : 'Cek Status Pembayaran'}
+          {paid ? 'Pembayaran Berhasil!' : 'Cek Status Pembayaran'}
         </button>
 
         <button

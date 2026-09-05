@@ -35,6 +35,7 @@
   let videoEl = $state<HTMLVideoElement | null>(null);
 
   function playStream(node: HTMLVideoElement, stream: MediaStream | null) {
+    cameraStore.setVideoElement(node);
     if (stream) {
       node.srcObject = stream;
       node.muted = true;
@@ -43,6 +44,7 @@
     }
     return {
       update(newStream: MediaStream | null) {
+        cameraStore.setVideoElement(node);
         if (newStream) {
           node.srcObject = newStream;
           node.muted = true;
@@ -53,6 +55,7 @@
         }
       },
       destroy() {
+        cameraStore.setVideoElement(null);
         node.srcObject = null;
       }
     };

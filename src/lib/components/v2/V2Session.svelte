@@ -35,6 +35,7 @@
   let videoEl = $state<HTMLVideoElement | null>(null);
 
   function playStream(node: HTMLVideoElement, stream: MediaStream | null) {
+    cameraStore.setVideoElement(node);
     if (stream) {
       node.srcObject = stream;
       node.muted = true;
@@ -43,6 +44,7 @@
     }
     return {
       update(newStream: MediaStream | null) {
+        cameraStore.setVideoElement(node);
         if (newStream) {
           node.srcObject = newStream;
           node.muted = true;
@@ -53,6 +55,7 @@
         }
       },
       destroy() {
+        cameraStore.setVideoElement(null);
         node.srcObject = null;
       }
     };
@@ -281,7 +284,15 @@
             class="absolute inset-0 w-full h-full object-cover"
             style="transform: {getLiveviewTransformStyle(boothConfig.config, cameraStore.cameraMode)};"
           />
+        {:else}
+          <div class="absolute inset-0 flex items-center justify-center text-white/40 text-sm font-bold font-['Nunito',sans-serif]">
+            Loading Live Preview...
+          </div>
         {/if}
+      {:else}
+        <div class="absolute inset-0 flex items-center justify-center text-white/40 text-sm font-bold font-['Nunito',sans-serif]">
+          Kamera Offline
+        </div>
       {/if}
 
       <!-- Captured Photo Overlay Layer - Shown when allDone and not running retake -->
@@ -315,14 +326,19 @@
           </div>
         </div>
       {:else if !isRunning && !allDone}
-        <div class="absolute inset-0 flex flex-col items-center justify-center z-20 pointer-events-none font-['Nunito',sans-serif]">
+        <!-- svelte-ignore a11y_click_events_have_key_events -->
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <!-- <div
+          onclick={startCapture}
+          class="absolute inset-0 flex flex-col items-center justify-center z-20 cursor-pointer font-['Nunito',sans-serif]"
+        >
           <div class="text-white/80 text-6xl font-black uppercase tracking-[0.2em] mb-4 drop-shadow-[0_0_20px_rgba(255,255,255,0.3)]">
             Ready?
           </div>
           <p class="text-white/50 italic text-xl font-['Playfair_Display',serif]">
-            Click "Capture" on the right
+            Click to Start
           </p>
-        </div>
+        </div> -->
       {/if}
 
       <!-- Photo counter badge -->
@@ -451,7 +467,7 @@
           </button>
         {/if}
 
-        <button
+        <!-- <button
           onclick={handleRetake}
           disabled={sessionsDone === 0 || isRunning}
           class={`w-full py-3 border-2 border-black rounded-xl font-bold tracking-widest uppercase flex items-center justify-center gap-2 transition-all cursor-pointer bg-white ${
@@ -461,7 +477,7 @@
           }`}
         >
           <RefreshCw size={16} strokeWidth={2.5} /> Retake
-        </button>
+        </button> -->
 
         {#if allDone}
           <button

@@ -2,7 +2,7 @@
   import { uiConfig } from '$lib/stores/uiConfig.svelte';
   import { validateAndRedeemQrTicket } from '$lib/api/boothClient';
   import QrTicketScanner from '$lib/components/shared/QrTicketScanner.svelte';
-  import { QrCode, ChevronLeft, Ticket as TicketIcon } from '@lucide/svelte';
+  import { QrCode, ChevronLeft, Ticket as TicketIcon, Check, FileExclamationPoint } from '@lucide/svelte';
   import type { QrScanResult, QrScanStatus } from '$lib/types/qr';
 
   interface Props {
@@ -167,7 +167,6 @@
 
   <!-- Content -->
   <div class="relative z-10 flex flex-col items-center flex-1 justify-center gap-0">
-    <p class="text-xs tracking-[0.35em] uppercase text-black/40 mb-3 font-['Nunito',sans-serif] font-black">Scan or Enter Code</p>
     <h2 class="text-3xl font-bold mb-1">Scan Tiket</h2>
     <div class="w-16 h-[2px] bg-black mb-8"></div>
 
@@ -205,11 +204,11 @@
       <!-- Status alerts -->
       {#if successMsg}
         <div class="w-full px-4 py-2 bg-[#C7EED8] border-2 border-black rounded-xl text-center text-xs font-black font-['Nunito',sans-serif] text-emerald-900 shadow-[3px_3px_0_0_rgba(0,0,0,1)]">
-          ✓ {successMsg}
+          <Check /> {successMsg}
         </div>
       {:else if errorMsg}
         <div class="w-full px-4 py-2 bg-red-100 border-2 border-red-500 rounded-xl text-center text-xs font-bold font-['Nunito',sans-serif] text-red-600">
-          ⚠️ {errorMsg}
+          <FileExclamationPoint /> {errorMsg}
         </div>
       {/if}
 

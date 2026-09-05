@@ -1,7 +1,9 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import { uiConfig } from '$lib/stores/uiConfig.svelte';
   import PinPad from '$lib/components/shared/PinPad.svelte';
   import IdleBannerModal from '$lib/components/shared/IdleBannerModal.svelte';
+  import { setWindowDecorations } from '$lib/utils/windowControl';
 
   interface Props {
     onStart: () => void;
@@ -10,6 +12,10 @@
   }
 
   let { onStart, onOpenConfig, background }: Props = $props();
+
+  onMount(() => {
+    void setWindowDecorations(false);
+  });
 
   let showPinModal = $state(false);
   let tapCount = $state(0);
@@ -28,9 +34,18 @@
     }
   }
 
+  function handleKeydown(e: KeyboardEvent) {
+    if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'a' || e.key === 'A')) {
+      e.preventDefault();
+      showPinModal = true;
+    }
+  }
+
   const DEFAULT_BG = '#fafafa';
   let effectiveBg = $derived(background ?? uiConfig.getStepStyle('start').background ?? DEFAULT_BG);
 </script>
+
+<svelte:window onkeydown={handleKeydown} />
 
 <div
   class="w-full h-full flex items-center justify-center relative overflow-hidden select-none"
@@ -49,20 +64,6 @@
         ></div>
       </div>
     {/each}
-  </div>
-
-  <!-- Booth badge & Operator lock at top right -->
-  <div class="absolute top-8 right-10 z-10 flex items-center gap-3">
-    <button
-      onclick={() => (showPinModal = true)}
-      class="border-none bg-transparent cursor-pointer p-1 opacity-40 hover:opacity-100 transition-opacity"
-      title="Operator PIN"
-    >
-      <svg width="18" height="18" fill="none" stroke="black" stroke-width="2" viewBox="0 0 24 24">
-        <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-        <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-      </svg>
-    </button>
   </div>
 
   <!-- Center hero -->

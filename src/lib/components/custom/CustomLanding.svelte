@@ -1,8 +1,9 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import { uiConfig } from '$lib/stores/uiConfig.svelte';
   import PinPad from '$lib/components/shared/PinPad.svelte';
   import IdleBannerModal from '$lib/components/shared/IdleBannerModal.svelte';
-  import { Lock } from '@lucide/svelte';
+  import { setWindowDecorations } from '$lib/utils/windowControl';
 
   interface Props {
     onStart: () => void;
@@ -12,7 +13,18 @@
 
   let { onStart, onOpenConfig, background }: Props = $props();
 
+  onMount(() => {
+    void setWindowDecorations(false);
+  });
+
   let showPinModal = $state(false);
+
+  function handleKeydown(e: KeyboardEvent) {
+    if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'a' || e.key === 'A')) {
+      e.preventDefault();
+      showPinModal = true;
+    }
+  }
 
   let startBtnPos = $derived(uiConfig.getElementPosition('start', 'start_button', { x: 50, y: 82 }));
   let startBtnStyle = $derived(uiConfig.getElementStyle('start', 'start_button', {
@@ -24,21 +36,13 @@
   );
 </script>
 
+<svelte:window onkeydown={handleKeydown} />
+
 <div
   class="relative w-full h-full flex flex-col items-center justify-center overflow-hidden select-none"
   style:background={effectiveBg}
   style:font-family="'Poppins', sans-serif"
 >
-  <button
-    type="button"
-    onclick={() => (showPinModal = true)}
-    class="absolute top-5 right-6 opacity-40 hover:opacity-100 transition-opacity border-none p-2 rounded-full cursor-pointer z-20"
-    style="background: #ebf0f7; box-shadow: 8px 8px 16px #c8d2e0, -8px -8px 16px #ffffff;"
-    title="Operator PIN"
-  >
-    <Lock />
-  </button>
-
   <button
     onclick={onStart}
     style="

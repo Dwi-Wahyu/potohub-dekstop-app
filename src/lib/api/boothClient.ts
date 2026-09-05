@@ -191,6 +191,81 @@ export async function getAuthHeaders(
   return headers;
 }
 
+export interface LoginResponseData {
+  token: string;
+  refresh_token: string;
+  user: {
+    id: string;
+    organization_id: string | null;
+    email: string;
+    name: string;
+    role: string;
+  };
+}
+
+export async function loginUser(
+  email: string,
+  password: string,
+): Promise<LoginResponseData> {
+  const res = await fetch(`${API_BASE}/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password }),
+  });
+  if (!res.ok) {
+    const errJson = await res.json().catch(() => null);
+    const msg =
+      errJson?.message ||
+      (res.status === 401
+        ? "Email atau password salah."
+        : "Login gagal, silakan coba lagi.");
+    throw new Error(msg);
+  }
+  const json = await res.json();
+  return json.data ?? json;
+}
+
+export async function isTokenValid(token: string | null | undefined): Promise<boolean> {
+  if (!token || typeof token !== "string" || !token.trim()) {
+    return false;
+  }
+
+  // 1. Client-side JWT expiration check
+  try {
+    const parts = token.split(".");
+    if (parts.length === 3) {
+      const payloadBase64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+      const jsonPayload = decodeURIComponent(
+        atob(payloadBase64)
+          .split("")
+          .map((c) => "%" + ("00" + c.charCodeAt(0).toString(16)).slice(-2))
+          .join("")
+      );
+      const decoded = JSON.parse(jsonPayload);
+      if (decoded.exp && typeof decoded.exp === "number") {
+        const now = Math.floor(Date.now() / 1000);
+        if (decoded.exp <= now + 5) {
+          return false;
+        }
+      }
+    }
+  } catch (e) {
+    console.warn("Gagal parse JWT payload di client-side:", e);
+  }
+
+  // 2. API check against /api/auth/me
+  try {
+    const res = await fetch(`${API_BASE}/auth/me`, {
+      method: "GET",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    return res.ok;
+  } catch (e) {
+    console.warn("Periksa /auth/me ke API gagal (network offline):", e);
+    return true;
+  }
+}
+
 export async function activateBooth(activationCode: string) {
   const res = await fetch(`${API_BASE}/booths/activate`, {
     method: "POST",

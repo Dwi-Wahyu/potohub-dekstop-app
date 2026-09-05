@@ -252,9 +252,7 @@
       {/if}
 
       <div class="flex items-center gap-2 text-white/80 font-['Poppins',sans-serif] text-sm font-semibold tracking-widest uppercase animate-pulse">
-        <span class="text-amber-400">✦</span>
         <span>Sentuh layar untuk memulai</span>
-        <span class="text-amber-400">✦</span>
       </div>
     </div>
   </div>

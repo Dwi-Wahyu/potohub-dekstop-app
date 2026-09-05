@@ -1,8 +1,10 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import { uiConfig } from '$lib/stores/uiConfig.svelte';
   import PinPad from '$lib/components/shared/PinPad.svelte';
   import IdleBannerModal from '$lib/components/shared/IdleBannerModal.svelte';
   import { Camera, Image as ImageIcon, Star } from '@lucide/svelte';
+  import { setWindowDecorations } from '$lib/utils/windowControl';
 
   interface Props {
     onStart: () => void;
@@ -11,6 +13,10 @@
   }
 
   let { onStart, onOpenConfig, background }: Props = $props();
+
+  onMount(() => {
+    void setWindowDecorations(false);
+  });
 
   let showPinModal = $state(false);
   let tapCount = $state(0);
@@ -29,6 +35,13 @@
     }
   }
 
+  function handleKeydown(e: KeyboardEvent) {
+    if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'a' || e.key === 'A')) {
+      e.preventDefault();
+      showPinModal = true;
+    }
+  }
+
   let startBtnPos = $derived(uiConfig.getElementPosition('start', 'start_button', { x: 50, y: 78 }));
   let startBtnStyle = $derived(uiConfig.getElementStyle('start', 'start_button', {
     bgColor: '#FFFFFF', textColor: '#CD1C33', fontSize: 'Besar', fontFamily: 'Sans Serif',
@@ -37,6 +50,8 @@
   const DEFAULT_BG = '#CD1C33 repeating-linear-gradient(90deg, transparent, transparent 40px, rgba(0,0,0,0.05) 40px, rgba(0,0,0,0.05) 80px)';
   let effectiveBg = $derived(background ?? uiConfig.getStepStyle('start').background ?? DEFAULT_BG);
 </script>
+
+<svelte:window onkeydown={handleKeydown} />
 
 <div
   class="w-full h-full text-white flex flex-col select-none relative overflow-hidden font-['Inter',sans-serif]"
@@ -93,14 +108,12 @@
 
     <!-- RIGHT: brand & start action -->
     <div class="w-[50%] h-full flex flex-col items-start justify-center text-white pr-16 gap-4 relative">
-      <!-- Stamp -->
-      <button
-        onclick={() => (showPinModal = true)}
-        class="absolute top-8 right-10 w-24 h-24 rounded-full border-[3px] border-dashed border-white/20 flex flex-col items-center justify-center text-white/25 text-center bg-transparent cursor-pointer hover:border-white/50 transition-colors"
-        title="Operator PIN"
+      <!-- Stamp badge (visual only) -->
+      <div
+        class="absolute top-8 right-10 w-24 h-24 rounded-full border-[3px] border-dashed border-white/20 flex flex-col items-center justify-center text-white/25 text-center pointer-events-none"
       >
         <span class="text-[8px] font-bold tracking-widest leading-tight uppercase font-mono">PHOTO<br />BOOTH<br />2025</span>
-      </button>
+      </div>
 
       <!-- svelte-ignore a11y_click_events_have_key_events -->
       <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->

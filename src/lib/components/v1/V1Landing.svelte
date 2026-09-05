@@ -1,7 +1,9 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import PinPad from '$lib/components/shared/PinPad.svelte';
   import IdleBannerModal from '$lib/components/shared/IdleBannerModal.svelte';
   import { uiConfig } from '$lib/stores/uiConfig.svelte';
+  import { setWindowDecorations } from '$lib/utils/windowControl';
 
   interface Props {
     onStart: () => void;
@@ -10,6 +12,10 @@
   }
 
   let { onStart, onOpenConfig, background }: Props = $props();
+
+  onMount(() => {
+    void setWindowDecorations(false);
+  });
 
   let showPinModal = $state(false);
   let tapCount = $state(0);
@@ -29,9 +35,13 @@
     }
   }
 
-  function handleLockClick() {
-    showPinModal = true;
+  function handleKeydown(e: KeyboardEvent) {
+    if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'a' || e.key === 'A')) {
+      e.preventDefault();
+      showPinModal = true;
+    }
   }
+
   let startBtnPos = $derived(uiConfig.getElementPosition('start', 'start_button', { x: 50, y: 82 }));
   let startBtnStyle = $derived(uiConfig.getElementStyle('start', 'start_button', {
     bgColor: '#f5d9cc', textColor: '#1a0a00', fontSize: 'Sedang', fontFamily: 'Sans Serif',
@@ -41,32 +51,12 @@
   let effectiveBg = $derived(background ?? uiConfig.getStepStyle('start').background ?? DEFAULT_BG);
 </script>
 
+<svelte:window onkeydown={handleKeydown} />
+
 <div
   class="relative w-full h-full overflow-hidden flex flex-col items-center justify-center font-['Plus_Jakarta_Sans',sans-serif]"
   style:background={effectiveBg}
 >
-  <!-- Watermark Dinamis -->
-  <!-- <div
-    class="absolute top-1/2 left-[55%] -translate-x-1/2 -translate-y-1/2 text-[clamp(160px,28vw,380px)] font-black text-white/[0.028] select-none pointer-events-none leading-none whitespace-nowrap"
-  >
-    {uiConfig.config.boothName}
-  </div> -->
-
-  <!-- Admin lock trigger — top right -->
-  <button
-    type="button"
-    onclick={handleLockClick}
-    class="absolute top-5 right-6 opacity-40 hover:opacity-100 transition-opacity cursor-pointer bg-transparent border-none p-2"
-    title="Open Operator Settings"
-  >
-    <svg width="18" height="22" viewBox="0 0 16 20" fill="none" aria-label="Admin">
-      <rect x="1" y="8" width="14" height="11" rx="2" stroke="white" stroke-width="1.4" />
-      <path d="M4 8V5.5a4 4 0 0 1 8 0V8" stroke="white" stroke-width="1.4" stroke-linecap="round" fill="none" />
-      <circle cx="8" cy="13.5" r="1.4" fill="white" />
-      <line x1="8" y1="14.9" x2="8" y2="16.8" stroke="white" stroke-width="1.4" stroke-linecap="round" />
-    </svg>
-  </button>
-
   <!-- Center content -->
   <div class="relative flex flex-col items-center gap-2.5">
     <div class="relative inline-block" role="presentation" onclick={handleHiddenTap}>
@@ -129,7 +119,7 @@
   <!-- Idle Promo Banner Popup Slider -->
   <IdleBannerModal disabled={showPinModal} />
 
-  <!-- PIN Modal for hidden trigger -->
+  <!-- PIN Modal for hidden trigger or keyboard shortcut -->
   {#if showPinModal}
     <div
       class="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200"

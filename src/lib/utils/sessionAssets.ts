@@ -141,7 +141,26 @@ export async function saveSessionAssets(
     }
   }
 
-  // 4. Upload foto mentah tiap slot secara sekuensial agar hemat memori & stabil
+  // 4. Upload thumbnail (foto mentah pertama) untuk card gallery admin dashboard
+  if (boothFlow.photosTaken.length > 0) {
+    try {
+      await uploadGalleryAsset(
+        boothId,
+        sessionId,
+        'thumbnail',
+        boothFlow.photosTaken[0],
+        'jpg',
+        'image/jpeg',
+        1200,
+        1800
+      );
+      console.log('[saveSessionAssets] Sukses upload thumbnail foto mentah');
+    } catch (e) {
+      console.error('Gagal upload thumbnail foto mentah:', e);
+    }
+  }
+
+  // 5. Upload foto mentah tiap slot secara sekuensial agar hemat memori & stabil
   for (let i = 0; i < boothFlow.photosTaken.length; i++) {
     const photoUrl = boothFlow.photosTaken[i];
     try {

@@ -1,4 +1,4 @@
-﻿# Dokumentasi & Panduan Integrasi libgphoto2 pada Windows (Development & Production Desktop App)
+# Dokumentasi & Panduan Integrasi libgphoto2 pada Windows (Development & Production Desktop App)
 
 > **Dokumen**: `instructions-reports/WINDOWS_GPHOTO2_SETUP_AND_BUILD_DOCUMENTATION.md`  
 > **Aplikasi**: PotoHub Booth Client (`dekstop-app` - Tauri v2 + Rust + SvelteKit)  
@@ -200,11 +200,65 @@ Berikut adalah **Checklist Wajib** untuk menjamin kamera DSLR/Mirrorless dapat d
 
 ---
 
-## 5. Konfigurasi Build & Instalasi Desktop Windows (Production Ready)
+## 5. Optimasi & Perampingan Ukuran Bundle DLL (Dari 363 MB ke 7.00 MB)
+
+### 5.1 Analisis Pembengkakan Ukuran Folder
+Sebelumnya, folder `src-tauri/gphoto-libs` berukuran **363.35 MB** (148 file). Hal ini terjadi karena seluruh isi folder `C:\msys64\mingw64\bin\*.dll` tersalin ke dalam repositori, termasuk kakas compiler C++, runtime bahasa lain, dan encoder multimedia yang tidak digunakan oleh `libgphoto2`.
+
+Beberapa file non-gphoto berukuran masif yang sebelumnya terbawa:
+- `libLLVM-22.dll` (140.2 MB) & `libclang-cpp.dll` (56.7 MB) & `libclang.dll` (34.1 MB) — Kakas compiler Clang/LLVM.
+- `libx265-217.dll` (21.6 MB) & `libx264-165.dll` (1.9 MB) — Codec video eksternal (aplikasi sudah memakai binary FFmpeg terpisah).
+- `libaom.dll` (9.2 MB) & `libSvtAv1Enc-4.dll` (7.2 MB) — Codec AV1.
+- `libpython3.14.dll` (5.3 MB) — Runtime Python.
+- `libcrypto-3-x64.dll` (5.2 MB) & `libcryptopp.dll` (4.4 MB) — Library kriptografi OpenSSL / Crypto++.
+- `libsqlite3-0.dll` (1.5 MB) — SQLite (Tauri plugin SQL sudah mengompilasi SQLite langsung secara statis ke dalam binary `.exe`).
+
+### 5.2 Analisis Pohon Dependensi (Dependency Tree) Minimal
+Melalui penelusuran struktur impor PE (`objdump -p`), pohon dependensi `libgphoto2` pada Windows murni membutuhkan **14 file DLL** pada root `gphoto-libs/`:
+
+```text
+libgphoto2-6.dll (Core Engine)
+├── libgphoto2_port-12.dll (I/O Engine)
+│   ├── libwinpthread-1.dll
+│   ├── libsystre-0.dll ── libtre-5.dll
+│   ├── libintl-8.dll ──── libiconv-2.dll
+│   └── libltdl-7.dll (Plugin Loader)
+├── libexif-12.dll (EXIF Parser)
+├── libintl-8.dll
+├── libltdl-7.dll
+│
+├── iolibs/usb1.dll (USB I/O Driver)
+│   ├── libgphoto2_port-12.dll
+│   ├── libintl-8.dll
+│   └── libusb-1.0.dll (Raw USB Backend)
+│
+├── camlibs/ptp2.dll (Canon/Nikon/Sony Driver)
+│   ├── libgphoto2-6.dll
+│   ├── libgphoto2_port-12.dll
+│   ├── libjpeg-8.dll (Live Preview Decompressor)
+│   ├── libxml2-16.dll (PTP XML Parser)
+│   │   ├── libiconv-2.dll
+│   │   └── zlib1.dll (Kompresi XML)
+│   └── libintl-8.dll
+│
+└── libgcc_s_seh-1.dll (GCC Runtime Unwind)
+```
+
+### 5.3 Hasil Perampingan
+1. **Root DLLs**: Hanya menyisakan **14 file krusial** (~4.75 MB).
+2. **Driver I/O (`iolibs/`)**: Menyisakan `usb1.dll` (90 KB), `ptpip.dll` (17 KB), dan `disk.dll` (16 KB). Menghapus file duplikat `usb.dll`.
+3. **Driver Kamera (`camlibs/`)**: Tetap mempertahankan **20 file driver lengkap** (total 2.13 MB), sehingga mendukung Canon, Nikon, Sony, Fuji, Lumix, Pentax, dll.
+4. **Penyertaan `zlib1.dll`**: Menambahkan `zlib1.dll` ke root `gphoto-libs` agar komputer klien tanpa MSYS2 tidak mengalami kegagalan saat `libxml2-16.dll` dipanggil oleh driver `ptp2.dll`.
+
+> **Hasil Akhir**: Ukuran folder `gphoto-libs` terpangkas dari **363.35 MB** menjadi **7.00 MB** (**Penghematan 98% / 356 MB**). Waktu build Tauri dan ukuran installer NSIS berkurang secara signifikan.
+
+---
+
+## 6. Konfigurasi Build & Instalasi Desktop Windows (Production Ready)
 
 Agar aplikasi yang sudah di-build (`pnpm tauri build`) dapat diinstal dan langsung berjalan di komputer Windows klien tanpa perlu install MSYS2 atau alat compiler lain:
 
-### 5.1 Konfigurasi Resource Bundling di `tauri.conf.json`
+### 6.1 Konfigurasi Resource Bundling di `tauri.conf.json`
 Pada file [`src-tauri/tauri.conf.json`](file:///C:/Programming/potohub/dekstop-app/src-tauri/tauri.conf.json):
 
 ```json
@@ -227,7 +281,7 @@ Pada file [`src-tauri/tauri.conf.json`](file:///C:/Programming/potohub/dekstop-a
 }
 ```
 
-### 5.2 Logika Resolusi Path Otomatis (Dev vs Production)
+### 6.2 Logika Resolusi Path Otomatis (Dev vs Production)
 Fungsi `init_gphoto_environment()` di [`src-tauri/src/lib.rs`](file:///C:/Programming/potohub/dekstop-app/src-tauri/src/lib.rs) secara cerdas mendeteksi lingkungan saat aplikasi dijalankan:
 
 1. **Saat Development (`pnpm tauri dev`)**:
@@ -249,7 +303,7 @@ Fungsi `init_gphoto_environment()` di [`src-tauri/src/lib.rs`](file:///C:/Progra
 
 ---
 
-## 6. Prosedur Deployment Perangkat Baru di Lapangan
+## 7. Prosedur Deployment Perangkat Baru di Lapangan
 
 Jika melakukan instalasi Photobooth pada komputer Windows baru:
 

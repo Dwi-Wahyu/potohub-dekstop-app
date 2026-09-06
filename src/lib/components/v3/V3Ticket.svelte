@@ -2,7 +2,7 @@
   import { redeemTicket } from '$lib/api/boothClient';
   import QrTicketScanner from '$lib/components/shared/QrTicketScanner.svelte';
   import OfflineBanner from '$lib/components/shared/OfflineBanner.svelte';
-  import { Check, Ticket as TicketIcon } from '@lucide/svelte';
+  import { Check, Ticket as TicketIcon, Delete } from '@lucide/svelte';
   import type { QrScanResult, QrScanStatus } from '$lib/types/qr';
 
   import { uiConfig } from '$lib/stores/uiConfig.svelte';
@@ -20,8 +20,27 @@
   let errorMsg = $state('');
   let successMsg = $state('');
   let verifying = $state(false);
+  let kbOpen = $state(false);
   let scanStatus = $state<QrScanStatus>('detecting');
   let scanStatusMessage = $state('Arahkan QR ke Kamera');
+
+  const TICKET_KB_ROWS = [
+    ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'],
+    ['Q', 'W', 'E', 'R', 'T', 'Y', 'U', 'I', 'O', 'P'],
+    ['A', 'S', 'D', 'F', 'G', 'H', 'J', 'K', 'L'],
+    ['-', 'Z', 'X', 'C', 'V', 'B', 'N', 'M', '⌫']
+  ];
+
+  function pressKey(key: string) {
+    if (errorMsg === 'Kode tiket tidak boleh kosong') {
+      errorMsg = '';
+    }
+    if (key === '⌫') {
+      code = code.slice(0, -1);
+      return;
+    }
+    code += key;
+  }
 
   async function handleScanDetected(result: QrScanResult) {
     if (verifying) return;
@@ -61,7 +80,12 @@
   }
 
   async function verifyManual() {
-    if (!code.trim() || verifying) return;
+    if (verifying) return;
+    if (!code.trim()) {
+      errorMsg = 'Kode tiket tidak boleh kosong';
+      successMsg = '';
+      return;
+    }
     verifying = true;
     scanStatus = 'verifying';
     scanStatusMessage = 'Memverifikasi...';
@@ -155,7 +179,10 @@
     </div>
   </div>
 
-  <div class="flex-1 flex flex-col items-center justify-center px-8 gap-6">
+  <div
+    class="flex-1 flex flex-col items-center justify-center px-8 gap-6 transition-transform duration-300"
+    style={kbOpen ? 'transform: translateY(-80px);' : ''}
+  >
     <OfflineBanner message="Offline — tiket akan diverifikasi dari data lokal booth." />
 
     <div class="flex items-center justify-center gap-10">
@@ -191,7 +218,16 @@
 
     <!-- Manual input -->
     <div class="flex flex-col gap-4 w-72">
-      <p class="text-white/60 text-xs tracking-[0.25em] uppercase font-bold text-center m-0">Masukkan Kode Tiket</p>
+      <div class="flex items-center justify-between w-full">
+        <p class="text-white/60 text-xs tracking-[0.25em] uppercase font-bold m-0">Kode Tiket</p>
+        <button
+          type="button"
+          onclick={() => (kbOpen = !kbOpen)}
+          class="text-[10px] font-mono tracking-wider text-white/60 hover:text-white bg-white/10 hover:bg-white/20 border border-white/10 rounded-lg px-2 py-0.5 cursor-pointer transition-colors"
+        >
+          {kbOpen ? 'Tutup Keyboard' : '⌨ Buka Keyboard'}
+        </button>
+      </div>
 
       <!-- Status Alerts -->
       {#if successMsg}
@@ -208,18 +244,26 @@
         <input
           type="text"
           value={code}
-          oninput={(e) => (code = (e.target as HTMLInputElement).value.toUpperCase())}
+          onfocus={() => (kbOpen = true)}
+          onclick={() => (kbOpen = true)}
+          oninput={(e) => {
+            code = (e.target as HTMLInputElement).value.toUpperCase();
+            if (errorMsg === 'Kode tiket tidak boleh kosong') errorMsg = '';
+          }}
           onkeydown={(e) => e.key === 'Enter' && verifyManual()}
           placeholder="XXXX-XXXX-XXXX"
-          class="w-full text-center text-sm font-black tracking-widest rounded-xl px-4 py-3 outline-none border border-white/20 focus:border-[#FFC107] bg-white/10 text-white placeholder-white/20 uppercase transition-colors"
+          class={`w-full text-center text-sm font-black tracking-widest rounded-xl px-4 py-3 outline-none border transition-colors bg-white/10 text-white placeholder-white/20 uppercase ${
+            errorMsg ? 'border-red-500 bg-red-500/10' : 'border-white/20 focus:border-[#FFC107]'
+          }`}
           style="font-family: 'Space Mono', monospace;"
         />
         <button
+          type="button"
           onclick={verifyManual}
-          disabled={verifying || !code.trim()}
+          disabled={verifying}
           class="w-full py-3 bg-[#FFC107] text-black font-black tracking-wider uppercase rounded-xl hover:bg-yellow-300 disabled:opacity-40 transition-colors shadow-lg text-xs cursor-pointer border-none"
         >
-          Verifikasi Tiket
+          {verifying ? 'Memverifikasi...' : 'Verifikasi Tiket'}
         </button>
       </div>
 
@@ -231,5 +275,87 @@
       </button>
     </div>
   </div>
+  </div>
+
+  <!-- On-screen keyboard -->
+  <div
+    class="absolute bottom-0 left-0 right-0 z-50 transition-transform duration-300 font-['Inter',sans-serif]"
+    style={`transform: ${kbOpen ? 'translateY(0)' : 'translateY(100%)'};`}
+  >
+    <!-- Close strip -->
+    <!-- svelte-ignore a11y_click_events_have_key_events -->
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div
+      class="flex items-center justify-between px-5 py-2 cursor-pointer"
+      style="background: rgba(10,10,15,0.98); border-top: 1px solid rgba(255,255,255,0.1);"
+      onclick={() => (kbOpen = false)}
+    >
+      <span class="text-[9px] font-bold tracking-[0.3em] uppercase text-white/40 font-mono">Keyboard Kode Tiket</span>
+      <span class="text-[9px] font-bold text-white/40 hover:text-white transition-colors">✕ Tutup</span>
+    </div>
+
+    <!-- V3 Keyboard keycaps -->
+    <div class="flex flex-col gap-1.5 px-3 pb-4 pt-3 bg-[#0a0a0f] border-t border-white/10 backdrop-blur-xl">
+      {#each TICKET_KB_ROWS as row}
+        <div class="flex gap-1.5 w-full justify-center">
+          {#each row as key}
+            <button
+              type="button"
+              onpointerdown={(e) => {
+                e.preventDefault();
+                pressKey(key);
+              }}
+              class="rounded-lg flex items-center justify-center font-bold transition-all border border-white/10 cursor-pointer bg-white/10 hover:bg-white/20 active:scale-95 text-white"
+              style={`height: 44px; flex: ${key === '⌫' ? '0 0 12%' : '1 1 0'}; max-width: 68px; min-width: 0; font-size: ${key === '⌫' ? '14px' : '16px'}; font-family: 'Space Mono', monospace;`}
+            >
+              {#if key === '⌫'}
+                <Delete size={16} />
+              {:else}
+                {key}
+              {/if}
+            </button>
+          {/each}
+        </div>
+      {/each}
+
+      <!-- Bottom action row -->
+      <div class="flex w-full gap-1.5 justify-center mt-0.5">
+        <button
+          type="button"
+          onpointerdown={(e) => {
+            e.preventDefault();
+            code = '';
+            if (errorMsg) errorMsg = '';
+          }}
+          class="rounded-lg flex items-center justify-center font-semibold border border-white/10 bg-white/5 hover:bg-white/10 text-white/70 text-xs cursor-pointer"
+          style="height: 44px; flex: 0 0 14%;"
+        >
+          Hapus
+        </button>
+        <button
+          type="button"
+          onpointerdown={(e) => {
+            e.preventDefault();
+            code += ' ';
+          }}
+          class="rounded-lg flex-1 flex items-center justify-center font-bold border border-white/10 bg-white/10 hover:bg-white/20 text-white text-xs uppercase tracking-wider cursor-pointer"
+          style="height: 44px;"
+        >
+          Spasi
+        </button>
+        <button
+          type="button"
+          onpointerdown={(e) => {
+            e.preventDefault();
+            verifyManual();
+          }}
+          disabled={verifying}
+          class="rounded-lg flex items-center justify-center font-black bg-[#FFC107] text-black text-xs uppercase tracking-wider border-none hover:bg-yellow-300 cursor-pointer disabled:opacity-40"
+          style="height: 44px; flex: 0 0 28%;"
+        >
+          {verifying ? 'Memverifikasi...' : 'Verifikasi Tiket'}
+        </button>
+      </div>
+    </div>
   </div>
 </div>

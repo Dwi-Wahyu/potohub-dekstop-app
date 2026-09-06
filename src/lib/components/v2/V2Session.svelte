@@ -260,11 +260,6 @@
         <div class="absolute inset-0 bg-white z-40 pointer-events-none transition-opacity duration-150"></div>
       {/if}
 
-      <!-- Dashed mockup guide (16:9 ratio) -->
-      <div
-        class="w-[60%] aspect-video border-2 border-dashed border-white/40 rounded-[32px] pointer-events-none z-10"
-      ></div>
-
       <!-- Permanent Liveview Feed Layer -->
       {#if cameraStore.isLiveviewActive}
         {#if cameraStore.cameraMode === 'webcam'}

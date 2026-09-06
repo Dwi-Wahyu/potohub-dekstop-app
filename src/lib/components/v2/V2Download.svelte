@@ -458,7 +458,7 @@
             {#if emailEnabled}
               <div class="flex flex-col gap-1.5">
                 <div class="flex items-center justify-between text-xs font-bold text-black/60 uppercase tracking-wider">
-                  <span>Email Softfile</span>
+                  <span>Email</span>
                   {#if emailSent}
                     <span class="text-green-600 font-black">
                       {networkStatus.isOnline ? '✓ Terkirim' : '⏳ Menunggu Koneksi'}
@@ -487,7 +487,7 @@
             {#if whatsappEnabled}
               <div class="flex flex-col gap-1.5">
                 <div class="flex items-center justify-between text-xs font-bold text-black/60 uppercase tracking-wider">
-                  <span>WhatsApp (Fonnte)</span>
+                  <span>WhatsApp</span>
                   {#if waSent}
                     <span class="text-green-600 font-black">
                       {networkStatus.isOnline ? '✓ Terkirim' : '⏳ Menunggu Koneksi'}

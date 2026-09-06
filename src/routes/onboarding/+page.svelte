@@ -275,7 +275,7 @@
           user-select: none;
         "
       >
-        Potohub
+        PotoHub
       </h1>
 
       <!-- Tagline pill -->

@@ -825,30 +825,6 @@
             </div>
 
             <div style="height: 1px; background: rgba(200,210,224,0.7);"></div>
-
-            <!-- Session upload -->
-            <div style="display: flex; flex-direction: column; gap: 6px;">
-              <h1 style="font-size: 10px; font-weight: 700; color: #334155; text-transform: uppercase; letter-spacing: 0.06em;">Session Pending Softfile Upload</h1>
-              <div style="display: flex; gap: 10px;">
-                <div style="flex: 1; background: {NEU_BG}; box-shadow: {neuCfg.inset}; border-radius: 12px; padding: 10px 16px; font-size: 14px; font-weight: 700; color: #334155;">0</div>
-                <button
-                  style="
-                    padding: 10px 24px;
-                    border-radius: 12px;
-                    background: linear-gradient(135deg, #3d3aa0, {NEU_PRIMARY});
-                    border: none;
-                    cursor: pointer;
-                    font-family: 'Poppins',sans-serif;
-                    font-weight: 700;
-                    font-size: 13px;
-                    color: white;
-                    box-shadow: 0 4px 14px rgba(42,40,115,0.35);
-                  "
-                >
-                  Upload
-                </button>
-              </div>
-            </div>
           </div>
         </div>
       </div>

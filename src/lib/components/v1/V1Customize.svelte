@@ -11,7 +11,7 @@
   import { formatTime, getLiveviewTransformStyle } from '$lib/utils/shared';
   import { fetchTemplates, fetchEmots, requireActiveBoothId, type BoothTemplate, type BoothEmot } from '$lib/api/boothClient';
   import { cachedFetch } from '$lib/utils/offlineCache';
-  import { getSortedPhotoSlots } from '$lib/utils/templateComposite';
+  import { getSortedPhotoSlots, getTemplateLayers, getLayerZIndex } from '$lib/utils/templateComposite';
 
   interface Props {
     photos: string[];
@@ -25,8 +25,9 @@
 
   let selectedTemplate = $state<BoothTemplate | null>(null);
   let emotsData = $state<BoothEmot[]>([]);
-  let photoSlots = $derived(getSortedPhotoSlots(selectedTemplate?.design_data));
-  let bgLayer = $derived(selectedTemplate?.design_data?.find((l) => l.isBackground));
+  let templateLayers = $derived(getTemplateLayers(selectedTemplate));
+  let photoSlots = $derived(getSortedPhotoSlots(templateLayers));
+  let bgLayer = $derived(templateLayers.find((l) => l.isBackground));
   let bgUrl = $derived(bgLayer?.imageUrl || selectedTemplate?.frame_image_url || '');
 
   let stickers = $state<Sticker[]>(boothFlow.stickers);
@@ -202,11 +203,11 @@
                 class="relative h-full max-w-full overflow-hidden rounded-lg bg-black/40 shadow-md"
                 style="aspect-ratio: {tWidth} / {tHeight};"
               >
-                {#if selectedTemplate.design_data}
-                  {#each selectedTemplate.design_data as layer, idx (layer.id ?? idx)}
-                    {@const layerZIndex = selectedTemplate.design_data.length - idx}
+                {#if templateLayers.length > 0}
+                  {#each templateLayers as layer, idx (layer.id ?? idx)}
+                    {@const layerZIndex = getLayerZIndex(layer, templateLayers)}
                     <div
-                      class="absolute overflow-hidden"
+                      class="absolute overflow-hidden {layer.isBackground ? 'pointer-events-none' : ''}"
                       style="
                         left: {((layer.x || 0) / tWidth) * 100}%;
                         top: {((layer.y || 0) / tHeight) * 100}%;
@@ -214,30 +215,33 @@
                         height: {((layer.h || 200) / tHeight) * 100}%;
                         transform: rotate({layer.rot || 0}deg);
                         z-index: {layerZIndex};
+                        pointer-events: {layer.isBackground ? 'none' : 'auto'};
                       "
                     >
                       {#if layer.isBackground}
-                        {#if bgUrl}
+                        {@const layerBgUrl = layer.imageUrl || bgUrl}
+                        {#if layerBgUrl}
                           <img
-                            src={bgUrl}
+                            src={layerBgUrl}
                             alt="Frame Overlay"
                             class="w-full h-full object-fill pointer-events-none block"
                           />
                         {/if}
                       {:else}
-                        {@const slotIdx = photoSlots.findIndex((s) => s === layer)}
-                        {@const capturedPhoto = photos[slotIdx]}
+                        {@const slotIdx = photoSlots.findIndex((s) => s.id === layer.id || s === layer)}
+                        {@const targetIdx = slotIdx >= 0 ? slotIdx : 0}
+                        {@const capturedPhoto = photos[targetIdx]}
                         <div class="w-full h-full bg-black/40 relative">
                           {#if capturedPhoto}
                             <img
                               src={capturedPhoto}
-                              alt={`Photo ${slotIdx + 1}`}
+                              alt={`Photo ${targetIdx + 1}`}
                               class="w-full h-full object-cover block"
                               style="filter: {currentFilterCss === 'none' ? 'none' : currentFilterCss}; transform: {getLiveviewTransformStyle(boothConfig.config, cameraStore.cameraMode)};"
                             />
                           {:else}
                             <div class="w-full h-full flex items-center justify-center text-white/40 text-[9px]">
-                              {slotIdx + 1}
+                              {targetIdx + 1}
                             </div>
                           {/if}
                         </div>

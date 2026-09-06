@@ -14,6 +14,11 @@ export interface TemplateDesignLayer {
   isQr?: boolean;
   x?: number;
   y?: number;
+  w?: number;
+  h?: number;
+  rot?: number;
+  imageUrl?: string;
+  name?: string;
   [key: string]: unknown;
 }
 
@@ -33,6 +38,102 @@ export function getSortedPhotoSlots<T extends TemplateDesignLayer>(
       const orderB = typeof b.order === 'number' ? b.order : typeof b.id === 'number' ? b.id : 0;
       return orderA - orderB;
     });
+}
+
+/**
+ * Normalizes layers for a template:
+ * 1. Clones design_data array or empty array.
+ * 2. Synthesizes background layer covering full canvas if frame_image_url exists and no isBackground layer is present
+ *    (matching admin-dashboard/src/pages/TemplateFramePage.svelte line 221-239).
+ * 3. If no layer has an explicit numeric `layer` attribute, ensures background layers are at index 0
+ *    (matching admin-dashboard's ensureBackgroundAtTop).
+ */
+export function getTemplateLayers<T extends TemplateDesignLayer = TemplateDesignLayer>(
+  template: BoothTemplate | null | undefined
+): T[] {
+  if (!template) return [];
+
+  const rawLayers: T[] = Array.isArray(template.design_data)
+    ? [...(template.design_data as T[])]
+    : [];
+
+  const canvasWidth = template.width || 1200;
+  const canvasHeight = template.height || 1800;
+  const frameUrl = template.frame_image_url;
+
+  const hasBg = rawLayers.some((l) => l.isBackground);
+  if (frameUrl && !hasBg) {
+    let maxId = 0;
+    for (const l of rawLayers) {
+      if (typeof l.id === 'number') maxId = Math.max(maxId, l.id);
+    }
+    const bgLayer = {
+      id: maxId + 1 || 9999,
+      name: 'Frame Background',
+      x: 0,
+      y: 0,
+      w: canvasWidth,
+      h: canvasHeight,
+      rot: 0,
+      visible: true,
+      locked: false,
+      isBackground: true,
+      imageUrl: frameUrl,
+    } as unknown as T;
+    rawLayers.unshift(bgLayer);
+  }
+
+  const hasExplicitLayer = rawLayers.some(
+    (l) => typeof l.layer === 'number' && !isNaN(l.layer)
+  );
+
+  if (!hasExplicitLayer) {
+    const bgLayers = rawLayers.filter((l) => l.isBackground);
+    const nonBgLayers = rawLayers.filter((l) => !l.isBackground);
+    return [...bgLayers, ...nonBgLayers];
+  }
+
+  return rawLayers;
+}
+
+/**
+ * Calculates the z-index (stacking order) of a layer:
+ * - If layers have explicit numeric `layer` attribute (from API seed / JSON):
+ *   `layer.layer` directly represents the z-index (higher number = drawn on top / higher z-index).
+ *   If a layer lacks `layer`, background gets max + 1, non-background gets 0.
+ * - If no layers have explicit `layer` (e.g. from admin-dashboard):
+ *   Layers are ordered top-to-bottom where index 0 is topmost (e.g. Frame Background).
+ *   Matches admin-dashboard line 1082: layers.length - findIndex
+ */
+export function getLayerZIndex(
+  layer: TemplateDesignLayer,
+  allLayers: TemplateDesignLayer[]
+): number {
+  const hasExplicitLayer = allLayers.some(
+    (l) => typeof l.layer === 'number' && !isNaN(l.layer)
+  );
+
+  if (hasExplicitLayer) {
+    if (typeof layer.layer === 'number' && !isNaN(layer.layer)) {
+      return Number(layer.layer);
+    }
+    const maxLayer = Math.max(
+      ...allLayers
+        .filter((l) => typeof l.layer === 'number' && !isNaN(l.layer))
+        .map((l) => Number(l.layer)),
+      0
+    );
+    if (layer.isBackground) {
+      return maxLayer + 1;
+    }
+    return 0;
+  }
+
+  const idx = allLayers.findIndex((l) => (layer.id != null && l.id === layer.id) || l === layer);
+  if (idx >= 0) {
+    return allLayers.length - idx;
+  }
+  return layer.isBackground ? allLayers.length + 1 : 1;
 }
 
 async function loadImage(src: string): Promise<HTMLImageElement | null> {
@@ -130,15 +231,15 @@ export async function compositeTemplateImage(
   ctx.fillStyle = '#ffffff';
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
+  const allLayers = getTemplateLayers(template);
+
   // Photo slots sorted strictly by capture order (order -> id -> 0)
-  const photoSlots = getSortedPhotoSlots(template.design_data);
+  const photoSlots = getSortedPhotoSlots(allLayers);
   const effectiveFilter = resolveFilterCss(filterCss);
 
-  // Draw layers in ascending order of z-index / layer number (bottommost to topmost)
-  const layersInDrawOrder = [...(template.design_data || [])].sort((a, b) => {
-    const layerA = typeof a.layer === 'number' ? a.layer : 0;
-    const layerB = typeof b.layer === 'number' ? b.layer : 0;
-    return layerA - layerB;
+  // Draw layers in ascending order of z-index (bottommost to topmost)
+  const layersInDrawOrder = [...allLayers].sort((a, b) => {
+    return getLayerZIndex(a, allLayers) - getLayerZIndex(b, allLayers);
   });
 
   for (const layer of layersInDrawOrder) {

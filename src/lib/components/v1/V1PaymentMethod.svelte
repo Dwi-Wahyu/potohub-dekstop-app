@@ -2,6 +2,8 @@
   import { onMount, onDestroy } from 'svelte';
   import { uiConfig } from '$lib/stores/uiConfig.svelte';
   import { formatTime } from '$lib/utils/shared';
+  import { networkStatus } from '$lib/stores/networkStatus.svelte';
+  import OfflineBanner from '$lib/components/shared/OfflineBanner.svelte';
 
   interface Props {
     onSelect: (method: 'ticket' | 'cashless') => void;
@@ -55,6 +57,9 @@
       <p class="m-0 text-[15px] text-white/[0.35] font-normal">
         Silahkan sebelumnya, pilih metode yang akan kamu pakai
       </p>
+      <div class="flex justify-center mt-2">
+        <OfflineBanner />
+      </div>
     </div>
 
     <div class="flex items-center gap-2 bg-white/95 text-[#0f0e14] px-[22px] py-[11px] rounded-full font-bold text-base shadow-[0_6px_24px_rgba(0,0,0,0.4)] shrink-0">
@@ -102,8 +107,10 @@
 
     <!-- Cashless Card -->
     <button
-      onclick={() => onSelect('cashless')}
-      class="flex flex-col items-center justify-between w-[320px] bg-white rounded-[22px] px-9 pt-11 pb-7 outline-none cursor-pointer transition-all duration-200 ease-out hover:scale-[1.03] active:scale-95 shadow-[0_40px_100px_rgba(0,0,0,0.7)] group"
+      onclick={() => networkStatus.isOnline && onSelect('cashless')}
+      disabled={!networkStatus.isOnline}
+      class="flex flex-col items-center justify-between w-[320px] bg-white rounded-[22px] px-9 pt-11 pb-7 outline-none transition-all duration-200 ease-out shadow-[0_40px_100px_rgba(0,0,0,0.7)] group {!networkStatus.isOnline ? 'opacity-40 grayscale cursor-not-allowed hover:scale-100' : 'cursor-pointer hover:scale-[1.03] active:scale-95'}"
+      title={!networkStatus.isOnline ? 'Tidak tersedia saat offline' : undefined}
     >
       <div class="flex-1 flex items-center justify-center mb-7">
         <svg width="160" height="180" viewBox="0 0 160 180" fill="none">

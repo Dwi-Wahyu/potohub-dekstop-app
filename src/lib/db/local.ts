@@ -199,3 +199,143 @@ export async function getCameraPreset(model: string): Promise<CameraPreset | nul
     return null;
   }
 }
+
+// ============================================================================
+// QR TICKET CACHE (SQLite `qr_ticket_cache`) — utk verifikasi tiket saat offline
+// ============================================================================
+
+export interface CachedQrTicket {
+  token: string;
+  boothId: string;
+  categoryId: string | null;
+  ticketType: string | null;
+  bundleLabel: string | null;
+  qty: number;
+  status: string;
+  used: boolean;
+  usedOffline: boolean;
+  expiresAt: string;
+}
+
+export async function replaceQrTicketCache(
+  boothId: string,
+  tickets: CachedQrTicket[],
+): Promise<void> {
+  const conn = await db();
+  // Hapus cache lama milik booth ini yang BELUM dipakai offline (baris used_offline=1
+  // wajib dipertahankan sampai ter-sync, jangan pernah ditimpa oleh refresh cache).
+  await conn.execute(
+    "DELETE FROM qr_ticket_cache WHERE booth_id = $1 AND used_offline = 0",
+    [boothId],
+  );
+  for (const t of tickets) {
+    await conn.execute(
+      `INSERT INTO qr_ticket_cache
+         (token, booth_id, category_id, ticket_type, bundle_label, qty, status, used, used_offline, expires_at, cached_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 0, $9, $10)
+       ON CONFLICT (token) DO UPDATE SET
+         status = $7, used = $8, expires_at = $9, cached_at = $10
+       WHERE qr_ticket_cache.used_offline = 0`,
+      [
+        t.token, boothId, t.categoryId, t.ticketType, t.bundleLabel, t.qty,
+        t.status, t.used ? 1 : 0, t.expiresAt, Date.now(),
+      ],
+    );
+  }
+}
+
+export async function findCachedTicket(token: string, boothId: string): Promise<CachedQrTicket | null> {
+  const conn = await db();
+  const rows = await conn.select<any[]>(
+    "SELECT * FROM qr_ticket_cache WHERE token = $1 AND booth_id = $2",
+    [token, boothId],
+  );
+  if (!rows.length) return null;
+  const r = rows[0];
+  return {
+    token: r.token, boothId: r.booth_id, categoryId: r.category_id,
+    ticketType: r.ticket_type, bundleLabel: r.bundle_label, qty: r.qty,
+    status: r.status, used: !!r.used, usedOffline: !!r.used_offline, expiresAt: r.expires_at,
+  };
+}
+
+export async function markCachedTicketUsedOffline(token: string): Promise<void> {
+  const conn = await db();
+  await conn.execute(
+    "UPDATE qr_ticket_cache SET used = 1, used_offline = 1 WHERE token = $1",
+    [token],
+  );
+}
+
+export async function clearCachedTicketOfflineFlag(token: string): Promise<void> {
+  const conn = await db();
+  await conn.execute(
+    "UPDATE qr_ticket_cache SET used_offline = 0, status = 'used' WHERE token = $1",
+    [token],
+  );
+}
+
+// ============================================================================
+// OFFLINE OUTBOX (SQLite `offline_outbox`) — antrean job utk dieksekusi saat online
+// ============================================================================
+
+export interface OutboxJob {
+  id: number;
+  jobType: 'redeem_ticket' | 'session_softfile';
+  localRef: string | null;
+  payload: string; // JSON — di-parse oleh worker sesuai jobType
+  status: 'pending' | 'processing' | 'done';
+  attempts: number;
+  lastError: string | null;
+}
+
+export async function enqueueOutboxJob(
+  jobType: OutboxJob['jobType'],
+  payload: unknown,
+  localRef?: string,
+): Promise<number> {
+  const conn = await db();
+  const now = Date.now();
+  const result = await conn.execute(
+    `INSERT INTO offline_outbox (job_type, local_ref, payload, status, attempts, created_at, updated_at)
+     VALUES ($1, $2, $3, 'pending', 0, $4, $4)`,
+    [jobType, localRef ?? null, JSON.stringify(payload), now],
+  );
+  return Number(result.lastInsertId ?? 0);
+}
+
+export async function listPendingOutboxJobs(): Promise<OutboxJob[]> {
+  const conn = await db();
+  const rows = await conn.select<any[]>(
+    "SELECT * FROM offline_outbox WHERE status != 'done' ORDER BY id ASC",
+  );
+  return rows.map((r) => ({
+    id: r.id, jobType: r.job_type, localRef: r.local_ref, payload: r.payload,
+    status: r.status, attempts: r.attempts, lastError: r.last_error,
+  }));
+}
+
+export async function markOutboxJobDone(id: number): Promise<void> {
+  const conn = await db();
+  await conn.execute(
+    "UPDATE offline_outbox SET status = 'done', updated_at = $2 WHERE id = $1",
+    [id, Date.now()],
+  );
+}
+
+export async function markOutboxJobFailedAttempt(id: number, error: string): Promise<void> {
+  const conn = await db();
+  await conn.execute(
+    `UPDATE offline_outbox SET status = 'pending', attempts = attempts + 1,
+       last_error = $2, updated_at = $3 WHERE id = $1`,
+    [id, error, Date.now()],
+  );
+}
+
+export async function countPendingOutboxJobs(): Promise<number> {
+  const conn = await db();
+  const rows = await conn.select<any[]>(
+    "SELECT COUNT(*) as c FROM offline_outbox WHERE status != 'done'",
+  );
+  return Number(rows[0]?.c ?? 0);
+}

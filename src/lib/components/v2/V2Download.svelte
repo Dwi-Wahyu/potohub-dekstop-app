@@ -16,6 +16,10 @@
     requireActiveBoothId,
     type BoothTemplate
   } from '$lib/api/boothClient';
+  import { networkStatus } from '$lib/stores/networkStatus.svelte';
+  import { enqueueOutboxJob } from '$lib/db/local';
+  import OfflineBanner from '$lib/components/shared/OfflineBanner.svelte';
+  import { buildAssetRelativePaths } from '$lib/utils/localSessionStorage';
 
   interface Props {
     selectedFrame?: string;
@@ -35,6 +39,7 @@
   let whatsappEnabled = $derived(boothConfig.config.whatsappEnabled ?? true);
 
   let sent = $derived(emailSent || waSent);
+  let softfileQueued = $state(false);
   let error = $state(false);
   let timer = $state(60);
   let kbOpen = $state(false);
@@ -88,6 +93,34 @@
       console.error('Failed to composite template in V2Download:', err);
     }
 
+    const localSessionCode = generateSessionCode(uiConfig.config.boothName);
+    boothFlow.sessionCode = localSessionCode;
+
+    if (!networkStatus.isOnline) {
+      // JALUR OFFLINE: simpan lokal, antre job saat customer kirim softfile
+      boothFlow.sessionId = null;
+      isSaving = true;
+      try {
+        await saveSessionAssets(
+          boothId,
+          localSessionCode,
+          compositeUrl,
+          selectedTemplate?.width || 1200,
+          selectedTemplate?.height || 1800,
+          (selectedTemplate?.design_data || []).filter((l) => !l.isBackground && !l.isQr),
+          selectedTemplate?.frame_image_url || selectedTemplate?.design_data?.find((l) => l.isBackground)?.imageUrl
+        );
+      } finally {
+        isSaving = false;
+      }
+      qrDataUrl = await QRCode.toDataURL(
+        `${ADMIN_DASHBOARD_PUBLIC_URL}/softfile/pending-${localSessionCode}`,
+        { margin: 1, width: 200 }
+      ).catch(() => '');
+      return;
+    }
+
+    // JALUR ONLINE: perilaku normal
     try {
       isSaving = true;
       const session = await createTransactionSession(
@@ -131,6 +164,26 @@
 
   let sendErrMsg = $state('');
 
+  async function enqueueSoftfileJob(target: string) {
+    await enqueueOutboxJob(
+      'session_softfile',
+      {
+        boothId: await requireActiveBoothId().catch(() => 'default'),
+        categoryId: selectedTemplate?.category_id ?? null,
+        frameId: selectedFrame,
+        printQty: boothFlow.printQty,
+        paymentMethod: 'Cashless',
+        softfileTarget: target,
+        localSessionCode: boothFlow.sessionCode,
+        assetRelativePaths: buildAssetRelativePaths(boothFlow.sessionCode, uiConfig.config.boothName),
+      },
+      boothFlow.sessionCode ?? undefined,
+    );
+    softfileQueued = true;
+    emailSent = target === email.trim();
+    waSent = target === phone.trim().replace(/[\s-]/g, '');
+  }
+
   async function handleSendEmail() {
     const valid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
     if (!valid) {
@@ -139,6 +192,12 @@
       return;
     }
     sendErrMsg = '';
+
+    if (!networkStatus.isOnline) {
+      await enqueueSoftfileJob(email.trim());
+      return;
+    }
+
     const ok = await sendSoftfileEmail(
       email,
       (success) => {
@@ -164,6 +223,12 @@
       return;
     }
     sendErrMsg = '';
+
+    if (!networkStatus.isOnline) {
+      await enqueueSoftfileJob(phone.trim().replace(/[\s-]/g, ''));
+      return;
+    }
+
     const ok = await sendSoftfileWA(
       phone,
       (success) => {
@@ -176,7 +241,7 @@
       boothFlow.sessionId ?? undefined
     );
     if (!ok && !waSent) {
-      sendErrMsg = 'Gagal mengirim WA. Periksa Token Fonnte & format nomor WA di Settings.';
+      sendErrMsg = 'Gagal mengirim WhatsApp. Periksa token Fonnte & format nomor WA.';
       setTimeout(() => (sendErrMsg = ''), 4000);
     }
   }
@@ -381,12 +446,24 @@
             Pilih metode pengiriman softfile
           </p>
 
+          {#if !networkStatus.isOnline}
+            <div class="mb-3">
+              <OfflineBanner message="Sedang offline — softfile akan otomatis dikirim setelah koneksi pulih." />
+            </div>
+          {:else if softfileQueued}
+            <div class="text-xs text-amber-600 font-semibold mb-3 font-['Nunito',sans-serif]">Menunggu koneksi pulih untuk mengirim softfile…</div>
+          {/if}
+
           <div class="flex flex-col gap-4 font-['Nunito',sans-serif]">
             {#if emailEnabled}
               <div class="flex flex-col gap-1.5">
                 <div class="flex items-center justify-between text-xs font-bold text-black/60 uppercase tracking-wider">
                   <span>Email Softfile</span>
-                  {#if emailSent}<span class="text-green-600 font-black">✓ Terkirim</span>{/if}
+                  {#if emailSent}
+                    <span class="text-green-600 font-black">
+                      {networkStatus.isOnline ? '✓ Terkirim' : '⏳ Menunggu Koneksi'}
+                    </span>
+                  {/if}
                 </div>
                 <!-- svelte-ignore a11y_click_events_have_key_events -->
                 <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -402,7 +479,7 @@
                   disabled={!email.trim() || emailSent}
                   class="w-full py-2.5 bg-black text-white font-black uppercase text-xs tracking-[0.18em] rounded-xl hover:bg-black/80 transition-all flex items-center justify-center gap-2 cursor-pointer border-none shadow-[3px_3px_0_0_rgba(0,0,0,0.2)] disabled:opacity-40 disabled:cursor-not-allowed"
                 >
-                  {emailSent ? 'Email Terkirim' : 'Kirim Email'}
+                  {emailSent ? (networkStatus.isOnline ? 'Email Terkirim' : 'Menunggu Koneksi') : 'Kirim Email'}
                 </button>
               </div>
             {/if}
@@ -411,7 +488,11 @@
               <div class="flex flex-col gap-1.5">
                 <div class="flex items-center justify-between text-xs font-bold text-black/60 uppercase tracking-wider">
                   <span>WhatsApp (Fonnte)</span>
-                  {#if waSent}<span class="text-green-600 font-black">✓ Terkirim</span>{/if}
+                  {#if waSent}
+                    <span class="text-green-600 font-black">
+                      {networkStatus.isOnline ? '✓ Terkirim' : '⏳ Menunggu Koneksi'}
+                    </span>
+                  {/if}
                 </div>
                 <!-- svelte-ignore a11y_click_events_have_key_events -->
                 <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -427,7 +508,7 @@
                   disabled={!phone.trim() || waSent}
                   class="w-full py-2.5 bg-[#16a34a] text-white font-black uppercase text-xs tracking-[0.18em] rounded-xl hover:bg-[#15803d] transition-all flex items-center justify-center gap-2 cursor-pointer border-none shadow-[3px_3px_0_0_rgba(0,0,0,0.2)] disabled:opacity-40 disabled:cursor-not-allowed"
                 >
-                  {waSent ? 'WA Terkirim' : 'Kirim WhatsApp'}
+                  {waSent ? (networkStatus.isOnline ? 'WA Terkirim' : 'Menunggu Koneksi') : 'Kirim WhatsApp'}
                 </button>
               </div>
             {/if}

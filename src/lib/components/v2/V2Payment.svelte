@@ -5,6 +5,8 @@
   import { QrCode, Ticket } from '@lucide/svelte';
   import { fetchCategories, requireActiveBoothId, type BoothCategory } from '$lib/api/boothClient';
   import { cachedFetch } from '$lib/utils/offlineCache';
+  import { networkStatus } from '$lib/stores/networkStatus.svelte';
+  import OfflineBanner from '$lib/components/shared/OfflineBanner.svelte';
 
   interface Props {
     onSelect: (method: 'ticket' | 'cashless') => void;
@@ -119,13 +121,18 @@
   <!-- Content -->
   <div class="relative z-10 flex flex-col items-center flex-1 justify-center">
     <h2 class="text-3xl font-bold mb-2">Select Payment Method</h2>
-    <div class="w-20 h-[2px] bg-black mb-16"></div>
+    <div class="mb-4">
+      <OfflineBanner />
+    </div>
+    <div class="w-20 h-[2px] bg-black mb-12"></div>
 
     <div class="flex gap-12 font-['Nunito',sans-serif]">
       <!-- QRIS -->
       <button
-        onclick={() => (showQtyModal = true)}
-        class="group flex flex-col items-center gap-6 px-12 py-10 border-[3px] border-black rounded-3xl bg-white hover:bg-black hover:text-white transition-all shadow-[8px_8px_0_0_#000] hover:shadow-none hover:translate-x-2 hover:translate-y-2 active:scale-95 cursor-pointer"
+        onclick={() => networkStatus.isOnline && (showQtyModal = true)}
+        disabled={!networkStatus.isOnline}
+        class="group flex flex-col items-center gap-6 px-12 py-10 border-[3px] border-black rounded-3xl bg-white transition-all shadow-[8px_8px_0_0_#000] {!networkStatus.isOnline ? 'opacity-40 grayscale cursor-not-allowed' : 'hover:bg-black hover:text-white hover:shadow-none hover:translate-x-2 hover:translate-y-2 active:scale-95 cursor-pointer'}"
+        title={!networkStatus.isOnline ? 'Tidak tersedia saat offline' : undefined}
       >
         <QrCode size={72} strokeWidth={1.2} />
         <span

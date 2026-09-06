@@ -5,7 +5,15 @@ import {
   type BoothUIConfig,
 } from "$lib/stores/uiConfig.svelte";
 import { boothConfig } from "$lib/stores/boothConfig.svelte";
-import { getActivation, saveActivation } from "$lib/db/local";
+import {
+  getActivation,
+  saveActivation,
+  replaceQrTicketCache,
+  findCachedTicket,
+  markCachedTicketUsedOffline,
+  enqueueOutboxJob,
+  type CachedQrTicket,
+} from "$lib/db/local";
 import { cachedFetch, writeApiCache } from "$lib/utils/offlineCache";
 import { prefetchBoothAssets } from "./prefetch";
 
@@ -511,6 +519,13 @@ export async function syncBoothSettings() {
     } catch (e) {
       console.warn("Sync banners gagal:", e);
     }
+    // Refresh cache tiket aktif utk verifikasi offline.
+    try {
+      const count = await fetchActiveQrTicketsForCache(boothId);
+      console.log(`[syncBoothSettings] ${count} tiket aktif dicache utk offline`);
+    } catch (e) {
+      console.warn("Sync qr_ticket_cache gagal:", e);
+    }
     // Prefetch aset booth di background (tidak memblokir sync)
     void prefetchBoothAssets(boothId).catch((e) =>
       console.warn("Prefetch aset booth gagal:", e),
@@ -795,4 +810,122 @@ export async function validateAndRedeemQrTicket(
     valid: true,
     success: true,
   };
+}
+
+interface QrTicketApiRow {
+  token: string;
+  category_id: string | null;
+  ticket_type: string;
+  bundle_label: string | null;
+  qty: number;
+  status: string;
+  used: boolean;
+  expires_at: string;
+}
+
+/**
+ * Tarik SEMUA tiket berstatus aktif milik booth (paginated, page size 100 = limit
+ * maksimum yang diizinkan endpoint) lalu simpan ke SQLite qr_ticket_cache.
+ * Dipanggil dari syncBoothSettings() supaya jadi bagian dari mekanisme sync yang sudah ada.
+ */
+export async function fetchActiveQrTicketsForCache(boothId: string): Promise<number> {
+  const PAGE_SIZE = 100;
+  let offset = 0;
+  const all: CachedQrTicket[] = [];
+
+  while (true) {
+    const res = await fetch(
+      `${API_BASE}/booths/${boothId}/qr-tickets?status=active&limit=${PAGE_SIZE}&offset=${offset}`,
+      { headers: await getAuthHeaders() },
+    );
+    if (!res.ok) throw new Error(`Gagal memuat daftar tiket (HTTP ${res.status})`);
+    const json = await res.json();
+    const rows: QrTicketApiRow[] = json.data ?? [];
+    for (const t of rows) {
+      all.push({
+        token: t.token,
+        boothId,
+        categoryId: t.category_id,
+        ticketType: t.ticket_type,
+        bundleLabel: t.bundle_label,
+        qty: t.qty,
+        status: t.status,
+        used: t.used,
+        usedOffline: false,
+        expiresAt: t.expires_at,
+      });
+    }
+    if (rows.length < PAGE_SIZE) break; // halaman terakhir
+    offset += PAGE_SIZE;
+    if (offset > 20000) break; // safety valve, jangan looping tanpa batas
+  }
+
+  await replaceQrTicketCache(boothId, all);
+  return all.length;
+}
+
+export interface RedeemTicketResult {
+  valid: boolean;
+  message: string;
+  offline: boolean; // true jika diverifikasi dari cache lokal, bukan server
+}
+
+/**
+ * Titik masuk TUNGGAL untuk verifikasi+klaim tiket dari UI (ganti panggilan
+ * langsung ke validateAndRedeemQrTicket di V1/V2/V3 Ticket*.svelte).
+ *
+ * - Online  → coba endpoint /qr-tickets/redeem seperti biasa. Kalau fetch-nya
+ *             sendiri yang gagal (bukan response tervalidasi tidak-valid dari
+ *             server), JATUHKAN ke jalur offline sebagai fallback, jangan
+ *             langsung menyatakan tiket tidak valid.
+ * - Offline → validasi terhadap qr_ticket_cache, tandai used_offline secara
+ *             lokal, dan antre job 'redeem_ticket' agar disinkronkan ke server
+ *             begitu online lagi.
+ */
+export async function redeemTicket(token: string, boothId: string): Promise<RedeemTicketResult> {
+  const cleanToken = token.includes('token=')
+    ? token.split('token=')[1].split('&')[0]
+    : token.trim();
+
+  const { networkStatus } = await import('$lib/stores/networkStatus.svelte');
+
+  if (networkStatus.isOnline) {
+    try {
+      const remote = await validateAndRedeemQrTicket(cleanToken, boothId);
+      return { valid: remote.valid, message: remote.message, offline: false };
+    } catch (e) {
+      // Bedakan "tiket ditolak server" (Error dilempar dgn pesan dari server,
+      // fetch tetap sukses) vs "request-nya sendiri gagal" (TypeError jaringan).
+      const looksLikeNetworkFailure =
+        e instanceof TypeError || (typeof navigator !== 'undefined' && !navigator.onLine);
+      if (!looksLikeNetworkFailure) {
+        return { valid: false, message: e instanceof Error ? e.message : 'Tiket tidak valid', offline: false };
+      }
+      // lanjut ke jalur offline di bawah
+    }
+  }
+
+  return redeemTicketOffline(cleanToken, boothId);
+}
+
+async function redeemTicketOffline(token: string, boothId: string): Promise<RedeemTicketResult> {
+  const cached = await findCachedTicket(token, boothId);
+  if (!cached) {
+    return {
+      valid: false,
+      offline: true,
+      message: 'Tiket tidak ditemukan di data offline booth ini. Sambungkan internet lalu coba lagi, atau sinkronkan booth terlebih dahulu.',
+    };
+  }
+  if (cached.used || cached.usedOffline || cached.status === 'used' || cached.status === 'cancelled') {
+    return { valid: false, offline: true, message: 'Tiket sudah pernah digunakan atau dibatalkan.' };
+  }
+  if (new Date(cached.expiresAt).getTime() <= Date.now()) {
+    return { valid: false, offline: true, message: 'Tiket sudah kadaluwarsa.' };
+  }
+
+  await markCachedTicketUsedOffline(token);
+  await enqueueOutboxJob('redeem_ticket', { token, boothId }, token);
+
+  return { valid: true, offline: true, message: 'Tiket valid (diverifikasi secara offline).' };
 }

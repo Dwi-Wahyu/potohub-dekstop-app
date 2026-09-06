@@ -1,7 +1,8 @@
 <script lang="ts">
-  import { validateAndRedeemQrTicket } from '$lib/api/boothClient';
+  import { redeemTicket } from '$lib/api/boothClient';
   import { uiConfig } from '$lib/stores/uiConfig.svelte';
   import QrTicketScanner from '$lib/components/shared/QrTicketScanner.svelte';
+  import OfflineBanner from '$lib/components/shared/OfflineBanner.svelte';
   import type { QrScanResult, QrScanStatus } from '$lib/types/qr';
 
   interface Props {
@@ -29,10 +30,15 @@
     successMessage = 'QR Code Terdeteksi! Memverifikasi tiket…';
 
     try {
-      await validateAndRedeemQrTicket(result.content, boothId);
+      const res = await redeemTicket(result.content, boothId);
+      if (!res.valid) {
+        throw new Error(res.message);
+      }
       scanStatus = 'success';
-      scanStatusMessage = 'Tiket Valid!';
-      successMessage = 'Tiket Valid! Memulai sesi foto…';
+      scanStatusMessage = res.offline ? 'Tiket Valid (Offline)!' : 'Tiket Valid!';
+      successMessage = res.offline
+        ? 'Tiket Valid (mode offline)! Memulai sesi foto…'
+        : 'Tiket Valid! Memulai sesi foto…';
       setTimeout(() => {
         onSuccess();
       }, 500);
@@ -61,10 +67,15 @@
     successMessage = 'Memverifikasi kode tiket…';
 
     try {
-      await validateAndRedeemQrTicket(manualInput.trim(), boothId);
+      const res = await redeemTicket(manualInput.trim(), boothId);
+      if (!res.valid) {
+        throw new Error(res.message);
+      }
       scanStatus = 'success';
-      scanStatusMessage = 'Tiket Valid!';
-      successMessage = 'Tiket Valid! Memulai sesi foto…';
+      scanStatusMessage = res.offline ? 'Tiket Valid (Offline)!' : 'Tiket Valid!';
+      successMessage = res.offline
+        ? 'Tiket Valid (mode offline)! Memulai sesi foto…'
+        : 'Tiket Valid! Memulai sesi foto…';
       setTimeout(() => {
         onSuccess();
       }, 500);
@@ -111,9 +122,10 @@
 
   <!-- Main Viewport -->
   <div class="w-full max-w-lg flex flex-col items-center gap-6 z-20 my-auto">
-    <div class="text-center">
+    <div class="text-center flex flex-col items-center gap-2">
       <h2 class="text-2xl font-black tracking-tight text-white mb-1">Pindai QR Code Tiket</h2>
       <p class="text-xs text-white/50">Arahkan QR Code tiket Anda ke kamera depan</p>
+      <OfflineBanner message="Offline — tiket akan diverifikasi dari data lokal booth." />
     </div>
 
     <!-- Camera Scan Box with Dynamic Bounding Box -->

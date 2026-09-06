@@ -1,6 +1,7 @@
 <script lang="ts">
-  import { validateAndRedeemQrTicket } from '$lib/api/boothClient';
+  import { redeemTicket } from '$lib/api/boothClient';
   import QrTicketScanner from '$lib/components/shared/QrTicketScanner.svelte';
+  import OfflineBanner from '$lib/components/shared/OfflineBanner.svelte';
   import { Check, Ticket as TicketIcon } from '@lucide/svelte';
   import type { QrScanResult, QrScanStatus } from '$lib/types/qr';
 
@@ -31,10 +32,15 @@
     successMsg = 'QR Code Terdeteksi! Memverifikasi...';
 
     try {
-      await validateAndRedeemQrTicket(result.content, boothId);
+      const res = await redeemTicket(result.content, boothId);
+      if (!res.valid) {
+        throw new Error(res.message);
+      }
       scanStatus = 'success';
-      scanStatusMessage = 'Tiket Valid!';
-      successMsg = 'Tiket Valid! Memulai sesi foto…';
+      scanStatusMessage = res.offline ? 'Tiket Valid (Offline)!' : 'Tiket Valid!';
+      successMsg = res.offline
+        ? 'Tiket Valid (mode offline)! Memulai sesi foto…'
+        : 'Tiket Valid! Memulai sesi foto…';
       setTimeout(() => {
         onConfirm();
       }, 500);
@@ -63,10 +69,15 @@
     successMsg = 'Memverifikasi tiket...';
 
     try {
-      await validateAndRedeemQrTicket(code.trim(), boothId);
+      const res = await redeemTicket(code.trim(), boothId);
+      if (!res.valid) {
+        throw new Error(res.message);
+      }
       scanStatus = 'success';
-      scanStatusMessage = 'Tiket Valid!';
-      successMsg = 'Tiket Valid! Memulai sesi foto…';
+      scanStatusMessage = res.offline ? 'Tiket Valid (Offline)!' : 'Tiket Valid!';
+      successMsg = res.offline
+        ? 'Tiket Valid (mode offline)! Memulai sesi foto…'
+        : 'Tiket Valid! Memulai sesi foto…';
       setTimeout(() => {
         onConfirm();
       }, 500);
@@ -144,9 +155,12 @@
     </div>
   </div>
 
-  <div class="flex-1 flex items-center justify-center px-8 gap-10">
-    <!-- Scanner Box -->
-    <div class="flex flex-col items-center gap-6">
+  <div class="flex-1 flex flex-col items-center justify-center px-8 gap-6">
+    <OfflineBanner message="Offline — tiket akan diverifikasi dari data lokal booth." />
+
+    <div class="flex items-center justify-center gap-10">
+      <!-- Scanner Box -->
+      <div class="flex flex-col items-center gap-6">
       <div class="relative w-56 h-56 rounded-2xl overflow-hidden bg-black border-2 border-white/20 flex items-center justify-center">
         <!-- Gold corner brackets -->
         {#each [['top-3 left-3', 'border-t-4 border-l-4'], ['top-3 right-3', 'border-t-4 border-r-4'], ['bottom-3 left-3', 'border-b-4 border-l-4'], ['bottom-3 right-3', 'border-b-4 border-r-4']] as [pos, bdr]}
@@ -216,5 +230,6 @@
         ← Ganti Metode Pembayaran
       </button>
     </div>
+  </div>
   </div>
 </div>

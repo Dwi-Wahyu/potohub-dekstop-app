@@ -88,8 +88,19 @@
     step = 'start';
   }
 
-  const V3_DEFAULT_BG = '#CD1C33';
-  const getV3Bg = (stepKey: string) => uiConfig.getStepStyle(stepKey).background ?? V3_DEFAULT_BG;
+  const V3_DEFAULT_BG_MAP: Record<string, string> = {
+    start: '#CD1C33 repeating-linear-gradient(90deg, transparent, transparent 40px, rgba(0,0,0,0.05) 40px, rgba(0,0,0,0.05) 80px)',
+    tutorial: '#fdfdfd',
+    package: '#fdfdfd',
+    payment: '#fdfdfd',
+    ticket: '#fdfdfd',
+    frame: '#f5f5f5',
+    session: '#fdfdfd',
+    filter: '#fdfdfd',
+    loading: '#CD1C33 repeating-linear-gradient(90deg, transparent, transparent 40px, rgba(0,0,0,0.05) 40px, rgba(0,0,0,0.05) 80px)',
+    download: '#fdfdfd'
+  };
+  const getV3Bg = (stepKey: string) => uiConfig.getStepStyle(stepKey).background ?? V3_DEFAULT_BG_MAP[stepKey] ?? '#fdfdfd';
 </script>
 
 <div

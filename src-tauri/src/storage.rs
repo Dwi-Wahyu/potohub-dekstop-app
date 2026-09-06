@@ -47,3 +47,11 @@ pub async fn save_session_manifest(
     std::fs::write(&full, json).map_err(|e| e.to_string())?;
     Ok(full.to_string_lossy().to_string())
 }
+
+/// Baca kembali file hasil sesi yang sudah disimpan lokal (utk re-upload saat online).
+#[tauri::command]
+pub async fn read_session_file(app: AppHandle, relative_path: String) -> Result<Vec<u8>, String> {
+    let rel = safe_relative(&relative_path)?;
+    let full = sessions_dir(&app).join(&rel);
+    std::fs::read(&full).map_err(|e| e.to_string())
+}

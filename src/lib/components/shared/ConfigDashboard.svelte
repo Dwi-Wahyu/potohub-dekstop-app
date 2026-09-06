@@ -12,6 +12,8 @@
   import { boothConfig, type BoothCfg } from '$lib/stores/boothConfig.svelte';
   import { uiConfig } from '$lib/stores/uiConfig.svelte';
   import { syncBoothSettings, getActiveBoothId } from '$lib/api/boothClient';
+  import { networkStatus } from '$lib/stores/networkStatus.svelte';
+  import { countPendingOutboxJobs } from '$lib/db/local';
   import { cameraStore } from '$lib/camera.svelte';
 
   interface Props {
@@ -26,6 +28,7 @@
   let boothName = $state<string | null>(null);
   let fallbackMode = $state<'demo' | null>(null);
   let saveNotice = $state<string | null>(null);
+  let pendingJobs = $state(0);
 
   const NEU_BG = '#ebf0f7';
   const NEU_PRIMARY = '#2a2873';
@@ -66,12 +69,15 @@
     syncStatus = 'Syncing...';
     try {
       const res = await syncBoothSettings();
+      await networkStatus.verifyAndMaybeFlush();
 
       if (res.booth_name) boothName = res.booth_name;
       lastSyncedAt = res.last_sync_at ? formatDate(res.last_sync_at) : lastSyncedAt;
       syncStatus = res.last_sync_at ? formatDate(res.last_sync_at) : 'Tersinkronisasi';
     } catch (e) {
       syncStatus = e instanceof Error ? e.message : 'Sync gagal';
+    } finally {
+      pendingJobs = await countPendingOutboxJobs().catch(() => 0);
     }
     setTimeout(() => {
       syncStatus = null;
@@ -98,6 +104,7 @@
       await boothConfig.init(boothId);
     }
     boothName = uiConfig.config.boothName || boothName;
+    pendingJobs = await countPendingOutboxJobs().catch(() => 0);
     void handleSync();
     void cameraStore.detect();
   });
@@ -260,6 +267,25 @@
         </div>
 
         <div style="flex: 1;"></div>
+
+        {#if pendingJobs > 0}
+          <div
+            style="
+              padding: 6px 14px;
+              border-radius: 9999px;
+              background: #fef3c7;
+              color: #92400e;
+              font-size: 11px;
+              font-weight: 700;
+              display: flex;
+              align-items: center;
+              gap: 6px;
+            "
+          >
+            <span style="width: 8px; height: 8px; border-radius: 9999px; background: #f59e0b;"></span>
+            Pending Sync Offline: {pendingJobs}
+          </div>
+        {/if}
 
         <button
           onclick={handleSync}

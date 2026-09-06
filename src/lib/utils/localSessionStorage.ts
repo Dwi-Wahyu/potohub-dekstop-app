@@ -104,3 +104,46 @@ export async function saveLocalSessionAssets(
     json: JSON.stringify(manifest, null, 2),
   });
 }
+
+export function buildAssetRelativePaths(sessionCode: string | null, boothName: string) {
+  if (!sessionCode) return [];
+  const date = new Date().toISOString().slice(0, 10);
+  const base = `${date}/${sessionCode}_${sanitize(boothName || 'booth')}`;
+  const list: {
+    role: 'composite' | 'gif' | 'video';
+    path: string;
+    contentType: string;
+    width: number;
+    height: number;
+  }[] = [
+    {
+      role: 'composite',
+      path: `${base}/composite/print_strip.jpg`,
+      contentType: 'image/jpeg',
+      width: 1200,
+      height: 1800,
+    },
+  ];
+
+  if (boothConfig.config.enableSessionGif) {
+    list.push({
+      role: 'gif',
+      path: `${base}/gif/session.gif`,
+      contentType: 'image/gif',
+      width: 480,
+      height: 720,
+    });
+  }
+
+  if (boothConfig.config.enableLiveviewVideo) {
+    list.push({
+      role: 'video',
+      path: `${base}/video/composite.mp4`,
+      contentType: 'video/mp4',
+      width: 1200,
+      height: 1800,
+    });
+  }
+
+  return list;
+}

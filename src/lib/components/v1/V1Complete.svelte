@@ -15,6 +15,11 @@
     requireActiveBoothId,
     type BoothTemplate
   } from '$lib/api/boothClient';
+  import { networkStatus } from '$lib/stores/networkStatus.svelte';
+  import { enqueueOutboxJob } from '$lib/db/local';
+  import OfflineBanner from '$lib/components/shared/OfflineBanner.svelte';
+  import { buildAssetRelativePaths } from '$lib/utils/localSessionStorage';
+  import { generateSessionCode } from '$lib/utils/shared';
 
   interface Props {
     photos?: string[];
@@ -30,6 +35,7 @@
   let emailSent = $state(false);
   let waSent = $state(false);
   let sent = $derived(emailSent || waSent);
+  let softfileQueued = $state(false);
   let activeKbTarget = $state<'email' | 'phone' | null>(null);
 
   let emailEnabled = $derived(boothConfig.config.emailEnabled ?? true);
@@ -89,6 +95,34 @@
       console.error('Failed to composite template:', err);
     }
 
+    const localSessionCode = generateSessionCode(uiConfig.config.boothName);
+    boothFlow.sessionCode = localSessionCode;
+
+    if (!networkStatus.isOnline) {
+      // JALUR OFFLINE: simpan lokal, antre job saat customer kirim softfile
+      boothFlow.sessionId = null;
+      isSavingSession = true;
+      try {
+        await saveSessionAssets(
+          boothId,
+          localSessionCode,
+          compositeUrl,
+          selectedTemplate?.width || 1200,
+          selectedTemplate?.height || 1800,
+          (selectedTemplate?.design_data || []).filter((l) => !l.isBackground && !l.isQr),
+          selectedTemplate?.frame_image_url || selectedTemplate?.design_data?.find((l) => l.isBackground)?.imageUrl
+        );
+      } finally {
+        isSavingSession = false;
+      }
+      qrDataUrl = await QRCode.toDataURL(
+        `${ADMIN_DASHBOARD_PUBLIC_URL}/softfile/pending-${localSessionCode}`,
+        { margin: 1, width: 200 }
+      ).catch(() => '');
+      return;
+    }
+
+    // JALUR ONLINE: perilaku normal
     try {
       isSavingSession = true;
       const session = await createTransactionSession(
@@ -128,9 +162,35 @@
 
   let sendError = $state('');
 
+  async function enqueueSoftfileJob(target: string) {
+    await enqueueOutboxJob(
+      'session_softfile',
+      {
+        boothId: await requireActiveBoothId().catch(() => 'default'),
+        categoryId: selectedTemplate?.category_id ?? null,
+        frameId: frameConfigId,
+        printQty: boothFlow.printQty,
+        paymentMethod: 'Cashless',
+        softfileTarget: target,
+        localSessionCode: boothFlow.sessionCode,
+        assetRelativePaths: buildAssetRelativePaths(boothFlow.sessionCode, uiConfig.config.boothName),
+      },
+      boothFlow.sessionCode ?? undefined,
+    );
+    softfileQueued = true;
+    emailSent = target === email.trim();
+    waSent = target === phone.trim();
+  }
+
   async function handleSendEmail() {
     if (!email.trim() || emailSent) return;
     sendError = '';
+
+    if (!networkStatus.isOnline) {
+      await enqueueSoftfileJob(email.trim());
+      return;
+    }
+
     const ok = await sendSoftfileEmail(
       email,
       (success) => {
@@ -151,6 +211,12 @@
   async function handleSendWA() {
     if (!phone.trim() || waSent) return;
     sendError = '';
+
+    if (!networkStatus.isOnline) {
+      await enqueueSoftfileJob(phone.trim());
+      return;
+    }
+
     const ok = await sendSoftfileWA(
       phone,
       (success) => {
@@ -306,6 +372,14 @@
             </div>
           </div>
 
+          {#if !networkStatus.isOnline}
+            <div class="mt-1">
+              <OfflineBanner message="Sedang offline — softfile akan otomatis dikirim setelah koneksi pulih." />
+            </div>
+          {:else if softfileQueued}
+            <div class="text-xs text-amber-600 font-semibold mt-1">Menunggu koneksi pulih untuk mengirim softfile…</div>
+          {/if}
+
           {#if qrDataUrl}
             <div class="p-2 rounded-xl border border-gray-100 bg-gray-50 flex flex-col items-center justify-center">
               <img src={qrDataUrl} alt="Softfile QR Code" class="w-[130px] h-[130px] object-contain" />
@@ -318,7 +392,11 @@
             <div class="flex flex-col gap-1.5 w-full">
               <div class="flex items-center justify-between text-[11px] font-bold text-gray-500 uppercase tracking-wider">
                 <span>Email Softfile</span>
-                {#if emailSent}<span class="text-green-600 font-bold">✓ Terkirim</span>{/if}
+                {#if emailSent}
+                  <span class="text-green-600 font-bold">
+                    {networkStatus.isOnline ? '✓ Terkirim' : '⏳ Menunggu Koneksi'}
+                  </span>
+                {/if}
               </div>
               <div class="flex gap-2">
                 <button
@@ -340,7 +418,7 @@
                     cursor: {email.trim() && !emailSent ? 'pointer' : 'default'};
                   "
                 >
-                  {emailSent ? 'Terkirim' : 'Kirim Email'}
+                  {emailSent ? (networkStatus.isOnline ? 'Terkirim' : 'Menunggu Koneksi') : 'Kirim Email'}
                 </button>
               </div>
             </div>
@@ -351,7 +429,11 @@
             <div class="flex flex-col gap-1.5 w-full">
               <div class="flex items-center justify-between text-[11px] font-bold text-gray-500 uppercase tracking-wider">
                 <span>WhatsApp (Fonnte)</span>
-                {#if waSent}<span class="text-green-600 font-bold">✓ Terkirim</span>{/if}
+                {#if waSent}
+                  <span class="text-green-600 font-bold">
+                    {networkStatus.isOnline ? '✓ Terkirim' : '⏳ Menunggu Koneksi'}
+                  </span>
+                {/if}
               </div>
               <div class="flex gap-2">
                 <button
@@ -373,7 +455,7 @@
                     cursor: {phone.trim() && !waSent ? 'pointer' : 'default'};
                   "
                 >
-                  {waSent ? 'Terkirim' : 'Kirim WA'}
+                  {waSent ? (networkStatus.isOnline ? 'Terkirim' : 'Menunggu Koneksi') : 'Kirim WA'}
                 </button>
               </div>
             </div>

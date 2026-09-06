@@ -48,7 +48,11 @@
   }));
 
   const DEFAULT_BG = '#CD1C33 repeating-linear-gradient(90deg, transparent, transparent 40px, rgba(0,0,0,0.05) 40px, rgba(0,0,0,0.05) 80px)';
-  let effectiveBg = $derived(background ?? uiConfig.getStepStyle('start').background ?? DEFAULT_BG);
+  let effectiveBg = $derived(
+    background && background !== '#CD1C33'
+      ? background
+      : (uiConfig.getStepStyle('start').background ?? DEFAULT_BG)
+  );
 </script>
 
 <svelte:window onkeydown={handleKeydown} />

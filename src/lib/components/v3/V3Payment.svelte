@@ -6,6 +6,8 @@
   import { Check, Clock, ChevronLeft } from '@lucide/svelte';
   import { fetchCategories, requireActiveBoothId, type BoothCategory } from '$lib/api/boothClient';
   import { cachedFetch } from '$lib/utils/offlineCache';
+  import { networkStatus } from '$lib/stores/networkStatus.svelte';
+  import OfflineBanner from '$lib/components/shared/OfflineBanner.svelte';
 
   interface Props {
     selectedPackage: StoreCategory | null;
@@ -101,85 +103,89 @@
     </div>
   </div>
 
-  <div class="flex-1 bg-[#f7f7f7] flex items-center justify-center gap-8 px-16 relative">
-    <!-- QRIS Card -->
-    <div class="bg-white rounded-3xl w-[360px] shadow-2xl flex flex-col overflow-hidden border border-gray-100">
-      <div class="bg-[#1a1a1a] px-6 py-3 flex items-center justify-between">
-        <span class="font-black text-lg italic tracking-tighter text-white font-serif">QRIS</span>
-        <div class="flex gap-1">
-          {#each ['#CD1C33', '#FFC107', '#0E8E5E'] as c}
-            <div class="w-2 h-2 rounded-full" style="background: {c};"></div>
-          {/each}
-        </div>
-      </div>
-      <div class="p-6 flex flex-col items-center gap-4">
-        <div class="p-3 border-2 border-gray-100 rounded-xl bg-white shadow-inner flex justify-center items-center">
-          {#if qrUrl}
-            <img src={qrUrl} alt="QRIS" class="w-[190px] h-[190px] object-contain" />
-          {:else}
-            <div class="w-[190px] h-[190px] flex items-center justify-center text-xs text-gray-400 font-mono">
-              Loading QR...
-            </div>
-          {/if}
-        </div>
-        <p class="text-[9px] text-gray-400 tracking-widest uppercase font-bold text-center m-0">
-          Scan menggunakan aplikasi bank kamu
-        </p>
-        <div class="w-full border-t border-dashed border-gray-200 pt-3 flex items-center justify-between">
-          <span class="text-[10px] text-gray-400">Powered by</span>
-          <span class="text-[10px] font-black text-gray-700 tracking-widest">GPN ✦ QRIS</span>
-        </div>
-      </div>
-    </div>
+  <div class="flex-1 bg-[#f7f7f7] flex flex-col items-center justify-center gap-6 px-16 relative">
+    <OfflineBanner message="Sedang offline — QRIS tidak tersedia, silakan kembali & pilih Tiket." />
 
-    <!-- Total Card -->
-    <div class="bg-white rounded-3xl w-[320px] shadow-2xl flex flex-col overflow-hidden border border-gray-100">
-      <div class="bg-[#CD1C33] px-6 py-3 flex items-center gap-2">
-        <span class="text-white/70 text-[9px] font-bold uppercase tracking-[0.25em]">Total Tagihan</span>
-      </div>
-      <div class="p-6 flex flex-col items-center gap-4">
-        <div class="text-center">
-          <div class="text-5xl font-['Playfair_Display',serif] font-black text-[#CD1C33]">
-            Rp {total.toLocaleString('id-ID')}
+    <div class="flex items-center justify-center gap-8">
+      <!-- QRIS Card -->
+      <div class="bg-white rounded-3xl w-[360px] shadow-2xl flex flex-col overflow-hidden border border-gray-100">
+        <div class="bg-[#1a1a1a] px-6 py-3 flex items-center justify-between">
+          <span class="font-black text-lg italic tracking-tighter text-white font-serif">QRIS</span>
+          <div class="flex gap-1">
+            {#each ['#CD1C33', '#FFC107', '#0E8E5E'] as c}
+              <div class="w-2 h-2 rounded-full" style="background: {c};"></div>
+            {/each}
           </div>
-          <p class="text-xs text-gray-400 mt-1 m-0">
-            {selectedPackage?.name ?? 'Standard Package'} · {qty} lembar
+        </div>
+        <div class="p-6 flex flex-col items-center gap-4">
+          <div class="p-3 border-2 border-gray-100 rounded-xl bg-white shadow-inner flex justify-center items-center">
+            {#if qrUrl}
+              <img src={qrUrl} alt="QRIS" class="w-[190px] h-[190px] object-contain" />
+            {:else}
+              <div class="w-[190px] h-[190px] flex items-center justify-center text-xs text-gray-400 font-mono">
+                Loading QR...
+              </div>
+            {/if}
+          </div>
+          <p class="text-[9px] text-gray-400 tracking-widest uppercase font-bold text-center m-0">
+            Scan menggunakan aplikasi bank kamu
           </p>
-        </div>
-
-        <div class="w-full border border-dashed border-gray-200 rounded-xl p-4 flex flex-col gap-2.5 font-mono">
-          <div class="flex justify-between text-xs">
-            <span class="text-gray-400">Harga satuan</span>
-            <span class="font-bold">Rp {priceBase.toLocaleString('id-ID')}</span>
-          </div>
-          <div class="flex justify-between text-xs">
-            <span class="text-gray-400">Jumlah cetak</span>
-            <span class="font-bold">{qty} lembar</span>
-          </div>
-          <div class="border-t border-gray-100 pt-2 flex justify-between text-xs">
-            <span class="font-bold text-gray-600">Total</span>
-            <span class="font-black text-[#CD1C33]">Rp {total.toLocaleString('id-ID')}</span>
+          <div class="w-full border-t border-dashed border-gray-200 pt-3 flex items-center justify-between">
+            <span class="text-[10px] text-gray-400">Powered by</span>
+            <span class="text-[10px] font-black text-gray-700 tracking-widest">GPN ✦ QRIS</span>
           </div>
         </div>
+      </div>
 
-        <div class="w-full bg-[#0E8E5E] text-white px-5 py-2.5 rounded-full font-mono text-xs font-bold flex items-center justify-center gap-2 shadow">
-          <Clock size={15} /> Bayar sebelum 10:00
+      <!-- Total Card -->
+      <div class="bg-white rounded-3xl w-[320px] shadow-2xl flex flex-col overflow-hidden border border-gray-100">
+        <div class="bg-[#CD1C33] px-6 py-3 flex items-center gap-2">
+          <span class="text-white/70 text-[9px] font-bold uppercase tracking-[0.25em]">Total Tagihan</span>
         </div>
+        <div class="p-6 flex flex-col items-center gap-4">
+          <div class="text-center">
+            <div class="text-5xl font-['Playfair_Display',serif] font-black text-[#CD1C33]">
+              Rp {total.toLocaleString('id-ID')}
+            </div>
+            <p class="text-xs text-gray-400 mt-1 m-0">
+              {selectedPackage?.name ?? 'Standard Package'} · {qty} lembar
+            </p>
+          </div>
 
-        <button
-          onclick={handleCheckStatus}
-          disabled={paid}
-          class="w-full py-2.5 border-2 border-[#0E8E5E] text-[#0E8E5E] rounded-full font-bold text-xs tracking-widest uppercase hover:bg-[#f0faf5] transition-colors cursor-pointer bg-white"
-        >
-          {paid ? 'Pembayaran Berhasil!' : 'Cek Status Pembayaran'}
-        </button>
+          <div class="w-full border border-dashed border-gray-200 rounded-xl p-4 flex flex-col gap-2.5 font-mono">
+            <div class="flex justify-between text-xs">
+              <span class="text-gray-400">Harga satuan</span>
+              <span class="font-bold">Rp {priceBase.toLocaleString('id-ID')}</span>
+            </div>
+            <div class="flex justify-between text-xs">
+              <span class="text-gray-400">Jumlah cetak</span>
+              <span class="font-bold">{qty} lembar</span>
+            </div>
+            <div class="border-t border-gray-100 pt-2 flex justify-between text-xs">
+              <span class="font-bold text-gray-600">Total</span>
+              <span class="font-black text-[#CD1C33]">Rp {total.toLocaleString('id-ID')}</span>
+            </div>
+          </div>
 
-        <button
-          onclick={onBack}
-          class="text-xs text-gray-400 hover:text-gray-700 uppercase tracking-widest bg-transparent border-none cursor-pointer font-bold flex items-center gap-1 mt-1"
-        >
-          <ChevronLeft size={14} /> Ganti Metode
-        </button>
+          <div class="w-full bg-[#0E8E5E] text-white px-5 py-2.5 rounded-full font-mono text-xs font-bold flex items-center justify-center gap-2 shadow">
+            <Clock size={15} /> Bayar sebelum 10:00
+          </div>
+
+          <button
+            onclick={handleCheckStatus}
+            disabled={paid || !networkStatus.isOnline}
+            class="w-full py-2.5 border-2 border-[#0E8E5E] text-[#0E8E5E] rounded-full font-bold text-xs tracking-widest uppercase transition-colors bg-white {!networkStatus.isOnline ? 'opacity-40 grayscale cursor-not-allowed' : 'hover:bg-[#f0faf5] cursor-pointer'}"
+          >
+            {!networkStatus.isOnline ? 'Tidak tersedia offline' : (paid ? 'Pembayaran Berhasil!' : 'Cek Status Pembayaran')}
+          </button>
+
+          <button
+            onclick={onBack}
+            class="text-xs {!networkStatus.isOnline ? 'text-[#CD1C33] font-black' : 'text-gray-400 hover:text-gray-700 font-bold'} uppercase tracking-widest bg-transparent border-none cursor-pointer flex items-center gap-1 mt-1"
+          >
+            <ChevronLeft size={14} /> {!networkStatus.isOnline ? 'Ganti ke Tiket' : 'Ganti Metode'}
+          </button>
+        </div>
       </div>
     </div>
   </div>

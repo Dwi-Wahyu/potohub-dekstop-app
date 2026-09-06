@@ -1,7 +1,8 @@
 <script lang="ts">
   import { uiConfig } from '$lib/stores/uiConfig.svelte';
-  import { validateAndRedeemQrTicket } from '$lib/api/boothClient';
+  import { redeemTicket } from '$lib/api/boothClient';
   import QrTicketScanner from '$lib/components/shared/QrTicketScanner.svelte';
+  import OfflineBanner from '$lib/components/shared/OfflineBanner.svelte';
   import { QrCode, ChevronLeft, Ticket as TicketIcon, Check, FileExclamationPoint } from '@lucide/svelte';
   import type { QrScanResult, QrScanStatus } from '$lib/types/qr';
 
@@ -30,10 +31,15 @@
     successMsg = 'QR Code Terdeteksi! Memverifikasi...';
 
     try {
-      await validateAndRedeemQrTicket(result.content, boothId);
+      const res = await redeemTicket(result.content, boothId);
+      if (!res.valid) {
+        throw new Error(res.message);
+      }
       scanStatus = 'success';
-      scanStatusMessage = 'Tiket Valid!';
-      successMsg = 'Tiket Valid! Memulai sesi foto…';
+      scanStatusMessage = res.offline ? 'Tiket Valid (Offline)!' : 'Tiket Valid!';
+      successMsg = res.offline
+        ? 'Tiket Valid (mode offline)! Memulai sesi foto…'
+        : 'Tiket Valid! Memulai sesi foto…';
       setTimeout(() => {
         onConfirm();
       }, 500);
@@ -62,10 +68,15 @@
     successMsg = 'Memverifikasi tiket...';
 
     try {
-      await validateAndRedeemQrTicket(code.trim(), boothId);
+      const res = await redeemTicket(code.trim(), boothId);
+      if (!res.valid) {
+        throw new Error(res.message);
+      }
       scanStatus = 'success';
-      scanStatusMessage = 'Tiket Valid!';
-      successMsg = 'Tiket Valid! Memulai sesi foto…';
+      scanStatusMessage = res.offline ? 'Tiket Valid (Offline)!' : 'Tiket Valid!';
+      successMsg = res.offline
+        ? 'Tiket Valid (mode offline)! Memulai sesi foto…'
+        : 'Tiket Valid! Memulai sesi foto…';
       setTimeout(() => {
         onConfirm();
       }, 500);
@@ -168,6 +179,9 @@
   <!-- Content -->
   <div class="relative z-10 flex flex-col items-center flex-1 justify-center gap-0">
     <h2 class="text-3xl font-bold mb-1">Scan Tiket</h2>
+    <div class="mb-3">
+      <OfflineBanner message="Offline — tiket akan diverifikasi dari data lokal booth." />
+    </div>
     <div class="w-16 h-[2px] bg-black mb-8"></div>
 
     <div

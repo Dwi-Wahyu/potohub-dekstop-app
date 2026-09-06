@@ -385,6 +385,40 @@ pub fn run() {
             );",
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 6,
+            description: "create qr_ticket_cache table for offline ticket verification",
+            sql: "CREATE TABLE IF NOT EXISTS qr_ticket_cache (
+                token TEXT PRIMARY KEY,
+                booth_id TEXT NOT NULL,
+                category_id TEXT,
+                ticket_type TEXT,
+                bundle_label TEXT,
+                qty INTEGER NOT NULL DEFAULT 1,
+                status TEXT NOT NULL DEFAULT 'active',
+                used INTEGER NOT NULL DEFAULT 0,
+                used_offline INTEGER NOT NULL DEFAULT 0,
+                expires_at TEXT NOT NULL,
+                cached_at INTEGER NOT NULL
+            );",
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 7,
+            description: "create offline_outbox table for deferred sync jobs",
+            sql: "CREATE TABLE IF NOT EXISTS offline_outbox (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                job_type TEXT NOT NULL,
+                local_ref TEXT,
+                payload TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending',
+                attempts INTEGER NOT NULL DEFAULT 0,
+                last_error TEXT,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL
+            );",
+            kind: MigrationKind::Up,
+        },
     ];
 
     tauri::Builder::default()
@@ -452,6 +486,7 @@ pub fn run() {
             cache::read_cached_asset,
             storage::save_session_file,
             storage::save_session_manifest,
+            storage::read_session_file,
             get_printer_list,
             get_printer_status,
             print_photo,

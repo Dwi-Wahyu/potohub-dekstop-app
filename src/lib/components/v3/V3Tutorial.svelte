@@ -37,7 +37,11 @@
     { n: 4, icon: Download, title: 'Unduh Hasilnya', desc: 'Scan QR, foto tersimpan', bg: '#fffbeb', accent: '#d97706', iconClass: 'text-[#FFC107]' }
   ];
   const DEFAULT_BG = '#fdfdfd';
-  let effectiveBg = $derived(background ?? uiConfig.getStepStyle('tutorial').background ?? DEFAULT_BG);
+  let effectiveBg = $derived(
+    background && background !== '#CD1C33'
+      ? background
+      : (uiConfig.getStepStyle('tutorial').background ?? DEFAULT_BG)
+  );
 
   function getLocalTutorialImage(boothId: string): string {
     try {

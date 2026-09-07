@@ -284,10 +284,12 @@ export interface OutboxJob {
   jobType: 'redeem_ticket' | 'session_softfile';
   localRef: string | null;
   payload: string; // JSON — di-parse oleh worker sesuai jobType
-  status: 'pending' | 'processing' | 'done';
+  status: 'pending' | 'processing' | 'done' | 'dead_letter';
   attempts: number;
   lastError: string | null;
 }
+
+export const MAX_OUTBOX_ATTEMPTS = 5;
 
 export async function enqueueOutboxJob(
   jobType: OutboxJob['jobType'],
@@ -306,12 +308,21 @@ export async function enqueueOutboxJob(
 
 export async function listPendingOutboxJobs(): Promise<OutboxJob[]> {
   const conn = await db();
+  // Hanya ambil job pending yang belum melampaui batas percobaan maksimum
   const rows = await conn.select<any[]>(
-    "SELECT * FROM offline_outbox WHERE status != 'done' ORDER BY id ASC",
+    `SELECT * FROM offline_outbox 
+     WHERE status = 'pending' AND attempts < $1 
+     ORDER BY id ASC`,
+    [MAX_OUTBOX_ATTEMPTS],
   );
   return rows.map((r) => ({
-    id: r.id, jobType: r.job_type, localRef: r.local_ref, payload: r.payload,
-    status: r.status, attempts: r.attempts, lastError: r.last_error,
+    id: r.id,
+    jobType: r.job_type,
+    localRef: r.local_ref,
+    payload: r.payload,
+    status: r.status,
+    attempts: r.attempts,
+    lastError: r.last_error,
   }));
 }
 
@@ -325,17 +336,37 @@ export async function markOutboxJobDone(id: number): Promise<void> {
 
 export async function markOutboxJobFailedAttempt(id: number, error: string): Promise<void> {
   const conn = await db();
+  const now = Date.now();
+  // Ambil data attempt saat ini
+  const rows = await conn.select<any[]>(
+    "SELECT attempts FROM offline_outbox WHERE id = $1",
+    [id],
+  );
+  const currentAttempts = (rows[0]?.attempts ?? 0) + 1;
+  const newStatus = currentAttempts >= MAX_OUTBOX_ATTEMPTS ? 'dead_letter' : 'pending';
+
   await conn.execute(
-    `UPDATE offline_outbox SET status = 'pending', attempts = attempts + 1,
-       last_error = $2, updated_at = $3 WHERE id = $1`,
-    [id, error, Date.now()],
+    `UPDATE offline_outbox 
+     SET status = $2, attempts = $3, last_error = $4, updated_at = $5 
+     WHERE id = $1`,
+    [newStatus, currentAttempts, error, now],
+  );
+}
+
+export async function markOutboxJobDeadLetter(id: number, reason: string): Promise<void> {
+  const conn = await db();
+  await conn.execute(
+    "UPDATE offline_outbox SET status = 'dead_letter', last_error = $2, updated_at = $3 WHERE id = $1",
+    [id, reason, Date.now()],
   );
 }
 
 export async function countPendingOutboxJobs(): Promise<number> {
   const conn = await db();
   const rows = await conn.select<any[]>(
-    "SELECT COUNT(*) as c FROM offline_outbox WHERE status != 'done'",
+    `SELECT COUNT(*) as c FROM offline_outbox 
+     WHERE status = 'pending' AND attempts < $1`,
+    [MAX_OUTBOX_ATTEMPTS],
   );
   return Number(rows[0]?.c ?? 0);
 }

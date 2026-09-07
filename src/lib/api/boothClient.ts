@@ -760,6 +760,30 @@ export async function uploadSessionMedia(
   }
 }
 
+/**
+ * Memeriksa apakah suatu error merupakan kegagalan transport/koneksi jaringan nyata
+ * (bukan error respon HTTP dari server seperti 400, 401, 404, 500).
+ */
+export function isNetworkTransportError(error: unknown): boolean {
+  if (!error) return false;
+  if (error instanceof TypeError) {
+    // Di browser/webview: "Failed to fetch", "NetworkError when attempting to fetch resource", dsb.
+    return true;
+  }
+  if (error instanceof DOMException && error.name === 'AbortError') {
+    return true;
+  }
+  const msg = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+  return (
+    msg.includes('failed to fetch') ||
+    msg.includes('network error') ||
+    msg.includes('networkrequestfailed') ||
+    msg.includes('connection refused') ||
+    msg.includes('the operation was aborted') ||
+    msg.includes('timeout')
+  );
+}
+
 export interface RedeemQrTicketResponse {
   valid: boolean;
   success?: boolean;
@@ -783,31 +807,37 @@ export async function validateAndRedeemQrTicket(
     : token.trim();
   const cleanBoothId = boothId && boothId.trim() !== "" ? boothId.trim() : null;
 
-  const res = await fetch(`${API_BASE}/qr-tickets/redeem`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      token: cleanToken,
-      booth_id: cleanBoothId,
-    }),
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}/qr-tickets/redeem`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        token: cleanToken,
+        booth_id: cleanBoothId,
+      }),
+    });
+  } catch (networkErr) {
+    // Lempar ulang error jaringan asli agar pemanggil tahu ini masalah koneksi
+    throw networkErr;
+  }
 
+  // Jika server merespons (baik 200 maupun 400/404/422), jaringan jelas ONLINE!
   if (!res.ok) {
     const errJson = await res.json().catch(() => null);
-    throw new Error(
-      errJson?.message || "Tiket QR tidak valid atau telah digunakan",
-    );
+    const serverMessage = errJson?.message || "Tiket QR tidak valid atau telah digunakan";
+    return {
+      valid: false,
+      success: false,
+      message: serverMessage,
+      ticket: null,
+    };
   }
 
   const json = await res.json();
-  const isValid = Boolean(json.valid ?? json.success);
-  if (!isValid) {
-    throw new Error(json.message || "Tiket QR tidak dapat digunakan");
-  }
-
   return {
     ...json,
-    valid: true,
+    valid: Boolean(json.valid ?? json.success ?? true),
     success: true,
   };
 }
@@ -889,22 +919,30 @@ export async function redeemTicket(token: string, boothId: string): Promise<Rede
 
   const { networkStatus } = await import('$lib/stores/networkStatus.svelte');
 
+  // Jika status online (atau belum pasti), coba jalur server dulu
   if (networkStatus.isOnline) {
     try {
       const remote = await validateAndRedeemQrTicket(cleanToken, boothId);
-      return { valid: remote.valid, message: remote.message, offline: false };
+      // Jika remote mengembalikan respons server (valid true/false), kembalikan hasilnya langsung
+      return { 
+        valid: remote.valid, 
+        message: remote.message || (remote.valid ? 'Tiket valid' : 'Tiket tidak valid'), 
+        offline: false 
+      };
     } catch (e) {
-      // Bedakan "tiket ditolak server" (Error dilempar dgn pesan dari server,
-      // fetch tetap sukses) vs "request-nya sendiri gagal" (TypeError jaringan).
-      const looksLikeNetworkFailure =
-        e instanceof TypeError || (typeof navigator !== 'undefined' && !navigator.onLine);
-      if (!looksLikeNetworkFailure) {
-        return { valid: false, message: e instanceof Error ? e.message : 'Tiket tidak valid', offline: false };
+      // Hanya jatuh ke jalur offline jika error-nya memang error konektivitas jaringan
+      if (!isNetworkTransportError(e)) {
+        return { 
+          valid: false, 
+          message: e instanceof Error ? e.message : 'Tiket tidak valid', 
+          offline: false 
+        };
       }
-      // lanjut ke jalur offline di bawah
+      console.warn('[redeemTicket] Jaringan bermasalah saat redeem online, beralih ke cache lokal:', e);
     }
   }
 
+  // Jalur offline fallback
   return redeemTicketOffline(cleanToken, boothId);
 }
 

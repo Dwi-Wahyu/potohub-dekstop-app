@@ -41,7 +41,7 @@
   let sent = $derived(emailSent || waSent);
   let softfileQueued = $state(false);
   let error = $state(false);
-  let timer = $state(60);
+  let timer = $state(boothConfig.config.endScreenTimeSecs || 3);
   let kbOpen = $state(false);
   let caps = $state(false);
   let numMode = $state(false);

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
   import { uiConfig } from '$lib/stores/uiConfig.svelte';
+  import { boothConfig } from '$lib/stores/boothConfig.svelte';
   import { QrCode, Ticket, Camera } from '@lucide/svelte';
 
   interface Props {
@@ -12,7 +13,7 @@
 
   let { onNext, onBack, background, customTutorialImg }: Props = $props();
 
-  let secs = $state(60);
+  let secs = $state(boothConfig.config.procedureTimeSecs || 15);
   let timer: any = null;
 
   onMount(() => {

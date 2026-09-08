@@ -76,9 +76,10 @@
   function startSlideTimer() {
     stopSlideTimer();
     if (banners.length > 1) {
+      const durationMs = Math.max(1, boothConfig.config.bannerTimeSecs || 10) * 1000;
       slideInterval = setInterval(() => {
         currentIndex = (currentIndex + 1) % banners.length;
-      }, 5000);
+      }, durationMs);
     }
   }
 

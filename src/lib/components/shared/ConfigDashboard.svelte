@@ -626,7 +626,7 @@
             <div style="display: flex; gap: 12px;">
               <!-- Countdown -->
               <div style="display: flex; flex-direction: column; gap: 5px; flex: 1;">
-                <h1 style="font-size: 10px; font-weight: 700; color: #334155; text-transform: uppercase; letter-spacing: 0.06em;">Countdown (dtk)</h1>
+                <h1 style="font-size: 10px; font-weight: 700; color: #334155; text-transform: uppercase; letter-spacing: 0.06em;">Next Countdown (dtk)</h1>
                 <div style="display: flex; align-items: center; gap: 6px;">
                   <button onclick={() => update('countdownSecs', Math.max(1, boothConfig.config.countdownSecs - 1))} style="width: 32px; height: 32px; border-radius: 9px; background: {NEU_BG}; box-shadow: {neuCfg.btnSm}; border: none; cursor: pointer; font-weight: 700; font-size: 16px; color: #334155; display: flex; align-items: center; justify-content: center;">−</button>
                   <input

@@ -28,7 +28,7 @@
 
   let isRunning = $state(false);
   let selectedRetakeIndex = $state<number | null>(null);
-  let sessionSecs = $state(5 * 60);
+  let sessionSecs = $state(boothConfig.config.photoSessionTimeSecs || 10);
   let timer: any = null;
   let liveviewInterval: any = null;
   let frameSrc = $state('');

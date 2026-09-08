@@ -36,7 +36,8 @@ Manages JSONB operational parameters for photobooth stations, including timer se
     "payment_time": 120,
     "photo_session_time": 10,
     "first_countdown_time": 5,
-    "next_countdown_time": 3
+    "next_countdown_time": 3,
+    "end_screen_time": 3
   },
   "print": {
     "multi_print": true

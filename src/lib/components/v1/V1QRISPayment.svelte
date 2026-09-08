@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
   import { uiConfig } from '$lib/stores/uiConfig.svelte';
+  import { boothConfig } from '$lib/stores/boothConfig.svelte';
   import { formatTime } from '$lib/utils/shared';
 
   interface Props {
@@ -12,7 +13,7 @@
 
   let { totalPrice, onSuccess, onBack, background }: Props = $props();
 
-  let secs = $state(14 * 60 + 30);
+  let secs = $state(boothConfig.config.paymentTimeSecs || 120);
   let qrSecs = $state(5 * 60);
   let paid = $state(false);
   let timer: any = null;

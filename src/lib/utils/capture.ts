@@ -10,7 +10,8 @@ export async function runCaptureSequence(
   const clipPromises: Promise<void>[] = [];
 
   for (let i = 0; i < slotCount; i++) {
-    for (let c = countdownSecs; c > 0; c--) {
+    const cSecs = i === 0 ? (boothConfig.config.firstCountdownSecs || countdownSecs) : countdownSecs;
+    for (let c = cSecs; c > 0; c--) {
       boothFlow.countdown = c;
       await new Promise((r) => setTimeout(r, 1000));
     }

@@ -473,17 +473,6 @@ function applyRemoteSettings(settings: Record<string, any>) {
   const timer = settings?.timer ?? {};
   const softfile = settings?.softfile ?? {};
 
-  const localSaved = typeof localStorage !== 'undefined' ? localStorage.getItem(`booth_settings_${boothConfig.boothId}`) : null;
-  let hasLocalConfig = false;
-  if (localSaved) {
-    try {
-      const parsed = JSON.parse(localSaved);
-      if (parsed && typeof parsed.countdownSecs === 'number') {
-        hasLocalConfig = true;
-      }
-    } catch {}
-  }
-
   boothConfig.save({
     pin: general.pin ?? boothConfig.config.pin,
     cameraRotate:
@@ -492,9 +481,13 @@ function applyRemoteSettings(settings: Record<string, any>) {
     mirrorOn: general.mirror ?? boothConfig.config.mirrorOn,
     paymentPage: general.payment_page ?? boothConfig.config.paymentPage,
     photoFilter: general.photo_filter ?? boothConfig.config.photoFilter,
-    countdownSecs: hasLocalConfig
-      ? boothConfig.config.countdownSecs
-      : (timer.first_countdown_time ?? boothConfig.config.countdownSecs),
+    countdownSecs: timer.next_countdown_time ?? boothConfig.config.countdownSecs,
+    firstCountdownSecs: timer.first_countdown_time ?? boothConfig.config.firstCountdownSecs,
+    bannerTimeSecs: timer.banner_time ?? boothConfig.config.bannerTimeSecs,
+    procedureTimeSecs: timer.procedure_time ?? boothConfig.config.procedureTimeSecs,
+    paymentTimeSecs: timer.payment_time ?? boothConfig.config.paymentTimeSecs,
+    photoSessionTimeSecs: timer.photo_session_time ?? boothConfig.config.photoSessionTimeSecs,
+    endScreenTimeSecs: timer.end_screen_time ?? boothConfig.config.endScreenTimeSecs,
     emailEnabled: softfile.email_enabled ?? boothConfig.config.emailEnabled ?? true,
     whatsappEnabled: softfile.whatsapp_enabled ?? boothConfig.config.whatsappEnabled ?? true,
   });

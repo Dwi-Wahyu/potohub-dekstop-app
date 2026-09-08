@@ -3,6 +3,7 @@
   import { Star, QrCode, Image as ImageIcon, Camera, Download, ChevronRight } from '@lucide/svelte';
 
   import { uiConfig } from '$lib/stores/uiConfig.svelte';
+  import { boothConfig } from '$lib/stores/boothConfig.svelte';
 
   interface Props {
     onNext: () => void;
@@ -13,7 +14,7 @@
 
   let { onNext, onBack, background, customTutorialImg }: Props = $props();
 
-  let secs = $state(60);
+  let secs = $state(boothConfig.config.procedureTimeSecs || 15);
   let timer: any = null;
 
   onMount(() => {

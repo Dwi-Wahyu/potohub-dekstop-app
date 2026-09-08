@@ -26,7 +26,7 @@
   let bgLayer = $derived(selectedTemplate?.design_data?.find((l) => l.isBackground));
   let bgUrl = $derived(bgLayer?.imageUrl || selectedTemplate?.frame_image_url || '');
 
-  let sessionSecs = $state(5 * 60);
+  let sessionSecs = $state(boothConfig.config.photoSessionTimeSecs || 10);
   let isRunning = $state(false);
   let selectedRetakeIndex = $state<number | null>(null);
   let timer: any = null;

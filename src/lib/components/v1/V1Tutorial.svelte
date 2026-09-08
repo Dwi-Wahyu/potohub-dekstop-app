@@ -13,7 +13,7 @@
 
   let { onNext, onBack, background, customTutorialImg }: Props = $props();
 
-  let secs = $state(60);
+  let secs = $state(boothConfig.config.procedureTimeSecs || 15);
   let timer: any = null;
 
   onMount(() => {

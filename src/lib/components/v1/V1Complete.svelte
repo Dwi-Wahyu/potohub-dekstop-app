@@ -59,6 +59,12 @@
     'http://localhost:3000';
   const ADMIN_DASHBOARD_PUBLIC_URL = rawAdminDashboardUrl.replace(/\/+$/, '');
 
+  $effect(() => {
+    if (sent && secs > (boothConfig.config.endScreenTimeSecs || 3)) {
+      secs = boothConfig.config.endScreenTimeSecs || 3;
+    }
+  });
+
   onMount(async () => {
     timer = setInterval(() => {
       if (secs > 0) secs--;
@@ -391,7 +397,7 @@
           {#if emailEnabled}
             <div class="flex flex-col gap-1.5 w-full">
               <div class="flex items-center justify-between text-[11px] font-bold text-gray-500 uppercase tracking-wider">
-                <span>Email Softfile</span>
+                <span>Email</span>
                 {#if emailSent}
                   <span class="text-green-600 font-bold">
                     {networkStatus.isOnline ? '✓ Terkirim' : '⏳ Menunggu Koneksi'}
@@ -428,7 +434,7 @@
           {#if whatsappEnabled}
             <div class="flex flex-col gap-1.5 w-full">
               <div class="flex items-center justify-between text-[11px] font-bold text-gray-500 uppercase tracking-wider">
-                <span>WhatsApp (Fonnte)</span>
+                <span>WhatsApp</span>
                 {#if waSent}
                   <span class="text-green-600 font-bold">
                     {networkStatus.isOnline ? '✓ Terkirim' : '⏳ Menunggu Koneksi'}

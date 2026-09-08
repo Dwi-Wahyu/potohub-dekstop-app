@@ -3,6 +3,12 @@ export interface BoothCfg {
   paperThreshold: number;
   paperCount: number;
   countdownSecs: number;
+  firstCountdownSecs: number;
+  bannerTimeSecs: number;
+  procedureTimeSecs: number;
+  paymentTimeSecs: number;
+  photoSessionTimeSecs: number;
+  endScreenTimeSecs: number;
   photoFilter: boolean;
   filterBW: boolean;
   filterSepia: boolean;
@@ -29,7 +35,13 @@ export const DEFAULT_CFG: BoothCfg = {
   pin: '1234',
   paperThreshold: 20,
   paperCount: 100,
-  countdownSecs: 5,
+  countdownSecs: 3,
+  firstCountdownSecs: 5,
+  bannerTimeSecs: 10,
+  procedureTimeSecs: 15,
+  paymentTimeSecs: 120,
+  photoSessionTimeSecs: 10,
+  endScreenTimeSecs: 3,
   photoFilter: true,
   filterBW: true,
   filterSepia: true,

@@ -9,7 +9,7 @@
   import { fetchTemplates, requireActiveBoothId, type BoothTemplate } from '$lib/api/boothClient';
   import { cachedFetch } from '$lib/utils/offlineCache';
   import { getSortedPhotoSlots } from '$lib/utils/templateComposite';
-  import { Check, Sparkles, ChevronRight, Search, RotateCw, Camera } from '@lucide/svelte';
+  import { Check, Sparkles, ChevronRight, Search, RotateCw, Camera, FlipHorizontal2 } from '@lucide/svelte';
 
   interface Props {
     selectedFrame: string;
@@ -351,6 +351,18 @@
           Frame: <span class="font-bold text-gray-600 capitalize">{selectedTemplate?.name || selectedFrame}</span>
         </p>
       </div>
+
+      {#if photosTaken === 0 && boothFlow.countdown === null && !isRunning}
+        <button
+          type="button"
+          onclick={() => boothConfig.save({ mirrorOn: !boothConfig.config.mirrorOn })}
+          class="w-fit py-2.5 px-4 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 text-gray-700 font-medium text-xs flex items-center justify-center gap-2 shadow-sm transition-all cursor-pointer"
+          title="Toggle Mirror Kamera"
+        >
+          <FlipHorizontal2 size={16} class="text-gray-500" />
+          <span>MIRROR: <strong class={boothConfig.config.mirrorOn ? 'text-[#0E8E5E]' : 'text-gray-400'}>{boothConfig.config.mirrorOn ? 'ON' : 'OFF'}</strong></span>
+        </button>
+      {/if}
     </div>
 
     <!-- Right: Camera -->

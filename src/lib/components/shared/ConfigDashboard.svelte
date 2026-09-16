@@ -6,7 +6,8 @@
     ChevronLeft,
     ChevronDown,
     CheckCircle2,
-    Save
+    Save,
+    FlipHorizontal2
   } from '@lucide/svelte';
   import { goto } from '$app/navigation';
   import { boothConfig, type BoothCfg } from '$lib/stores/boothConfig.svelte';
@@ -454,8 +455,12 @@
                   onclick={() => update('mirrorOn', !boothConfig.config.mirrorOn)}
                   style="display: flex; align-items: center; gap: 10px; background: {NEU_BG}; box-shadow: {neuCfg.inset}; border-radius: 10px; padding: 7px 12px; border: none; cursor: pointer; text-align: left;"
                 >
-                  <div style="width: 14px; height: 14px; border-radius: 50%; border: 2px solid {boothConfig.config.mirrorOn ? '#22c55e' : '#c8d2e0'}; background: {boothConfig.config.mirrorOn ? '#22c55e' : 'transparent'}; flex-shrink: 0;"></div>
-                  <span style="font-size: 12px; font-weight: 500; color: #334155;">Mirror</span>
+                  <div style="width: 14px; height: 14px; border-radius: 50%; border: 2px solid {boothConfig.config.mirrorOn ? '#22c55e' : '#c8d2e0'}; background: {boothConfig.config.mirrorOn ? '#22c55e' : 'transparent'}; flex-shrink: 0; display: flex; align-items: center; justify-content: center;">
+                    {#if boothConfig.config.mirrorOn}
+                      <div style="width: 6px; height: 6px; border-radius: 50%;"></div>
+                    {/if}
+                  </div>
+                  <span style="font-size: 12px; font-weight: 500; color: #334155;">Mirror Kamera</span>
                 </button>
 
                 <button

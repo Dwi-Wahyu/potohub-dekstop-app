@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
-  import { Search, RotateCw } from '@lucide/svelte';
+  import { Search, RotateCw, FlipHorizontal2 } from '@lucide/svelte';
   import { cameraStore } from '$lib/camera.svelte';
   import { boothFlow } from '$lib/stores/booth.svelte';
   import { uiConfig } from '$lib/stores/uiConfig.svelte';
@@ -257,6 +257,25 @@
           >
             <RotateCw size={15} />
             <span>Ulang Foto {activeRetakeIdx + 1}</span>
+          </button>
+        </div>
+      {/if}
+
+      <!-- Top-right Mirror toggle button when customer hasn't started session -->
+      {#if !isRunning && !allDone}
+        <div class="absolute top-5 right-5 z-30 flex items-center gap-3">
+          <button
+            type="button"
+            onclick={() => boothConfig.save({ mirrorOn: !boothConfig.config.mirrorOn })}
+            class={`flex items-center gap-2 border px-4 py-2 rounded-full font-bold text-xs shadow-xl backdrop-blur-md cursor-pointer transition-all active:scale-95 ${
+              boothConfig.config.mirrorOn
+                ? 'bg-black/80 hover:bg-black text-white border-white/40'
+                : 'bg-black/40 hover:bg-black/60 text-white/70 border-white/20'
+            }`}
+            title="Toggle Mirror Kamera"
+          >
+            <FlipHorizontal2 size={15} />
+            <span>MIRROR: {boothConfig.config.mirrorOn ? 'ON' : 'OFF'}</span>
           </button>
         </div>
       {/if}

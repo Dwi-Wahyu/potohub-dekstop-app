@@ -9,7 +9,7 @@
   import { fetchTemplates, requireActiveBoothId, type BoothTemplate } from '$lib/api/boothClient';
   import { cachedFetch } from '$lib/utils/offlineCache';
   import { getSortedPhotoSlots } from '$lib/utils/templateComposite';
-  import { QrCode, Camera, RefreshCw, ArrowRight, Search, RotateCw } from '@lucide/svelte';
+  import { QrCode, Camera, RefreshCw, ArrowRight, Search, RotateCw, FlipHorizontal2 } from '@lucide/svelte';
 
   interface Props {
     selectedFrame: string;
@@ -336,9 +336,24 @@
         </div> -->
       {/if}
 
-      <!-- Photo counter badge -->
-      <div class={`absolute top-6 left-6 px-6 py-2 border-2 border-white rounded-full text-white font-bold text-xl tracking-widest bg-black/50 backdrop-blur-md z-20 font-['Nunito',sans-serif] ${allDone ? 'hidden' : ''}`}>
-        Photo {Math.min(sessionsDone + 1, totalPhotos)} / {totalPhotos}
+      <!-- Photo counter badge & Mirror toggle button -->
+      <div class="absolute top-6 left-6 z-30 flex items-center gap-3 font-['Nunito',sans-serif]">
+        <div class={`px-6 py-2 border-2 border-white rounded-full text-white font-bold text-xl tracking-widest bg-black/50 backdrop-blur-md ${allDone ? 'hidden' : ''}`}>
+          Photo {Math.min(sessionsDone + 1, totalPhotos)} / {totalPhotos}
+        </div>
+        {#if !isRunning && !allDone}
+          <button
+            type="button"
+            onclick={() => boothConfig.save({ mirrorOn: !boothConfig.config.mirrorOn })}
+            class={`flex items-center gap-2 px-4 py-2 border-2 border-white rounded-full text-white font-bold text-sm bg-black/50 backdrop-blur-md cursor-pointer transition-all hover:bg-black/80 active:translate-x-[2px] active:translate-y-[2px] ${
+              boothConfig.config.mirrorOn ? 'bg-black/70 text-white' : 'bg-black/40 text-white/70'
+            }`}
+            title="Toggle Mirror Kamera"
+          >
+            <FlipHorizontal2 size={16} />
+            <span>MIRROR: {boothConfig.config.mirrorOn ? 'ON' : 'OFF'}</span>
+          </button>
+        {/if}
       </div>
 
       <!-- Timer badge -->

@@ -254,13 +254,14 @@
                             playsinline
                             muted
                             class="w-full h-full object-cover block"
-                            style="transform: scaleX(-1);"
+                            style="transform: {getLiveviewTransformStyle(boothConfig.config, cameraStore.cameraMode)};"
                           ></video>
                         {:else if frameSrc}
                           <img
                             src={frameSrc}
                             alt="Live camera feed"
                             class="w-full h-full object-cover block"
+                            style="transform: {getLiveviewTransformStyle(boothConfig.config, cameraStore.cameraMode)};"
                           />
                         {:else}
                           <div class="w-full h-full flex items-center justify-center text-white/40 text-[10px] animate-pulse">
@@ -293,7 +294,7 @@
                           playsinline
                           muted
                           class="w-full h-full object-cover block"
-                          style="transform: scaleX(-1);"
+                          style="transform: {getLiveviewTransformStyle(boothConfig.config, cameraStore.cameraMode)};"
                         ></video>
                       {:else if frameSrc}
                         <img src={frameSrc} alt="Live feed" class="w-full h-full object-cover block" style="transform: {getLiveviewTransformStyle(boothConfig.config, cameraStore.cameraMode)};" />

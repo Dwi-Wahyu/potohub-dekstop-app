@@ -405,7 +405,7 @@
                                 playsinline
                                 muted
                                 class="w-full h-full object-cover"
-                                style="transform: scaleX(-1);"
+                                style="transform: {getLiveviewTransformStyle(boothConfig.config, cameraStore.cameraMode)};"
                               ></video>
                             {:else if frameSrc}
                               <img

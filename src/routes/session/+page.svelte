@@ -72,7 +72,8 @@
           autoplay
           playsinline
           muted
-          class="w-full h-full object-contain scale-x-[-1]"
+          class="w-full h-full object-contain block"
+          style="transform: {getLiveviewTransformStyle(boothConfig.config, cameraStore.cameraMode)};"
         ></video>
       {:else if frameSrc}
         <img src={frameSrc} alt="Live preview kamera" class="w-full h-full object-contain" style="transform: {getLiveviewTransformStyle(boothConfig.config, cameraStore.cameraMode)};" />

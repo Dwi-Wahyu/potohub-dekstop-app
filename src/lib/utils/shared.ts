@@ -140,8 +140,5 @@ export function getLiveviewTransformStyle(
   if (config.mirrorOn) {
     parts.push('scaleX(-1)');
   }
-  if (config.flipVertical) {
-    parts.push('scaleY(-1)');
-  }
   return parts.length > 0 ? parts.join(' ') : 'none';
 }

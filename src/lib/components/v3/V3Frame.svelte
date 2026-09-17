@@ -249,7 +249,7 @@
                             playsinline
                             muted
                             class="w-full h-full object-cover block"
-                            style="transform: scaleX(-1);"
+                            style="transform: {getLiveviewTransformStyle(boothConfig.config, cameraStore.cameraMode)};"
                           ></video>
                         {:else if frameSrc}
                           <img src={frameSrc} alt="Live feed" class="w-full h-full object-cover block" style="transform: {getLiveviewTransformStyle(boothConfig.config, cameraStore.cameraMode)};" />

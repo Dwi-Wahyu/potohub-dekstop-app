@@ -90,63 +90,59 @@
             templates.find((t) => t.id === frameConfigId) || templates[0] || null;
         }
       );
-      if (selectedTemplate) {
-        compositeUrl = await compositeTemplateImage(
-          selectedTemplate,
-          photos,
-          boothFlow.selectedFilterId
-        );
-      }
     } catch (err) {
-      console.error('Failed to composite template:', err);
+      console.error('Failed to fetch template:', err);
     }
 
     const localSessionCode = generateSessionCode(uiConfig.config.boothName);
     boothFlow.sessionCode = localSessionCode;
 
-    if (!networkStatus.isOnline) {
-      // JALUR OFFLINE: simpan lokal, antre job saat customer kirim softfile
-      boothFlow.sessionId = null;
+    let softfileUrl = `${ADMIN_DASHBOARD_PUBLIC_URL}/softfile/pending-${localSessionCode}`;
+    let targetSessionIdentifier = localSessionCode;
+
+    if (networkStatus.isOnline) {
       isSavingSession = true;
       try {
-        await saveSessionAssets(
+        const session = await createTransactionSession(
           boothId,
-          localSessionCode,
-          compositeUrl,
-          selectedTemplate?.width || 1200,
-          selectedTemplate?.height || 1800,
-          (selectedTemplate?.design_data || []).filter((l) => !l.isBackground && !l.isQr),
-          selectedTemplate?.frame_image_url || selectedTemplate?.design_data?.find((l) => l.isBackground)?.imageUrl
+          selectedTemplate?.category_id,
+          boothFlow.printQty,
+          'cashless',
+          frameConfigId
         );
-      } finally {
-        isSavingSession = false;
+        const sessId = session.session_id || session.id || 'demo-session';
+        boothFlow.sessionId = sessId;
+        softfileUrl = `${ADMIN_DASHBOARD_PUBLIC_URL}/softfile/${sessId}`;
+        targetSessionIdentifier = sessId;
+      } catch (err) {
+        console.error('[V1Complete] Failed to create transaction session online, using local code:', err);
+        boothFlow.sessionId = null;
       }
-      qrDataUrl = await QRCode.toDataURL(
-        `${ADMIN_DASHBOARD_PUBLIC_URL}/softfile/pending-${localSessionCode}`,
-        { margin: 1, width: 200 }
-      ).catch(() => '');
-      return;
+    } else {
+      boothFlow.sessionId = null;
     }
 
-    // JALUR ONLINE: perilaku normal
+    qrDataUrl = await QRCode.toDataURL(softfileUrl, { margin: 1, width: 200 }).catch(() => '');
+
+    if (selectedTemplate) {
+      try {
+        compositeUrl = await compositeTemplateImage(
+          selectedTemplate,
+          photos,
+          boothFlow.selectedFilterId,
+          softfileUrl,
+          boothFlow.stickers
+        );
+      } catch (err) {
+        console.error('Failed to composite template:', err);
+      }
+    }
+
     try {
       isSavingSession = true;
-      const session = await createTransactionSession(
-        boothId,
-        selectedTemplate?.category_id,
-        boothFlow.printQty,
-        'cashless',
-        frameConfigId
-      );
-      const sessId = session.session_id || session.id || 'demo-session';
-      boothFlow.sessionId = sessId;
-
-      const softfileUrl = `${ADMIN_DASHBOARD_PUBLIC_URL}/softfile/${sessId}`;
-      qrDataUrl = await QRCode.toDataURL(softfileUrl, { margin: 1, width: 200 });
-
       await saveSessionAssets(
         boothId,
-        sessId,
+        targetSessionIdentifier,
         compositeUrl,
         selectedTemplate?.width || 1200,
         selectedTemplate?.height || 1800,
@@ -154,9 +150,7 @@
         selectedTemplate?.frame_image_url || selectedTemplate?.design_data?.find((l) => l.isBackground)?.imageUrl
       );
     } catch (err) {
-      console.error('Failed to create & save session in database:', err);
-      const fallbackUrl = `${ADMIN_DASHBOARD_PUBLIC_URL}/softfile/${boothFlow.sessionId || 'demo-session'}`;
-      qrDataUrl = await QRCode.toDataURL(fallbackUrl, { margin: 1, width: 200 }).catch(() => '');
+      console.error('Failed to save session assets:', err);
     } finally {
       isSavingSession = false;
     }

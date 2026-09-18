@@ -204,7 +204,7 @@
                 style="aspect-ratio: {tWidth} / {tHeight};"
               >
                 {#if templateLayers.length > 0}
-                  {#each templateLayers as layer, idx (layer.id ?? idx)}
+                  {#each templateLayers.filter((l) => !l.isQr) as layer, idx (layer.id ?? idx)}
                     {@const layerZIndex = getLayerZIndex(layer, templateLayers)}
                     <div
                       class="absolute overflow-hidden {layer.isBackground ? 'pointer-events-none' : ''}"

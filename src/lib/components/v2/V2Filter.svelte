@@ -204,7 +204,7 @@
                     style="aspect-ratio: {tWidth} / {tHeight};"
                   >
                     {#if templateLayers.length > 0}
-                      {#each templateLayers as layer, idx (layer.id ?? idx)}
+                      {#each (templateLayers || []).filter((l) => !l.isQr) as layer, idx (layer.id ?? idx)}
                         {@const layerZIndex = getLayerZIndex(layer, templateLayers)}
                         <div
                           class="absolute overflow-hidden {layer.isBackground ? 'pointer-events-none' : ''}"
@@ -227,10 +227,6 @@
                                 class="w-full h-full object-fill pointer-events-none block"
                               />
                             {/if}
-                          {:else if layer.isQr}
-                            <div class="w-full h-full bg-white flex items-center justify-center text-[#111] text-[9px] font-bold border border-gray-300 p-0.5">
-                              QR Code
-                            </div>
                           {:else}
                             {@const slotIdx = photoSlots.findIndex((s) => s.id === layer.id || s === layer)}
                             {@const targetIdx = slotIdx >= 0 ? slotIdx : 0}
@@ -272,7 +268,7 @@
                     style="aspect-ratio: {tWidth} / {tHeight};"
                   >
                     {#if templateLayers.length > 0}
-                      {#each templateLayers as layer, idx (layer.id ?? idx)}
+                      {#each (templateLayers || []).filter((l) => !l.isQr) as layer, idx (layer.id ?? idx)}
                         {@const layerZIndex = getLayerZIndex(layer, templateLayers)}
                         <div
                           class="absolute overflow-hidden {layer.isBackground ? 'pointer-events-none' : ''}"
@@ -295,7 +291,7 @@
                                 class="w-full h-full object-fill pointer-events-none block"
                               />
                             {/if}
-                          {:else if !layer.isQr}
+                          {:else}
                             {@const slotIdx = photoSlots.findIndex((s) => s.id === layer.id || s === layer)}
                             {@const targetIdx = slotIdx >= 0 ? slotIdx : 0}
                             {@const capturedPhoto = boothFlow.photosTaken[targetIdx]}

@@ -380,9 +380,9 @@
             style="aspect-ratio: {tWidth} / {tHeight};"
           >
             {#if selectedTemplate.design_data}
-              {#each selectedTemplate.design_data as layer, idx (layer.id ?? idx)}
+              {#each (selectedTemplate.design_data || []).filter((l) => !l.isQr) as layer, idx (layer.id ?? idx)}
                 {@const layerZIndex = selectedTemplate.design_data.length - idx}
-                {@const isPhotoSlot = !layer.isBackground && !layer.isQr}
+                {@const isPhotoSlot = !layer.isBackground}
                 {@const slotIdx = isPhotoSlot ? photoSlots.findIndex((s) => s.id === layer.id || s === layer) : -1}
                 {@const targetIdx = slotIdx >= 0 ? slotIdx : 0}
                 <div
@@ -404,10 +404,6 @@
                         class="w-full h-full object-fill pointer-events-none block"
                       />
                     {/if}
-                  {:else if layer.isQr}
-                    <div class="w-full h-full bg-white flex items-center justify-center text-[#111] text-[9px] font-bold border border-gray-300 p-0.5">
-                      QR Code
-                    </div>
                   {:else}
                     {@const capturedPhoto = boothFlow.photosTaken[targetIdx]}
                     <div class="w-full h-full bg-black/40 relative overflow-hidden">

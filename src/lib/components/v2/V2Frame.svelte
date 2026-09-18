@@ -223,7 +223,7 @@
             style="aspect-ratio: {tWidth} / {tHeight};"
           >
             {#if 'design_data' in selectedTemplateObj && selectedTemplateObj.design_data && selectedTemplateObj.design_data.length > 0}
-              {#each selectedTemplateObj.design_data as layer, idx (layer.id ?? idx)}
+              {#each selectedTemplateObj.design_data.filter((l: any) => !l.isQr) as layer, idx (layer.id ?? idx)}
                 {@const layerZIndex = selectedTemplateObj.design_data.length - idx}
                 <div
                   class="absolute overflow-hidden"
@@ -373,7 +373,7 @@
                   {#if 'preview_image_url' in f && f.preview_image_url}
                     <img src={f.preview_image_url} alt={f.name} class="w-full h-full object-contain block" />
                   {:else if 'design_data' in f && f.design_data}
-                    {@const photoSlots = f.design_data.filter((l: any) => !l.isBackground)}
+                    {@const photoSlots = f.design_data.filter((l: any) => !l.isBackground && !l.isQr)}
                     <div class="w-full h-full grid grid-cols-2 gap-1 p-0.5">
                       {#each photoSlots as _, i}
                         <div class={`rounded border ${active ? 'bg-black border-gray-600' : 'bg-gray-200 border-gray-300'}`}></div>

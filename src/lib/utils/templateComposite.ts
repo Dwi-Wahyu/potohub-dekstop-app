@@ -83,16 +83,6 @@ export function getTemplateLayers<T extends TemplateDesignLayer = TemplateDesign
     rawLayers.unshift(bgLayer);
   }
 
-  const hasExplicitLayer = rawLayers.some(
-    (l) => typeof l.layer === 'number' && !isNaN(l.layer)
-  );
-
-  if (!hasExplicitLayer) {
-    const bgLayers = rawLayers.filter((l) => l.isBackground);
-    const nonBgLayers = rawLayers.filter((l) => !l.isBackground);
-    return [...bgLayers, ...nonBgLayers];
-  }
-
   return rawLayers;
 }
 
@@ -274,7 +264,18 @@ export async function compositeTemplateImage(
       // Draw QR Code slot
       if (qrCodeText) {
         try {
-          const qrDataUrl = await QRCode.toDataURL(qrCodeText, { margin: 1, width: Math.round(layerW) });
+          const qrSize = Math.max(1, Math.round(Math.max(layerW, layerH)));
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(drawX, drawY, layerW, layerH);
+
+          const qrDataUrl = await QRCode.toDataURL(qrCodeText, {
+            margin: 0,
+            width: qrSize,
+            color: {
+              dark: '#000000',
+              light: '#ffffff',
+            },
+          });
           const qrImg = await loadImage(qrDataUrl);
           if (qrImg) {
             ctx.drawImage(qrImg, drawX, drawY, layerW, layerH);

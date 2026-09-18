@@ -207,7 +207,7 @@
         {#each visibleFrames as f, i}
           {@const isSel = selectedFrame === f.id}
           {@const bandColor = 'color' in f ? f.color : `hsl(${(i * 37) % 360}, 70%, 60%)`}
-          {@const photoSlots = 'design_data' in f && f.design_data ? f.design_data.filter((l: any) => !l.isBackground) : []}
+          {@const photoSlots = 'design_data' in f && f.design_data ? f.design_data.filter((l: any) => !l.isBackground && !l.isQr) : []}
           {@const photoCount = photoSlots.length || ('cols' in f ? (f as any).cols * (f as any).rows : 3)}
           <!-- svelte-ignore a11y_click_events_have_key_events -->
           <!-- svelte-ignore a11y_no_static_element_interactions -->

@@ -25,12 +25,13 @@
   let loadingCatalog = $state(true);
   let catalogError = $state('');
 
-  function getGridSize(designData: Array<{ x: number; y: number; w: number; h: number }> | null | undefined) {
-    if (!designData || designData.length === 0) return { cols: 2, rows: 2, count: 0 };
+  function getGridSize(designData: Array<{ x: number; y: number; w: number; h: number; isBackground?: boolean; isQr?: boolean }> | null | undefined) {
+    const photoSlots = (designData || []).filter((l) => !l.isBackground && !l.isQr);
+    if (photoSlots.length === 0) return { cols: 2, rows: 2, count: 0 };
     
     const xs = new Set<number>();
     const ys = new Set<number>();
-    designData.forEach(d => {
+    photoSlots.forEach(d => {
       xs.add(Math.round(d.x));
       ys.add(Math.round(d.y));
     });
@@ -41,8 +42,8 @@
     if (cols === 0) cols = 1;
     if (rows === 0) rows = 1;
     
-    if (cols * rows !== designData.length) {
-      const len = designData.length;
+    if (cols * rows !== photoSlots.length) {
+      const len = photoSlots.length;
       if (len === 1) { cols = 1; rows = 1; }
       else if (len === 2) { cols = 1; rows = 2; }
       else if (len === 3) { cols = 1; rows = 3; }
@@ -52,7 +53,7 @@
       else { cols = Math.ceil(Math.sqrt(len)); rows = Math.ceil(len / cols); }
     }
     
-    return { cols, rows, count: designData.length };
+    return { cols, rows, count: photoSlots.length };
   }
 
   function getTemplateAccent(templateName: string, index: number): string {
@@ -292,7 +293,7 @@
                 {@const sel = f.id === frameId}
                 {@const bgLayer = f.design_data?.find((l) => l.isBackground)}
                 {@const bgUrl = bgLayer?.imageUrl || f.frame_image_url}
-                {@const photoSlots = f.design_data?.filter((l) => !l.isBackground) ?? []}
+                {@const photoSlots = f.design_data?.filter((l) => !l.isBackground && !l.isQr) ?? []}
                 {@const count = photoSlots.length || 1}
                 <button
                   onclick={() => (frameId = f.id)}
@@ -311,7 +312,7 @@
                     {#if f.preview_image_url}
                       <img src={f.preview_image_url} alt={f.name} class="w-full h-full object-contain block rounded-lg" />
                     {:else if f.design_data && f.design_data.length > 0}
-                      {#each f.design_data as layer, idx (layer.id ?? idx)}
+                      {#each f.design_data.filter((l) => !l.isQr) as layer, idx (layer.id ?? idx)}
                         {@const layerZIndex = f.design_data.length - idx}
                         <div
                           class="absolute overflow-hidden"
@@ -374,7 +375,7 @@
                 style="aspect-ratio: {tWidth} / {tHeight};"
               >
                 {#if selectedFrame.design_data && selectedFrame.design_data.length > 0}
-                  {#each selectedFrame.design_data as layer, idx (layer.id ?? idx)}
+                  {#each selectedFrame.design_data.filter((l) => !l.isQr) as layer, idx (layer.id ?? idx)}
                     {@const layerZIndex = selectedFrame.design_data.length - idx}
                     <div
                       class="absolute overflow-hidden"

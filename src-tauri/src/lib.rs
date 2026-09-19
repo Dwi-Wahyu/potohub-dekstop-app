@@ -419,6 +419,21 @@ pub fn run() {
             );",
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 8,
+            description: "create user_session table for operator user token",
+            sql: "CREATE TABLE IF NOT EXISTS user_session (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                user_id TEXT NOT NULL,
+                name TEXT NOT NULL,
+                email TEXT NOT NULL,
+                role TEXT NOT NULL,
+                token TEXT NOT NULL,
+                expires_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL
+            );",
+            kind: MigrationKind::Up,
+        },
     ];
 
     tauri::Builder::default()
@@ -427,6 +442,7 @@ pub fn run() {
                 .level(tauri_plugin_log::log::LevelFilter::Debug)
                 .build(),
         )
+        .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_sql::Builder::new().build())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_shell::init())

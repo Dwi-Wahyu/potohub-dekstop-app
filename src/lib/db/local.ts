@@ -72,6 +72,75 @@ export async function clearActivation(): Promise<void> {
 }
 
 // ============================================================================
+// USER SESSION (SQLite `user_session`) — Operator/User login token
+// ============================================================================
+
+export interface UserSession {
+  userId: string;
+  name: string;
+  email: string;
+  role: string;
+  token: string;
+  expiresAt: number;
+  updatedAt: number;
+}
+
+export async function getUserSession(): Promise<UserSession | null> {
+  try {
+    const conn = await db();
+    const rows = await conn.select<any[]>(
+      "SELECT * FROM user_session WHERE id = 1",
+    );
+    if (!rows.length) return null;
+    const r = rows[0];
+    return {
+      userId: r.user_id,
+      name: r.name,
+      email: r.email,
+      role: r.role,
+      token: r.token,
+      expiresAt: Number(r.expires_at),
+      updatedAt: Number(r.updated_at),
+    };
+  } catch (e) {
+    console.warn("Failed to query SQLite user_session:", e);
+    return null;
+  }
+}
+
+export async function saveUserSession(data: UserSession): Promise<void> {
+  try {
+    const conn = await db();
+    await conn.execute(
+      `INSERT INTO user_session (id, user_id, name, email, role, token, expires_at, updated_at)
+       VALUES (1, $1, $2, $3, $4, $5, $6, $7)
+       ON CONFLICT (id) DO UPDATE SET
+         user_id = $1, name = $2, email = $3, role = $4, token = $5, expires_at = $6, updated_at = $7`,
+      [
+        data.userId,
+        data.name,
+        data.email,
+        data.role,
+        data.token,
+        data.expiresAt,
+        data.updatedAt,
+      ],
+    );
+  } catch (e) {
+    console.error("Failed to save user session:", e);
+  }
+}
+
+export async function clearUserSession(): Promise<void> {
+  try {
+    const conn = await db();
+    await conn.execute("DELETE FROM user_session WHERE id = 1");
+  } catch (e) {
+    console.warn("Failed to clear user_session:", e);
+  }
+}
+
+// ============================================================================
 // API CACHE (SQLite `api_cache`) — snapshot JSON besar (templates/categories)
 // ============================================================================
 

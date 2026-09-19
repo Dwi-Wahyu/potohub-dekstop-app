@@ -1,3 +1,4 @@
+import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 import {
   uiConfig,
   DEFAULT_UI_CONFIG,
@@ -8,11 +9,15 @@ import { boothConfig } from "$lib/stores/boothConfig.svelte";
 import {
   getActivation,
   saveActivation,
+  getUserSession,
+  saveUserSession,
+  clearUserSession,
   replaceQrTicketCache,
   findCachedTicket,
   markCachedTicketUsedOffline,
   enqueueOutboxJob,
   type CachedQrTicket,
+  type UserSession,
 } from "$lib/db/local";
 import { cachedFetch, writeApiCache } from "$lib/utils/offlineCache";
 import { prefetchBoothAssets } from "./prefetch";
@@ -187,10 +192,18 @@ export async function requireActiveBoothId(): Promise<string> {
 
 export async function getAuthHeaders(
   contentType?: string,
+  preferUserToken?: boolean
 ): Promise<Record<string, string>> {
   const headers: Record<string, string> = {};
   if (contentType) {
     headers["Content-Type"] = contentType;
+  }
+  if (preferUserToken) {
+    const session = await getUserSession();
+    if (session?.token) {
+      headers["Authorization"] = `Bearer ${session.token}`;
+      return headers;
+    }
   }
   const activation = await getActivation();
   if (activation?.token) {
@@ -201,7 +214,6 @@ export async function getAuthHeaders(
 
 export interface LoginResponseData {
   token: string;
-  refresh_token: string;
   user: {
     id: string;
     organization_id: string | null;
@@ -211,11 +223,49 @@ export interface LoginResponseData {
   };
 }
 
+let refreshPromise: Promise<string | null> | null = null;
+
+export async function refreshUserToken(): Promise<string | null> {
+  if (refreshPromise) return refreshPromise;
+
+  refreshPromise = (async () => {
+    try {
+      const res = await tauriFetch(`${API_BASE}/auth/refresh`, {
+        method: "POST",
+        headers: { Accept: "application/json" },
+      });
+      if (!res.ok) {
+        await clearUserSession();
+        return null;
+      }
+      const json = await res.json();
+      const newToken = json.token;
+      const session = await getUserSession();
+      if (session && newToken) {
+        await saveUserSession({
+          ...session,
+          token: newToken,
+          expiresAt: Date.now() + 15 * 60 * 1000,
+          updatedAt: Date.now(),
+        });
+      }
+      return newToken as string;
+    } catch (e) {
+      await clearUserSession();
+      return null;
+    } finally {
+      refreshPromise = null;
+    }
+  })();
+
+  return refreshPromise;
+}
+
 export async function loginUser(
   email: string,
   password: string,
 ): Promise<LoginResponseData> {
-  const res = await fetch(`${API_BASE}/auth/login`, {
+  const res = await tauriFetch(`${API_BASE}/auth/login`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ email, password }),
@@ -230,7 +280,21 @@ export async function loginUser(
     throw new Error(msg);
   }
   const json = await res.json();
-  return json.data ?? json;
+  const data: LoginResponseData = json.data ?? json;
+
+  if (data.token && data.user) {
+    await saveUserSession({
+      userId: data.user.id,
+      name: data.user.name,
+      email: data.user.email,
+      role: data.user.role,
+      token: data.token,
+      expiresAt: Date.now() + 15 * 60 * 1000,
+      updatedAt: Date.now(),
+    });
+  }
+
+  return data;
 }
 
 export async function isTokenValid(token: string | null | undefined): Promise<boolean> {

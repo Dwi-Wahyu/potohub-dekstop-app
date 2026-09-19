@@ -86,12 +86,6 @@
       const data = await loginUser(email.trim(), password);
       const activation = await getActivation();
       if (activation && activation.boothId) {
-        if (data.token) {
-          await saveActivation({
-            ...activation,
-            token: data.token
-          });
-        }
         if (loginPurpose === 'settings') {
           await goto('/settings');
         } else {

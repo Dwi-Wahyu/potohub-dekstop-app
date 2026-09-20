@@ -103,9 +103,44 @@ export async function loginUser(email: string, password: string): Promise<LoginR
 
 ## 3. Hasil Verifikasi & Build
 
-1. **Rust Cargo Check (`cargo check --manifest-path src-tauri/Cargo.toml`)**:
-   - Sukses dikompilasi dalam 57.31s tanpa error (Exit Code 0).
+1. **Rust Cargo Check & Build (`cargo build --manifest-path src-tauri/Cargo.toml`)**:
+   - Sukses dikompilasi tanpa error (Exit Code 0).
 2. **Svelte Check (`pnpm check`)**:
    - Diagnostic: **0 errors, 0 warnings**.
 3. **Build Produksi Vite/Static Adapter (`pnpm build`)**:
    - Aset statis dan SSR bundle sukses di-render ke `build/` (Exit Code 0).
+
+---
+
+## 4. Resolusi Masalah Lingkup URL Plugin HTTP (`http:allow-fetch`)
+
+### Penyebab Error Scope:
+Saat menjalankan aplikasi dalam mode development (`pnpm tauri dev`) atau mencoba login ke endpoint lokal (`http://localhost:8080` atau `http://localhost:3000`), muncul error:
+```text
+[Error] url not allowed on the configured scope: http://localhost:8080/api/auth/login
+```
+Hal ini dikarenakan Tauri v2 menggunakan spesifikasi standard WHATWG `URLPattern`. Pada pola `http://*`, port default diasumsikan `80` (dan `443` untuk `https://*`). Port non-standar seperti `:8080`, `:3000`, `:3219` tidak tercakup secara otomatis tanpa penanda wildcard port (`:*`).
+
+### Perbaikan Konfigurasi (`src-tauri/capabilities/default.json`):
+```json
+{
+  "identifier": "http:allow-fetch",
+  "allow": [
+    { "url": "http://*" },
+    { "url": "https://*" },
+    { "url": "http://*:*" },
+    { "url": "https://*:*" },
+    { "url": "http://localhost:*" },
+    { "url": "http://localhost:*/*" },
+    { "url": "http://localhost:8080/*" },
+    { "url": "http://localhost:3000/*" },
+    { "url": "http://localhost:3219/*" },
+    { "url": "http://127.0.0.1:*" },
+    { "url": "http://127.0.0.1:*/*" },
+    { "url": "http://127.0.0.1:8080/*" },
+    { "url": "http://127.0.0.1:3000/*" },
+    { "url": "http://127.0.0.1:3219/*" }
+  ]
+}
+```
+Dengan konfigurasi di atas, seluruh request HTTP via native Rust client diizinkan baik di lingkungan development lokal maupun domain produksi.

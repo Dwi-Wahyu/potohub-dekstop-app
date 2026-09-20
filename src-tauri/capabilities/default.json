@@ -20,8 +20,20 @@
     {
       "identifier": "http:allow-fetch",
       "allow": [
-        { "url": "http://*/**" },
-        { "url": "https://*/**" }
+        { "url": "http://*" },
+        { "url": "https://*" },
+        { "url": "http://*:*" },
+        { "url": "https://*:*" },
+        { "url": "http://localhost:*" },
+        { "url": "http://localhost:*/*" },
+        { "url": "http://localhost:8080/*" },
+        { "url": "http://localhost:3000/*" },
+        { "url": "http://localhost:3219/*" },
+        { "url": "http://127.0.0.1:*" },
+        { "url": "http://127.0.0.1:*/*" },
+        { "url": "http://127.0.0.1:8080/*" },
+        { "url": "http://127.0.0.1:3000/*" },
+        { "url": "http://127.0.0.1:3219/*" }
       ]
     }
   ]

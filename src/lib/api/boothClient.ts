@@ -17,6 +17,7 @@ import {
   findCachedTicket,
   markCachedTicketUsedOffline,
   enqueueOutboxJob,
+  getOrCreateDeviceId,
   type CachedQrTicket,
   type UserSession,
 } from "$lib/db/local";
@@ -340,12 +341,25 @@ export async function isTokenValid(token: string | null | undefined): Promise<bo
 }
 
 export async function activateBooth(activationCode: string) {
+  const identity = await getOrCreateDeviceId();
   const res = await fetch(`${API_BASE}/booths/activate`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ activation_code: activationCode }),
+    body: JSON.stringify({
+      activation_code: activationCode,
+      device_id: identity.deviceId,
+      device_name: identity.deviceName,
+    }),
   });
   if (!res.ok) {
+    if (res.status === 409) {
+      const errJson = await res.json().catch(() => ({}));
+      throw new Error(
+        errJson.message ||
+          errJson.error ||
+          "Booth ini sudah diaktivasi pada perangkat lain. Silakan hubungi admin untuk mereset aktivasi."
+      );
+    }
     const msg =
       res.status === 404
         ? "Kode aktivasi tidak valid."
@@ -363,6 +377,7 @@ export async function activateBooth(activationCode: string) {
     templateVariant: data.ui_template_variant ?? "v1",
     activatedAt: new Date().toISOString(),
     token: data.token ?? null,
+    deviceId: identity.deviceId,
   });
 
   uiConfig.save({ templateVariant: data.ui_template_variant ?? "v1" });

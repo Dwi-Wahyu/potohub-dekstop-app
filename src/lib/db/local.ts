@@ -8,6 +8,13 @@ export interface BoothActivation {
   templateVariant: "v1" | "v2" | "v3" | "custom";
   activatedAt: string;
   token?: string | null;
+  deviceId?: string | null;
+}
+
+export interface DeviceIdentity {
+  deviceId: string;
+  deviceName: string;
+  createdAt: number;
 }
 
 let dbPromise: ReturnType<typeof Database.load> | null = null;
@@ -438,4 +445,42 @@ export async function countPendingOutboxJobs(): Promise<number> {
     [MAX_OUTBOX_ATTEMPTS],
   );
   return Number(rows[0]?.c ?? 0);
+}
+
+// ============================================================================
+// DEVICE IDENTITY (SQLite `device_identity`)
+// ============================================================================
+
+export async function getOrCreateDeviceId(): Promise<DeviceIdentity> {
+  try {
+    const conn = await db();
+    const rows = await conn.select<any[]>("SELECT * FROM device_identity WHERE id = 1");
+    if (rows.length > 0 && rows[0].device_id) {
+      return {
+        deviceId: rows[0].device_id,
+        deviceName: rows[0].device_name ?? "Photobooth-Kiosk",
+        createdAt: Number(rows[0].created_at ?? Date.now()),
+      };
+    }
+  } catch (e) {
+    console.warn("Table device_identity query warning:", e);
+  }
+
+  const newDeviceId = typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `device-${Date.now()}`;
+  const deviceName = "Photobooth-Kiosk";
+  const now = Date.now();
+
+  try {
+    const conn = await db();
+    await conn.execute(
+      `INSERT INTO device_identity (id, device_id, device_name, created_at)
+       VALUES (1, $1, $2, $3)
+       ON CONFLICT (id) DO UPDATE SET device_id = $1`,
+      [newDeviceId, deviceName, now],
+    );
+  } catch (e) {
+    console.error("Failed to save device_identity:", e);
+  }
+
+  return { deviceId: newDeviceId, deviceName, createdAt: now };
 }

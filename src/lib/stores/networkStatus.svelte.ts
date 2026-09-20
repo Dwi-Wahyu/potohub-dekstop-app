@@ -1,4 +1,7 @@
 import { flushOutbox } from '$lib/utils/offlineOutbox';
+import { getActivation, getOrCreateDeviceId, countPendingOutboxJobs } from '$lib/db/local';
+import { printerStore } from '$lib/printer.svelte';
+import { cameraStore } from '$lib/camera.svelte';
 
 const envs = import.meta.env as Record<string, string>;
 const rawBase =
@@ -7,18 +10,21 @@ const API_BASE = rawBase.replace(/\/+$/, '');
 const HEALTH_URL = `${API_BASE}/health`;
 
 const PING_TIMEOUT_MS = 3500;
-const HEARTBEAT_OFFLINE_MS = 5000;  // saat offline, cek tiap 5 detik
-const HEARTBEAT_ONLINE_MS = 30000;  // saat online, cek tiap 30 detik
+const HEARTBEAT_ONLINE_BASE_MS = 60000; // 60 detik saat online
+const HEARTBEAT_JITTER_RANGE_MS = 10000; // ±10 detik jitter
+const HEARTBEAT_OFFLINE_MS = 5000;     // 5 detik saat offline
 const OS_OFFLINE_DEBOUNCE_MS = 3000;
 
 class NetworkStatusStore {
   isOnline = $state(true); // Default optimis untuk mencegah freeze UI pada awal start
   isVerifying = $state(false);
   lastCheckedAt = $state<number | null>(null);
+  offlineSince = $state<number | null>(null);
 
   private listenersBound = false;
   private heartbeatTimer: any = null;
   private offlineDebounceTimer: any = null;
+  private consecutiveFailures = 0;
 
   init() {
     if (typeof window === 'undefined' || this.listenersBound) return;
@@ -28,15 +34,15 @@ class NetworkStatusStore {
     window.addEventListener('online', () => this.handleOsOnline());
     window.addEventListener('offline', () => this.handleOsOffline());
 
-    // 2) Jalankan verifikasi awal saat startup tanpa memblokir
+    // 2) Jalankan verifikasi & heartbeat awal saat startup
     void this.verifyAndMaybeFlush();
 
     // 3) Mulai heartbeat loop adaptif
-    this.startHeartbeat();
+    this.startHeartbeatLoop();
   }
 
   private handleOsOnline() {
-    console.log('[NetworkStatus] OS memicu event online. Memverifikasi server...');
+    console.log('[NetworkStatus] OS memicu event online. Memverifikasi & mengirim heartbeat...');
     if (this.offlineDebounceTimer) {
       clearTimeout(this.offlineDebounceTimer);
       this.offlineDebounceTimer = null;
@@ -46,14 +52,12 @@ class NetworkStatusStore {
 
   private handleOsOffline() {
     console.log('[NetworkStatus] OS memicu event offline. Menunggu verifikasi...');
-    // JANGAN LANGSUNG SET FALSE! Beri jeda 3 detik lalu verifikasi via ping
     if (this.offlineDebounceTimer) clearTimeout(this.offlineDebounceTimer);
     this.offlineDebounceTimer = setTimeout(async () => {
       const actuallyOnline = await this.pingServer();
       if (!actuallyOnline) {
         console.warn('[NetworkStatus] Terkonfirmasi offline setelah verifikasi.');
-        this.isOnline = false;
-        this.resetHeartbeat();
+        this.markOffline();
       } else {
         console.log('[NetworkStatus] Event offline diabaikan: Server tetap dapat dijangkau.');
       }
@@ -61,89 +65,151 @@ class NetworkStatusStore {
   }
 
   /**
-   * Ping ringan ke server backend dengan 2x percobaan cepat.
-   * Tidak bergantung pada navigator.onLine yang sering keliru di WebView.
+   * Mengirim heartbeat terautentikasi ke endpoint /api/booths/{boothId}/heartbeat
+   * menyertakan telemetry hardware (kamera, printer, outbox queue).
    */
-  async pingServer(): Promise<boolean> {
-    const attempt = async (): Promise<boolean> => {
-      try {
-        const ctrl = new AbortController();
-        const t = setTimeout(() => ctrl.abort(), PING_TIMEOUT_MS);
-        // Tambahkan query parameter timestamp untuk mencegah cache WebView
-        const res = await fetch(`${HEALTH_URL}?_t=${Date.now()}`, {
-          method: 'GET',
-          signal: ctrl.signal,
-          cache: 'no-store',
-        });
-        clearTimeout(t);
-        return res.ok;
-      } catch {
-        return false;
-      }
+  async sendHeartbeat(mode: 'normal' | 'local_mode_recovery' = 'normal'): Promise<boolean> {
+    const activation = await getActivation().catch(() => null);
+    if (!activation || !activation.boothId) {
+      // Fallback ke ping anonim jika booth belum diaktivasi
+      return this.pingServer();
+    }
+
+    const identity = await getOrCreateDeviceId().catch(() => ({
+      deviceId: 'unknown-device',
+      deviceName: 'Kiosk-Client',
+      createdAt: Date.now(),
+    }));
+
+    const pendingOutbox = await countPendingOutboxJobs().catch(() => 0);
+
+    const offlineDuration = this.offlineSince
+      ? Math.floor((Date.now() - this.offlineSince) / 1000)
+      : null;
+
+    const cameraStatus = cameraStore.status === 'connected' ? 'CONNECTED' : 'DISCONNECTED';
+    const printerStatus = printerStore.status?.has_error
+      ? 'ERROR'
+      : printerStore.status?.is_online
+        ? 'READY'
+        : 'OFFLINE';
+
+    const payload = {
+      device_id: identity.deviceId,
+      app_version: '0.1.0',
+      mode: mode,
+      camera_status: cameraStatus,
+      printer_status: printerStatus,
+      remaining_paper: printerStore.status?.paper_remaining ?? null,
+      pending_outbox_count: pendingOutbox,
+      offline_duration_seconds: offlineDuration,
     };
 
-    // Percobaan 1
-    const okFirst = await attempt();
-    if (okFirst) return true;
-
-    // Percobaan 2 (retry cepat jeda 300ms jika percobaan 1 gagal/jitter)
-    await new Promise((r) => setTimeout(r, 300));
-    return await attempt();
+    try {
+      const ctrl = new AbortController();
+      const t = setTimeout(() => ctrl.abort(), PING_TIMEOUT_MS);
+      const res = await fetch(`${API_BASE}/booths/${activation.boothId}/heartbeat`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(activation.token ? { Authorization: `Bearer ${activation.token}` } : {}),
+        },
+        body: JSON.stringify(payload),
+        signal: ctrl.signal,
+      });
+      clearTimeout(t);
+      return res.ok;
+    } catch {
+      return false;
+    }
   }
 
   /**
-   * Verifikasi status jaringan dan kuras antrean outbox jika online.
+   * Ping ringan anonim ke /health (dipakai saat booth belum teraktivasi)
+   */
+  async pingServer(): Promise<boolean> {
+    try {
+      const ctrl = new AbortController();
+      const t = setTimeout(() => ctrl.abort(), PING_TIMEOUT_MS);
+      const res = await fetch(`${HEALTH_URL}?_t=${Date.now()}`, {
+        method: 'GET',
+        signal: ctrl.signal,
+        cache: 'no-store',
+      });
+      clearTimeout(t);
+      return res.ok;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Verifikasi status jaringan, kirim konfirmasi recovery jika sebelumnya offline, dan kuras outbox.
    */
   async verifyAndMaybeFlush() {
     if (this.isVerifying) return;
     this.isVerifying = true;
     try {
-      const wasOffline = !this.isOnline;
-      const ok = await this.pingServer();
+      const wasOffline = !this.isOnline || this.offlineSince !== null;
+      const mode = wasOffline ? 'local_mode_recovery' : 'normal';
+      const ok = await this.sendHeartbeat(mode);
       this.lastCheckedAt = Date.now();
-      this.isOnline = ok;
 
       if (ok) {
+        this.consecutiveFailures = 0;
         if (wasOffline) {
-          console.log('[NetworkStatus] Koneksi pulih! Memproses antrean offline...');
+          console.log('[NetworkStatus] Koneksi pulih! Mengonfirmasi recovery ke server & menguras outbox...');
         }
-        // Kosongkan antrean SQLite setelah koneksi terkonfirmasi
+        this.isOnline = true;
+        this.offlineSince = null;
         await flushOutbox();
+      } else {
+        this.consecutiveFailures++;
+        if (this.consecutiveFailures >= 2) {
+          this.markOffline();
+        }
       }
     } finally {
       this.isVerifying = false;
-      this.resetHeartbeat();
+      this.resetHeartbeatLoop();
     }
   }
 
-  /**
-   * Dipanggil oleh outbox worker HANYA saat terjadi kegagalan jaringan transport murni.
-   */
   markOfflineDueToFailure() {
-    if (this.isOnline) {
-      console.warn('[NetworkStatus] Koneksi terputus saat transfer data. Menandai offline.');
+    this.markOffline();
+  }
+
+  private markOffline() {
+    if (this.isOnline || this.offlineSince === null) {
+      console.warn('[NetworkStatus] Terkonfirmasi offline. Menandai offline mode lokal.');
       this.isOnline = false;
-      this.resetHeartbeat();
+      if (!this.offlineSince) this.offlineSince = Date.now();
+      this.resetHeartbeatLoop();
     }
   }
 
-  private startHeartbeat() {
-    this.stopHeartbeat();
-    const intervalMs = this.isOnline ? HEARTBEAT_ONLINE_MS : HEARTBEAT_OFFLINE_MS;
-    this.heartbeatTimer = setInterval(() => {
+  private startHeartbeatLoop() {
+    this.stopHeartbeatLoop();
+    // Beri jitter acak (±10s) saat online agar kiosk tidak mengirim heartbeat serentak
+    const jitter = (Math.random() * 2 - 1) * HEARTBEAT_JITTER_RANGE_MS;
+    const intervalMs = this.isOnline
+      ? Math.max(15000, HEARTBEAT_ONLINE_BASE_MS + jitter)
+      : HEARTBEAT_OFFLINE_MS;
+
+    this.heartbeatTimer = setTimeout(() => {
       void this.verifyAndMaybeFlush();
     }, intervalMs);
   }
 
-  private stopHeartbeat() {
+  private stopHeartbeatLoop() {
     if (this.heartbeatTimer) {
-      clearInterval(this.heartbeatTimer);
+      clearTimeout(this.heartbeatTimer);
       this.heartbeatTimer = null;
     }
   }
 
-  private resetHeartbeat() {
-    this.startHeartbeat();
+  private resetHeartbeatLoop() {
+    this.startHeartbeatLoop();
   }
 }
 

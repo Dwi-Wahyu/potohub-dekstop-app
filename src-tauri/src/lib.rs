@@ -434,6 +434,18 @@ pub fn run() {
             );",
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 9,
+            description: "create device_identity table and add device_id to booth_activation",
+            sql: "CREATE TABLE IF NOT EXISTS device_identity (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                device_id TEXT NOT NULL,
+                device_name TEXT,
+                created_at INTEGER NOT NULL
+            );
+            ALTER TABLE booth_activation ADD COLUMN device_id TEXT;",
+            kind: MigrationKind::Up,
+        },
     ];
 
     tauri::Builder::default()

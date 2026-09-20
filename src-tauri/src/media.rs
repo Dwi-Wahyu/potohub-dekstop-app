@@ -131,6 +131,7 @@ pub async fn compose_template_video(
     canvas_width: u32,
     canvas_height: u32,
     background_jpeg: Option<Vec<u8>>,
+    mirror_horizontal: Option<bool>,
 ) -> Result<Vec<u8>, String> {
     if clips.is_empty() {
         return Err("Tidak ada klip untuk digabung".to_string());
@@ -138,6 +139,9 @@ pub async fn compose_template_video(
     if clips.len() != slot_rects.len() {
         return Err("Jumlah klip tidak sesuai jumlah slot template".to_string());
     }
+
+    let should_mirror = mirror_horizontal.unwrap_or(false);
+    let flip_suffix = if should_mirror { ",hflip" } else { "" };
 
     let tmp_dir = std::env::temp_dir().join(format!("compose_{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&tmp_dir).map_err(|e| e.to_string())?;
@@ -187,12 +191,13 @@ pub async fn compose_template_video(
         let sy = *y as i32;
 
         filter.push_str(&format!(
-            "[{}:v]scale={}:{}:force_original_aspect_ratio=increase,crop={}:{},setsar=1,setpts=PTS-STARTPTS[{}];",
+            "[{}:v]scale={}:{}:force_original_aspect_ratio=increase,crop={}:{},setsar=1,setpts=PTS-STARTPTS{}[{}];",
             input_idx,
             sw,
             sh,
             sw,
             sh,
+            flip_suffix,
             scaled_label
         ));
         let next_label = format!("tmp{}", i);

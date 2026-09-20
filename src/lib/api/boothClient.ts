@@ -1,4 +1,5 @@
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
+import { info as logInfo, error as logError, warn as logWarn } from "@tauri-apps/plugin-log";
 import {
   uiConfig,
   DEFAULT_UI_CONFIG,
@@ -682,7 +683,7 @@ export async function requestUploadUrl(
   contentType: string,
 ): Promise<RequestUploadUrlResponse> {
   const pascalType = toPascalCaseMediaType(fileType);
-  const res = await fetch(`${API_BASE}/booths/${boothId}/gallery/upload-url`, {
+  const res = await tauriFetch(`${API_BASE}/booths/${boothId}/gallery/upload-url`, {
     method: "POST",
     headers: await getAuthHeaders("application/json"),
     body: JSON.stringify({
@@ -694,18 +695,16 @@ export async function requestUploadUrl(
     }),
   });
   if (!res.ok) {
-    console.log("Error status : " + res.statusText);
-
     const errText = await res.text().catch(() => "");
+    await logError(
+      `[requestUploadUrl] Gagal status=${res.status} ${res.statusText}: ${errText}`
+    ).catch(() => {});
     throw new Error(
       `Gagal request presigned upload URL: ${errText || res.statusText}`,
     );
   }
 
   const json = await res.json();
-
-  console.log(json);
-
   const data = json.data ?? json;
   return {
     upload_url: data.upload_url,
@@ -733,9 +732,9 @@ export async function uploadGalleryAsset(
     typeof blobOrDataUrl === "string"
       ? await (await fetch(blobOrDataUrl)).blob()
       : blobOrDataUrl;
-  console.log(
-    `[uploadGalleryAsset] ${fileType} size=${blob.size} bytes, session=${sessionId}`,
-  );
+  await logInfo(
+    `[uploadGalleryAsset] ${fileType} size=${blob.size} bytes, session=${sessionId}`
+  ).catch(() => {});
 
   const { upload_url, file_url } = await requestUploadUrl(
     boothId,
@@ -744,9 +743,9 @@ export async function uploadGalleryAsset(
     fileExtension,
     contentType,
   );
-  console.log(
-    `[uploadGalleryAsset] presigned URL diterima untuk ${fileType}: ${file_url}`,
-  );
+  await logInfo(
+    `[uploadGalleryAsset] presigned URL diterima untuk ${fileType}: ${file_url}`
+  ).catch(() => {});
 
   const putRes = await fetch(upload_url, {
     method: "PUT",
@@ -755,15 +754,14 @@ export async function uploadGalleryAsset(
   });
   if (!putRes.ok) {
     const errBody = await putRes.text().catch(() => "");
-    console.error(
-      `[uploadGalleryAsset] PUT ke R2 gagal (status ${putRes.status}) untuk ${fileType}:`,
-      errBody,
-    );
+    await logError(
+      `[uploadGalleryAsset] PUT ke R2 gagal (status ${putRes.status}) untuk ${fileType}: ${errBody}`
+    ).catch(() => {});
     throw new Error(
       `Gagal PUT ${fileType} ke R2 (status ${putRes.status}): ${errBody}`,
     );
   }
-  console.log(`[uploadGalleryAsset] PUT ke R2 sukses untuk ${fileType}`);
+  await logInfo(`[uploadGalleryAsset] PUT ke R2 sukses untuk ${fileType}`).catch(() => {});
 
   return uploadSessionMedia(
     boothId,
@@ -786,7 +784,7 @@ export async function uploadSessionMedia(
   fileSize: number = 0,
 ) {
   const pascalType = toPascalCaseMediaType(fileType);
-  const res = await fetch(`${API_BASE}/booths/${boothId}/gallery/upload`, {
+  const res = await tauriFetch(`${API_BASE}/booths/${boothId}/gallery/upload`, {
     method: "POST",
     headers: await getAuthHeaders("application/json"),
     body: JSON.stringify({
@@ -801,18 +799,22 @@ export async function uploadSessionMedia(
   });
   const bodyText = await res.text();
   if (!res.ok) {
-    console.error(
-      `[uploadSessionMedia] Gagal daftar metadata (status ${res.status}) untuk session=${sessionId} type=${fileType}:`,
-      bodyText,
-    );
+    await logError(
+      `[uploadSessionMedia] Gagal daftar metadata (status ${res.status}) session=${sessionId} type=${fileType}: ${bodyText}`
+    ).catch(() => {});
     throw new Error(
       `Gagal register metadata media (status ${res.status}): ${bodyText}`,
     );
   }
+  await logInfo(
+    `[uploadSessionMedia] Sukses register metadata ${fileType} session=${sessionId}`
+  ).catch(() => {});
   try {
     return JSON.parse(bodyText);
   } catch {
-    console.error("[uploadSessionMedia] Response bukan JSON valid:", bodyText);
+    await logError(
+      `[uploadSessionMedia] Response bukan JSON valid: ${bodyText}`
+    ).catch(() => {});
     throw new Error("Response register metadata media tidak valid");
   }
 }

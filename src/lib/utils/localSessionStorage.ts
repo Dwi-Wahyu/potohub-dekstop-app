@@ -24,6 +24,7 @@ export async function saveLocalSessionAssets(
   gifBlob: Blob | null,
   videoClips: (Blob | string | null)[],
   compositeVideoBlob: Blob | null,
+  photos: (Blob | string)[] = [...boothFlow.photosTaken],
 ): Promise<void> {
   const date = new Date().toISOString().slice(0, 10);
   const base = `${date}/${sessionCode}_${sanitize(boothName || 'booth')}`;
@@ -35,8 +36,9 @@ export async function saveLocalSessionAssets(
   };
 
   const writes: Promise<void>[] = [];
+  const photoList = photos.length > 0 ? photos : boothFlow.photosTaken;
 
-  boothFlow.photosTaken.forEach((photoUrl, i) => {
+  photoList.forEach((photoUrl, i) => {
     writes.push(
       blobToBytes(photoUrl)
         .then(async (bytes) => {

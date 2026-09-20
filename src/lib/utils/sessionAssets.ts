@@ -1,4 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
+import { info, warn, error } from '@tauri-apps/plugin-log';
 import { boothFlow } from '$lib/stores/booth.svelte';
 import { boothConfig } from '$lib/stores/boothConfig.svelte';
 import { uiConfig } from '$lib/stores/uiConfig.svelte';
@@ -20,22 +21,24 @@ export async function saveSessionAssets(
   templateWidth: number,
   templateHeight: number,
   slotRects: SlotRect[],
-  backgroundUrl?: string | null
+  backgroundUrl?: string | null,
+  photosSnapshot: string[] = [...boothFlow.photosTaken],
+  clipsSnapshot: (string | null)[] = [...boothFlow.liveviewClips],
+  sessionCodeSnapshot: string | null = boothFlow.sessionCode
 ) {
-  console.log('[saveSessionAssets] mulai', {
-    boothId,
-    sessionId,
-    hasComposite: !!compositeUrl,
-    photosTakenCount: boothFlow.photosTaken.length,
-    liveviewClipsCount: boothFlow.liveviewClips.filter(Boolean).length,
-  });
+  // Snapshot imutabel di awal agar kebal terhadap boothFlow.reset() saat user klik selesai
+  const photos = photosSnapshot.length > 0 ? [...photosSnapshot] : [...boothFlow.photosTaken];
+  const validClips = (clipsSnapshot.length > 0 ? clipsSnapshot : boothFlow.liveviewClips).filter(
+    (c): c is string => !!c
+  );
+  const sessionCode = sessionCodeSnapshot || boothFlow.sessionCode || sessionId || `session-${Date.now()}`;
 
-  const tasks: Promise<unknown>[] = [];
+  await info(
+    `[saveSessionAssets] mulai boothId=${boothId} sessionId=${sessionId} photos=${photos.length} clips=${validClips.length} hasComposite=${!!compositeUrl}`
+  ).catch(() => {});
 
-  // Tangkapan untuk penyimpanan lokal (Part E) — diisi saat build/upload
   let gifBlob: Blob | null = null;
   let compositeVideoBlob: Blob | null = null;
-  const validClips = boothFlow.liveviewClips.filter((c): c is string => !!c);
 
   // 1. Upload Composite Strip Foto terlebih dahulu agar customer segera dapat QR/Softfile
   if (compositeUrl) {
@@ -50,19 +53,79 @@ export async function saveSessionAssets(
         templateWidth,
         templateHeight
       );
-      console.log('[saveSessionAssets] Sukses upload composite strip foto');
+      await info('[saveSessionAssets] Sukses upload composite strip foto').catch(() => {});
     } catch (e) {
-      console.error('Gagal upload composite strip:', e);
+      await error(`[saveSessionAssets] Gagal upload composite strip: ${String(e)}`).catch(() => {});
     }
   }
 
-  // 2. Video composite live view per slot
+  // 2. Upload Thumbnail & Foto Mentah Tiap Slot SEGERA (ringan, selesai 1-2s sebelum user berpindah layar)
+  if (photos.length > 0) {
+    try {
+      await uploadGalleryAsset(
+        boothId,
+        sessionId,
+        'thumbnail',
+        photos[0],
+        'jpg',
+        'image/jpeg',
+        1200,
+        1800
+      );
+      await info('[saveSessionAssets] Sukses upload thumbnail foto mentah').catch(() => {});
+    } catch (e) {
+      await error(`[saveSessionAssets] Gagal upload thumbnail foto mentah: ${String(e)}`).catch(() => {});
+    }
+
+    for (let i = 0; i < photos.length; i++) {
+      const photoUrl = photos[i];
+      try {
+        await uploadGalleryAsset(
+          boothId,
+          sessionId,
+          'photo',
+          photoUrl,
+          'jpg',
+          'image/jpeg',
+          1200,
+          1800
+        );
+        await info(`[saveSessionAssets] Sukses upload foto mentah slot ${i + 1}/${photos.length}`).catch(() => {});
+      } catch (e) {
+        await error(`[saveSessionAssets] Gagal upload foto mentah slot ${i + 1}: ${String(e)}`).catch(() => {});
+      }
+    }
+  }
+
+  // 3. GIF gabungan foto (menggunakan snapshot foto & orientasi mirrorOn yang dipilih)
+  if (boothConfig.config.enableSessionGif && photos.length > 0) {
+    try {
+      const isMirrored = boothConfig.config.mirrorOn ?? false;
+      const blob = await buildSessionGif(photos, 500, isMirrored);
+      gifBlob = blob;
+      await uploadGalleryAsset(
+        boothId,
+        sessionId,
+        'gif',
+        blob,
+        'gif',
+        'image/gif',
+        480,
+        720
+      );
+      await info('[saveSessionAssets] Sukses upload GIF sesi').catch(() => {});
+    } catch (e) {
+      await error(`[saveSessionAssets] Gagal buat/upload GIF sesi: ${String(e)}`).catch(() => {});
+    }
+  }
+
+  // 4. Video composite live view per slot (dengan orientasi mirror horizontal yang selaras)
   if (
     boothConfig.config.enableLiveviewVideo &&
-    validClips.length === boothFlow.photosTaken.length &&
+    validClips.length === photos.length &&
     validClips.length > 0
   ) {
-    console.log(`[liveview] Membuat video composite dengan ${validClips.length}/${boothFlow.photosTaken.length} klip valid.`);
+    await info(`[liveview] Membuat video composite dengan ${validClips.length}/${photos.length} klip valid.`).catch(() => {});
     try {
       const clipBytes = await Promise.all(
         validClips.map(async (url) =>
@@ -85,16 +148,18 @@ export async function saveSessionAssets(
             bgBytes = Array.from(u8);
           }
         } catch (e) {
-          console.warn('Gagal load background frame untuk video composite:', e);
+          await warn(`[liveview] Gagal load background frame untuk video composite: ${String(e)}`).catch(() => {});
         }
       }
 
+      const isMirrored = boothConfig.config.mirrorOn ?? false;
       const videoBytes = await invoke<number[]>('compose_template_video', {
         clips: clipBytes,
         slotRects: slotRects.map((r) => [r.x, r.y, r.w, r.h]),
         canvasWidth: templateWidth,
         canvasHeight: templateHeight,
-        backgroundJpeg: bgBytes
+        backgroundJpeg: bgBytes,
+        mirrorHorizontal: isMirrored,
       });
       const blob = new Blob([new Uint8Array(videoBytes)], {
         type: 'video/mp4'
@@ -110,83 +175,26 @@ export async function saveSessionAssets(
         templateWidth,
         templateHeight
       );
-      console.log('[saveSessionAssets] Sukses upload video liveview composite');
+      await info('[saveSessionAssets] Sukses upload video liveview composite').catch(() => {});
     } catch (e) {
-      console.error('Gagal buat/upload video liveview:', e);
+      await error(`[saveSessionAssets] Gagal buat/upload video liveview: ${String(e)}`).catch(() => {});
     }
   } else {
-    console.warn(
-      `[liveview] Video composite dilewati. enableLiveviewVideo=${boothConfig.config.enableLiveviewVideo}, validClips=${validClips.length}, photosTaken=${boothFlow.photosTaken.length}`
-    );
+    await warn(
+      `[liveview] Video composite dilewati. enableLiveviewVideo=${boothConfig.config.enableLiveviewVideo}, validClips=${validClips.length}, photosCount=${photos.length}`
+    ).catch(() => {});
   }
 
-  // 3. GIF gabungan foto
-  if (boothConfig.config.enableSessionGif && boothFlow.photosTaken.length > 0) {
-    try {
-      const blob = await buildSessionGif(boothFlow.photosTaken);
-      gifBlob = blob;
-      await uploadGalleryAsset(
-        boothId,
-        sessionId,
-        'gif',
-        blob,
-        'gif',
-        'image/gif',
-        480,
-        720
-      );
-      console.log('[saveSessionAssets] Sukses upload GIF sesi');
-    } catch (e) {
-      console.error('Gagal buat/upload GIF sesi:', e);
-    }
-  }
-
-  // 4. Upload thumbnail (foto mentah pertama) untuk card gallery admin dashboard
-  if (boothFlow.photosTaken.length > 0) {
-    try {
-      await uploadGalleryAsset(
-        boothId,
-        sessionId,
-        'thumbnail',
-        boothFlow.photosTaken[0],
-        'jpg',
-        'image/jpeg',
-        1200,
-        1800
-      );
-      console.log('[saveSessionAssets] Sukses upload thumbnail foto mentah');
-    } catch (e) {
-      console.error('Gagal upload thumbnail foto mentah:', e);
-    }
-  }
-
-  // 5. Upload foto mentah tiap slot secara sekuensial agar hemat memori & stabil
-  for (let i = 0; i < boothFlow.photosTaken.length; i++) {
-    const photoUrl = boothFlow.photosTaken[i];
-    try {
-      await uploadGalleryAsset(
-        boothId,
-        sessionId,
-        'photo',
-        photoUrl,
-        'jpg',
-        'image/jpeg',
-        1200,
-        1800
-      );
-      console.log(`[saveSessionAssets] Sukses upload foto mentah slot ${i + 1}`);
-    } catch (e) {
-      console.error(`Gagal upload foto mentah slot ${i + 1}:`, e);
-    }
-  }
-
-  // 5. Penyimpanan lokal hasil sesi (Part E) — tidak boleh menggagalkan upload R2
+  // 5. Penyimpanan lokal hasil sesi (Part E) — menggunakan snapshot agar tidak terhapus
   saveLocalSessionAssets(
     uiConfig.config.boothName,
-    boothFlow.sessionCode ?? sessionId ?? `session-${Date.now()}`,
+    sessionCode,
     compositeUrl,
     gifBlob,
     validClips,
-    compositeVideoBlob
-  ).catch((e) => console.warn('Gagal simpan hasil sesi ke lokal:', e));
+    compositeVideoBlob,
+    photos
+  ).catch(async (e) => {
+    await warn(`[saveSessionAssets] Gagal simpan hasil sesi ke lokal: ${String(e)}`).catch(() => {});
+  });
 }

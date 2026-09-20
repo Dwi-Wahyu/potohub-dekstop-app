@@ -139,7 +139,10 @@
         selectedTemplate?.width || 1200,
         selectedTemplate?.height || 1800,
         (selectedTemplate?.design_data || []).filter((l) => !l.isBackground && !l.isQr),
-        selectedTemplate?.frame_image_url || selectedTemplate?.design_data?.find((l) => l.isBackground)?.imageUrl
+        selectedTemplate?.frame_image_url || selectedTemplate?.design_data?.find((l) => l.isBackground)?.imageUrl,
+        [...boothFlow.photosTaken],
+        [...boothFlow.liveviewClips],
+        boothFlow.sessionCode
       );
     } catch (err) {
       console.error('Failed to save assets in V3Download:', err);

@@ -92,3 +92,35 @@ pub async fn compose_template_video(
 Jika diperlukan pengecekan berkas log di perangkat Windows produksi:
 - Path Log: `%APPDATA%\potohub-booth-client\logs\potohub-booth-client.log`
 - Seluruh jejak aktivitas `[saveSessionAssets]`, `[uploadGalleryAsset]`, `[requestUploadUrl]`, dan `[buildSessionGif]` kini terekam lengkap beserta ukuran biner dan status HTTP.
+
+---
+
+## 5. Perbaikan Lanjutan: Resolusi Frame GIF Terpotong Setengah Secara Horizontal
+
+### Akar Masalah:
+Pada perbaikan sebelumnya, fungsi `prepareGifFrame` di [`src/lib/utils/gif.ts`](../src/lib/utils/gif.ts) mengasumsikan kanvas default berukuran tetap **480x720** (rasio portrait 2:3) dengan mekanisme **cover crop**:
+```typescript
+if (imgAspect > targetAspect) {
+  sw = img.height * targetAspect;
+  sx = (img.width - sw) / 2;
+}
+```
+Ketika kamera booth mengambil foto dalam orientasi landscape (misalnya DSLR horizontal 3:2 dengan resolusi 6000x4000 atau webcam 16:9 1920x1080), rasio `imgAspect` (~1.5–1.78) jauh lebih lebar daripada `targetAspect` (0.667). Akibatnya:
+- Hanya 44% area tengah horizontal foto yang dipertahankan (`sw`), sedangkan **lebih dari 55% area foto (sisi kiri dan kanan) terpotong habis**.
+- Objek atau orang di sisi kiri dan kanan frame foto menghilang/terpotong di file GIF.
+
+### Solusi & Implementasi:
+1. **Full Frame Proportional Scaling (Zero Crop)** ([`src/lib/utils/gif.ts`](../src/lib/utils/gif.ts)):
+   - Menghapus perhitungan cover crop (`sx`, `sw`).
+   - Dimensi kanvas dihitung adaptif mengikuti aspect ratio asli foto jepretan kamera hingga batas maksimum `maxDimension = 720`:
+     - Foto Landscape (3:2): Skala menjadi **720x480** (rasio asli tetap utuh).
+     - Foto Webcam (16:9): Skala menjadi **720x405**.
+     - Foto Portrait (2:3): Skala menjadi **480x720**.
+   - `ctx.drawImage(img, 0, 0, targetW, targetH)` merender 100% bidang foto tanpa ada pixel yang terpotong.
+2. **Keseragaman Dimensi Semua Frame**:
+   - Dimensi frame pertama disimpan ke `uniformDims` dan dijadikan acuan untuk seluruh frame berikutnya dalam sesi tersebut agar format GIF89a konsisten.
+3. **Pencatatan Metadata Dimensi Nyata** ([`src/lib/utils/sessionAssets.ts`](../src/lib/utils/sessionAssets.ts)):
+   - `buildSessionGif` mengembalikan `{ blob, width, height }`.
+   - `uploadGalleryAsset` menerima `gifResult.width` dan `gifResult.height` asli (misal 720 dan 480) ke backend dan Cloudflare R2 metadata.
+4. **Bounding Box Simetris Rust** ([`src-tauri/src/media.rs`](../src-tauri/src/media.rs)):
+   - Mengubah `img.resize(480, 720, ...)` menjadi `if img.width() > 720 || img.height() > 720 { img.resize(720, 720, FilterType::Lanczos3) }`, sehingga tidak lagi mendowngrade lebar foto landscape secara asimetris.

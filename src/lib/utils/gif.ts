@@ -1,17 +1,58 @@
 import { invoke } from '@tauri-apps/api/core';
 import { info, warn } from '@tauri-apps/plugin-log';
 
+export interface GifFrameResult {
+  bytes: number[];
+  width: number;
+  height: number;
+}
+
+export interface SessionGifResult {
+  blob: Blob;
+  width: number;
+  height: number;
+}
+
 async function prepareGifFrame(
   url: string,
-  targetW = 480,
-  targetH = 720,
-  mirrorHorizontal = false
-): Promise<number[]> {
+  targetDimensions?: { width: number; height: number },
+  mirrorHorizontal = false,
+  maxDimension = 720
+): Promise<GifFrameResult> {
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.crossOrigin = 'anonymous';
     img.onload = () => {
       try {
+        const naturalW = img.naturalWidth || img.width;
+        const naturalH = img.naturalHeight || img.height;
+
+        if (!naturalW || !naturalH) {
+          reject(new Error('Ukuran gambar tidak valid'));
+          return;
+        }
+
+        let targetW: number;
+        let targetH: number;
+
+        if (targetDimensions) {
+          targetW = targetDimensions.width;
+          targetH = targetDimensions.height;
+        } else {
+          // Menjaga aspect ratio asli 100% tanpa crop (cover crop dihilangkan)
+          if (naturalW >= naturalH) {
+            targetW = Math.min(naturalW, maxDimension);
+            targetH = Math.round((naturalH * targetW) / naturalW);
+          } else {
+            targetH = Math.min(naturalH, maxDimension);
+            targetW = Math.round((naturalW * targetH) / naturalH);
+          }
+
+          // Pastikan dimensi bernilai genap untuk kompatibilitas encoder
+          targetW = Math.max(2, Math.floor(targetW / 2) * 2);
+          targetH = Math.max(2, Math.floor(targetH / 2) * 2);
+        }
+
         const canvas = document.createElement('canvas');
         canvas.width = targetW;
         canvas.height = targetH;
@@ -26,22 +67,8 @@ async function prepareGifFrame(
           ctx.scale(-1, 1);
         }
 
-        // Cover crop calculation
-        const imgAspect = img.width / img.height;
-        const targetAspect = targetW / targetH;
-        let sx = 0;
-        let sy = 0;
-        let sw = img.width;
-        let sh = img.height;
-        if (imgAspect > targetAspect) {
-          sw = img.height * targetAspect;
-          sx = (img.width - sw) / 2;
-        } else {
-          sh = img.width / targetAspect;
-          sy = (img.height - sh) / 2;
-        }
-
-        ctx.drawImage(img, sx, sy, sw, sh, 0, 0, targetW, targetH);
+        // Gambar seluruh foto ke canvas secara proporsional tanpa crop
+        ctx.drawImage(img, 0, 0, targetW, targetH);
 
         canvas.toBlob(
           async (blob) => {
@@ -50,7 +77,11 @@ async function prepareGifFrame(
               return;
             }
             const buf = await blob.arrayBuffer();
-            resolve(Array.from(new Uint8Array(buf)));
+            resolve({
+              bytes: Array.from(new Uint8Array(buf)),
+              width: targetW,
+              height: targetH,
+            });
           },
           'image/jpeg',
           0.85
@@ -67,29 +98,56 @@ async function prepareGifFrame(
 export async function buildSessionGif(
   photoUrls: string[],
   frameDelayMs = 500,
-  mirrorHorizontal = false
-): Promise<Blob> {
+  mirrorHorizontal = false,
+  maxDimension = 720
+): Promise<SessionGifResult> {
+  if (photoUrls.length === 0) {
+    throw new Error('Daftar foto kosong untuk pembuatan GIF');
+  }
+
   const photoBytes: number[][] = [];
-  for (const url of photoUrls) {
+  let uniformDims: { width: number; height: number } | undefined;
+
+  for (let i = 0; i < photoUrls.length; i++) {
+    const url = photoUrls[i];
     try {
-      const bytes = await prepareGifFrame(url, 480, 720, mirrorHorizontal);
-      photoBytes.push(bytes);
+      const frameResult = await prepareGifFrame(
+        url,
+        uniformDims,
+        mirrorHorizontal,
+        maxDimension
+      );
+      if (!uniformDims) {
+        uniformDims = { width: frameResult.width, height: frameResult.height };
+      }
+      photoBytes.push(frameResult.bytes);
     } catch (e) {
-      await warn(`[buildSessionGif] Gagal resize canvas, fallback direct fetch: ${String(e)}`).catch(() => {});
+      await warn(`[buildSessionGif] Gagal resize canvas frame ${i + 1}, fallback direct fetch: ${String(e)}`).catch(() => {});
       const buf = await (await fetch(url)).arrayBuffer();
       photoBytes.push(Array.from(new Uint8Array(buf)));
     }
   }
 
+  const finalW = uniformDims?.width || 720;
+  const finalH = uniformDims?.height || 480;
+
   await info(
-    `[buildSessionGif] Mengirim ${photoBytes.length} frame ke Rust encode_photos_to_gif (mirror=${mirrorHorizontal})`
+    `[buildSessionGif] Mengirim ${photoBytes.length} frame (${finalW}x${finalH}, mirror=${mirrorHorizontal}) ke Rust encode_photos_to_gif`
   ).catch(() => {});
+
   const gifBytes = await invoke<number[]>('encode_photos_to_gif', {
     photos: photoBytes,
     frameDelayMs,
   });
+
   await info(
-    `[buildSessionGif] Selesai encode GIF, ukuran=${gifBytes.length} bytes`
+    `[buildSessionGif] Selesai encode GIF, ukuran=${gifBytes.length} bytes (${finalW}x${finalH})`
   ).catch(() => {});
-  return new Blob([new Uint8Array(gifBytes)], { type: 'image/gif' });
+
+  const blob = new Blob([new Uint8Array(gifBytes)], { type: 'image/gif' });
+  return {
+    blob,
+    width: finalW,
+    height: finalH,
+  };
 }

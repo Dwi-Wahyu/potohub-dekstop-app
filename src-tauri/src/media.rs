@@ -46,7 +46,11 @@ pub async fn encode_photos_to_gif(
 
         for jpeg_bytes in photos {
             let img = image::load_from_memory(&jpeg_bytes).map_err(|e| e.to_string())?;
-            let resized = img.resize(480, 720, image::imageops::FilterType::Lanczos3);
+            let resized = if img.width() > 720 || img.height() > 720 {
+                img.resize(720, 720, image::imageops::FilterType::Lanczos3)
+            } else {
+                img
+            };
             let rgba: ImageBuffer<Rgba<u8>, Vec<u8>> = resized.to_rgba8();
             let frame = Frame::from_parts(
                 rgba,

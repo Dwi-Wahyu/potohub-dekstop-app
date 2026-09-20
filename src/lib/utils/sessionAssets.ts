@@ -101,19 +101,19 @@ export async function saveSessionAssets(
   if (boothConfig.config.enableSessionGif && photos.length > 0) {
     try {
       const isMirrored = boothConfig.config.mirrorOn ?? false;
-      const blob = await buildSessionGif(photos, 500, isMirrored);
-      gifBlob = blob;
+      const gifResult = await buildSessionGif(photos, 500, isMirrored);
+      gifBlob = gifResult.blob;
       await uploadGalleryAsset(
         boothId,
         sessionId,
         'gif',
-        blob,
+        gifResult.blob,
         'gif',
         'image/gif',
-        480,
-        720
+        gifResult.width,
+        gifResult.height
       );
-      await info('[saveSessionAssets] Sukses upload GIF sesi').catch(() => {});
+      await info(`[saveSessionAssets] Sukses upload GIF sesi (${gifResult.width}x${gifResult.height})`).catch(() => {});
     } catch (e) {
       await error(`[saveSessionAssets] Gagal buat/upload GIF sesi: ${String(e)}`).catch(() => {});
     }

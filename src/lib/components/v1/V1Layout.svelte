@@ -13,6 +13,7 @@
   import V1Customize from './V1Customize.svelte';
   import V1Complete from './V1Complete.svelte';
   import V1TicketScan from './V1TicketScan.svelte';
+  import ProgressiveBackground from '$lib/components/shared/ProgressiveBackground.svelte';
 
   interface Props {
     customTutorialImg?: string;
@@ -97,9 +98,11 @@
   const getV1Bg = (stepKey: string) => uiConfig.getStepStyle(stepKey).background ?? V1_DEFAULT_BG;
 </script>
 
-<div
+<ProgressiveBackground
+  src={uiConfig.getStepImageSrc(SUBSTEP_TO_UI_STEP[currentSubStep])}
+  blurSrc={uiConfig.getStepBlur(SUBSTEP_TO_UI_STEP[currentSubStep])}
   class="w-screen h-screen overflow-hidden text-white select-none font-['Poppins',sans-serif]"
-  style:background={getV1Bg(SUBSTEP_TO_UI_STEP[currentSubStep])}
+  style="background: {getV1Bg(SUBSTEP_TO_UI_STEP[currentSubStep])};"
 >
   {#if currentSubStep === 'welcome'}
     <V1Landing background={getV1Bg('start')} onStart={handleStart} onOpenConfig={handleOpenConfig} />
@@ -147,4 +150,4 @@
   {:else if currentSubStep === 'complete'}
     <V1Complete background={getV1Bg('download')} photos={boothFlow.photosTaken} frameConfigId={selectedFrameConfigId} onNewSession={handleNewSession} />
   {/if}
-</div>
+</ProgressiveBackground>

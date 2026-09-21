@@ -13,6 +13,7 @@
     type BoothTemplate
   } from '$lib/api/boothClient';
   import { cachedFetch } from '$lib/utils/offlineCache';
+  import ProgressiveImage from '$lib/components/shared/ProgressiveImage.svelte';
 
   interface Props {
     onSelectFrame: (frameId: string) => void;
@@ -371,7 +372,13 @@
               >
                 <div class="w-2/3 h-24 flex items-center justify-center overflow-hidden rounded-lg bg-gray-100 p-1 border border-black/10">
                   {#if 'preview_image_url' in f && f.preview_image_url}
-                    <img src={f.preview_image_url} alt={f.name} class="w-full h-full object-contain block" />
+                    <ProgressiveImage
+                      src={f.preview_image_url}
+                      blurSrc={(f as any).preview_blur}
+                      alt={f.name}
+                      class="w-full h-full"
+                      objectFit="contain"
+                    />
                   {:else if 'design_data' in f && f.design_data}
                     {@const photoSlots = f.design_data.filter((l: any) => !l.isBackground && !l.isQr)}
                     <div class="w-full h-full grid grid-cols-2 gap-1 p-0.5">

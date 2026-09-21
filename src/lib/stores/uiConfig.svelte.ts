@@ -42,6 +42,7 @@ export interface StepStyle {
   step: string;
   bgType: 'color' | 'gradient' | 'image' | 'none';
   bgValue: string | null;
+  bgBlur?: string | null;
 }
 
 export interface BoothUIConfig {
@@ -176,6 +177,36 @@ class UIConfigStore {
         console.warn('[uiConfig] Gagal resolve tutorial image cache:', e);
       }
     }
+  }
+
+  getStepBlur(step: string): string | null {
+    const s = this.config.stepStyles?.find(
+      (x) =>
+        x.step === step ||
+        (step === 'download' && x.step === 'softfile') ||
+        (step === 'softfile' && x.step === 'download') ||
+        (step === 'payment' && x.step === 'package') ||
+        (step === 'package' && x.step === 'payment')
+    );
+    return s?.bgBlur ?? null;
+  }
+
+  getStepImageSrc(step: string): string | null {
+    const s = this.config.stepStyles?.find(
+      (x) =>
+        x.step === step ||
+        (step === 'download' && x.step === 'softfile') ||
+        (step === 'softfile' && x.step === 'download') ||
+        (step === 'payment' && x.step === 'package') ||
+        (step === 'package' && x.step === 'payment')
+    );
+    if (!s || s.bgType !== 'image' || !s.bgValue) return null;
+    const val = this.resolvedBackgrounds[s.bgValue] || s.bgValue;
+    if (val.startsWith('url(')) {
+      const match = val.match(/url\(['"]?(.*?)['"]?\)/);
+      return match ? match[1] : val;
+    }
+    return val;
   }
 
   getStepStyle(step: string): { background: string | null } {

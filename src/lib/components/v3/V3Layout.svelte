@@ -13,6 +13,7 @@
   import V3Filter from './V3Filter.svelte';
   import V3Loading from './V3Loading.svelte';
   import V3Download from './V3Download.svelte';
+  import ProgressiveBackground from '$lib/components/shared/ProgressiveBackground.svelte';
 
   interface Props {
     customTutorialImg?: string;
@@ -103,9 +104,11 @@
   const getV3Bg = (stepKey: string) => uiConfig.getStepStyle(stepKey).background ?? V3_DEFAULT_BG_MAP[stepKey] ?? '#fdfdfd';
 </script>
 
-<div
+<ProgressiveBackground
+  src={uiConfig.getStepImageSrc(step)}
+  blurSrc={uiConfig.getStepBlur(step)}
   class="w-screen h-screen overflow-hidden"
-  style:background={getV3Bg(step)}
+  style="background: {getV3Bg(step)};"
 >
   {#if step === 'start'}
     <V3Start background={getV3Bg('start')} onStart={handleStart} onOpenConfig={handleOpenConfig} />
@@ -128,4 +131,4 @@
   {:else if step === 'download'}
     <V3Download background={getV3Bg('download')} selectedFrame={selectedFrameId} onDone={handleDone} />
   {/if}
-</div>
+</ProgressiveBackground>

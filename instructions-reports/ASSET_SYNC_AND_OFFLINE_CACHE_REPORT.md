@@ -6,7 +6,7 @@ Dokumen ini mencatat hasil audit, perbaikan arsitektural, dan implementasi pada 
 
 ## 1. Audit Alur Fetch Saat Sinkronisasi (`ConfigDashboard.svelte`)
 
-Ketika fungsi `handleSync()` pada [`ConfigDashboard.svelte`](file:///home/dwiwahyu/Projects/PotoHub/source-code/dekstop-app/src/lib/components/shared/ConfigDashboard.svelte) dijalankan, proses sinkronisasi memanggil:
+Ketika fungsi `handleSync()` pada [`ConfigDashboard.svelte`](/dekstop-app/src/lib/components/shared/ConfigDashboard.svelte) dijalankan, proses sinkronisasi memanggil:
 
 1. **`POST /api/booths/{boothId}/settings/sync`** (via `syncBoothSettings`):
    - Memperbarui `last_sync_at` booth di backend.
@@ -64,7 +64,7 @@ Sebelum perbaikan ini dilakukan:
   - Dijalankan otomatis saat `init()`, `load()`, dan `save()`.
 - Memperbarui `getStepStyle(step)` agar menggunakan nilai `resolvedBackgrounds[s.bgValue]` (Base64 lokal) jika tersedia, sehingga render latar belakang instan tanpa request ke blob storage.
 - Menambahkan helper async `getResolvedStepBackground(step)` dan getter `getTutorialImageUrl()`.
-- Memperbarui komponen [`V1Tutorial.svelte`](file:///home/dwiwahyu/Projects/PotoHub/source-code/dekstop-app/src/lib/components/v1/V1Tutorial.svelte), [`V2Tutorial.svelte`](file:///home/dwiwahyu/Projects/PotoHub/source-code/dekstop-app/src/lib/components/v2/V2Tutorial.svelte), dan [`V3Tutorial.svelte`](file:///home/dwiwahyu/Projects/PotoHub/source-code/dekstop-app/src/lib/components/v3/V3Tutorial.svelte) agar memprioritaskan `uiConfig.getTutorialImageUrl()`.
+- Memperbarui komponen [`V1Tutorial.svelte`](/dekstop-app/src/lib/components/v1/V1Tutorial.svelte), [`V2Tutorial.svelte`](/dekstop-app/src/lib/components/v2/V2Tutorial.svelte), dan [`V3Tutorial.svelte`](/dekstop-app/src/lib/components/v3/V3Tutorial.svelte) agar memprioritaskan `uiConfig.getTutorialImageUrl()`.
 
 ### B. Prefetch Stiker & Gambar Tutorial (`src/lib/api/prefetch.ts`)
 - Mengimpor `fetchEmots` dari `boothClient.ts`.

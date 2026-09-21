@@ -11,6 +11,7 @@
   import V2Session from './V2Session.svelte';
   import V2Filter from './V2Filter.svelte';
   import V2Download from './V2Download.svelte';
+  import ProgressiveBackground from '$lib/components/shared/ProgressiveBackground.svelte';
 
   interface Props {
     customTutorialImg?: string;
@@ -95,9 +96,11 @@
   const getV2Bg = (stepKey: string) => uiConfig.getStepStyle(stepKey).background ?? V2_DEFAULT_BG;
 </script>
 
-<div
+<ProgressiveBackground
+  src={uiConfig.getStepImageSrc(V2_STEP_TO_UI_STEP[step])}
+  blurSrc={uiConfig.getStepBlur(V2_STEP_TO_UI_STEP[step])}
   class="w-screen h-screen overflow-hidden"
-  style:background={getV2Bg(V2_STEP_TO_UI_STEP[step])}
+  style="background: {getV2Bg(V2_STEP_TO_UI_STEP[step])};"
 >
   {#if step === 'landing'}
     <V2Landing background={getV2Bg('start')} onStart={handleStart} onOpenConfig={handleOpenConfig} />
@@ -118,4 +121,4 @@
   {:else if step === 'download'}
     <V2Download background={getV2Bg('download')} selectedFrame={selectedFrameId} onDone={handleDone} />
   {/if}
-</div>
+</ProgressiveBackground>

@@ -4,6 +4,7 @@ import { boothFlow } from '$lib/stores/booth.svelte';
 import { boothConfig } from '$lib/stores/boothConfig.svelte';
 import { uiConfig } from '$lib/stores/uiConfig.svelte';
 import { uploadGalleryAsset } from '$lib/api/boothClient';
+import { generateBlurPlaceholder } from './imagePlaceholder';
 import { buildSessionGif } from './gif';
 import { saveLocalSessionAssets } from './localSessionStorage';
 
@@ -62,6 +63,12 @@ export async function saveSessionAssets(
   // 2. Upload Thumbnail & Foto Mentah Tiap Slot SEGERA (ringan, selesai 1-2s sebelum user berpindah layar)
   if (photos.length > 0) {
     try {
+      let blurBase64: string | undefined = undefined;
+      try {
+        blurBase64 = await generateBlurPlaceholder(photos[0], 24, 0.25);
+      } catch (err) {
+        await warn(`[saveSessionAssets] Gagal generate blur placeholder untuk thumbnail: ${String(err)}`).catch(() => {});
+      }
       await uploadGalleryAsset(
         boothId,
         sessionId,
@@ -70,7 +77,8 @@ export async function saveSessionAssets(
         'jpg',
         'image/jpeg',
         1200,
-        1800
+        1800,
+        blurBase64
       );
       await info('[saveSessionAssets] Sukses upload thumbnail foto mentah').catch(() => {});
     } catch (e) {

@@ -12,6 +12,7 @@
     type BoothTemplate
   } from '$lib/api/boothClient';
   import { cachedFetch } from '$lib/utils/offlineCache';
+  import ProgressiveImage from '$lib/components/shared/ProgressiveImage.svelte';
 
   import { uiConfig } from '$lib/stores/uiConfig.svelte';
 
@@ -237,7 +238,13 @@
 
               <div class="w-full aspect-[9/16] rounded-lg overflow-hidden bg-gray-50 flex flex-col gap-0.5 p-1 border border-gray-100 items-center justify-center relative">
                 {#if 'preview_image_url' in f && f.preview_image_url}
-                  <img src={f.preview_image_url} alt={f.name} class="w-full h-full object-contain block rounded" />
+                  <ProgressiveImage
+                    src={f.preview_image_url}
+                    blurSrc={(f as any).preview_blur}
+                    alt={f.name}
+                    class="w-full h-full rounded"
+                    objectFit="contain"
+                  />
                 {:else if cameraStore.isLiveviewActive}
                   <div class="w-full h-full flex flex-col gap-0.5 relative overflow-hidden">
                     {#each Array(Math.min(4, photoCount)) as _, j}

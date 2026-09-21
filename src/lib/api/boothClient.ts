@@ -73,6 +73,7 @@ export interface PublicUIConfigResponse {
     step: string;
     bg_type: "color" | "gradient" | "image" | "none";
     bg_value: string | null;
+    bg_blur?: string | null;
   }>;
 }
 
@@ -417,6 +418,7 @@ export interface BoothCategory {
   extra_price: number;
   position: number;
   banner_url: string | null;
+  banner_blur?: string | null;
 }
 
 export interface BoothTemplate {
@@ -427,6 +429,7 @@ export interface BoothTemplate {
   height: number;
   paper_size: string;
   preview_image_url?: string | null;
+  preview_blur?: string | null;
   frame_image_url: string | null;
   design_data: Array<{
     id?: number;
@@ -518,6 +521,7 @@ export interface BoothBanner {
   organization_id: string;
   title: string;
   image_url: string;
+  image_blur?: string | null;
   start_date: string | null;
   end_date: string | null;
   is_active: boolean;
@@ -749,6 +753,7 @@ export async function uploadGalleryAsset(
   contentType: string,
   width: number,
   height: number,
+  blurBase64?: string | null,
 ) {
   const blob =
     typeof blobOrDataUrl === "string"
@@ -793,6 +798,7 @@ export async function uploadGalleryAsset(
     width,
     height,
     blob.size,
+    blurBase64,
   );
 }
 
@@ -804,6 +810,7 @@ export async function uploadSessionMedia(
   width: number = 1200,
   height: number = 1800,
   fileSize: number = 0,
+  blurBase64?: string | null,
 ) {
   const pascalType = toPascalCaseMediaType(fileType);
   const res = await tauriFetch(`${API_BASE}/booths/${boothId}/gallery/upload`, {
@@ -812,6 +819,7 @@ export async function uploadSessionMedia(
     body: JSON.stringify({
       session_id: sessionId,
       file_url: fileUrl,
+      blur_base64: blurBase64 ?? null,
       file_type: pascalType,
       media_type: pascalType,
       width,

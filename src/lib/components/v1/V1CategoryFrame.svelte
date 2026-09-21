@@ -6,6 +6,7 @@
   import { boothConfig } from '$lib/stores/boothConfig.svelte';
   import { fetchCategories, fetchTemplates, requireActiveBoothId, type BoothCategory, type BoothTemplate } from '$lib/api/boothClient';
   import { cachedFetch } from '$lib/utils/offlineCache';
+  import ProgressiveImage from '$lib/components/shared/ProgressiveImage.svelte';
 
   interface Props {
     onNext: (price: number, frameConfigId: string) => void;
@@ -254,10 +255,12 @@
             >
               <div class="w-[52px] h-[52px] rounded-xl shrink-0 flex items-center justify-center overflow-hidden bg-[#313135] relative border border-white/10">
                 {#if catImg}
-                  <img
+                  <ProgressiveImage
                     src={catImg}
+                    blurSrc={cat.banner_blur}
                     alt={cat.name}
-                    class="w-full h-full object-cover block"
+                    class="w-full h-full"
+                    objectFit="cover"
                   />
                 {:else}
                   <div class="w-full h-full flex items-center justify-center bg-gradient-to-br from-indigo-500/20 to-purple-500/20 text-white/70 font-bold text-lg uppercase">
@@ -310,7 +313,13 @@
                     style="aspect-ratio: {f.width || 1200} / {f.height || 1800};"
                   >
                     {#if f.preview_image_url}
-                      <img src={f.preview_image_url} alt={f.name} class="w-full h-full object-contain block rounded-lg" />
+                      <ProgressiveImage
+                        src={f.preview_image_url}
+                        blurSrc={f.preview_blur}
+                        alt={f.name}
+                        class="w-full h-full rounded-lg"
+                        objectFit="contain"
+                      />
                     {:else if f.design_data && f.design_data.length > 0}
                       {#each f.design_data.filter((l) => !l.isQr) as layer, idx (layer.id ?? idx)}
                         {@const layerZIndex = f.design_data.length - idx}

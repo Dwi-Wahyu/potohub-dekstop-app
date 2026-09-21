@@ -69,6 +69,7 @@
 
   let tutorialImg = $derived(
     customTutorialImg ||
+      uiConfig.getTutorialImageUrl() ||
       uiConfig.config.tutorialImageUrl ||
       getLocalTutorialImage(uiConfig.boothId)
   );

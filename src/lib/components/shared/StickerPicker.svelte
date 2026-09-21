@@ -1,6 +1,7 @@
 <script lang="ts">
   import { EMOJI_LIST, loadBoothEmojis, type StickerType } from '$lib/utils/stickers';
   import type { BoothEmot } from '$lib/api/boothClient';
+  import { ensureAsset } from '$lib/utils/offlineCache';
 
   interface Props {
     onPick: (emoji: string, imageUrl?: string, type?: StickerType) => void;
@@ -19,6 +20,21 @@
   }: Props = $props();
 
   let fallbackList = $derived(boothId ? loadBoothEmojis(boothId) : EMOJI_LIST);
+  let emotDataUrls = $state<Record<string, string>>({});
+
+  $effect(() => {
+    if (emots && emots.length > 0) {
+      for (const emot of emots) {
+        if (emot.emot_type === 'image' && emot.file_url && !emotDataUrls[emot.file_url]) {
+          void ensureAsset(emot.file_url)
+            .then((dataUrl) => {
+              if (dataUrl) emotDataUrls[emot.file_url!] = dataUrl;
+            })
+            .catch(() => {});
+        }
+      }
+    }
+  });
 </script>
 
 <div>
@@ -31,7 +47,8 @@
         <button
           onclick={() => {
             if (emot.emot_type === 'image' && emot.file_url) {
-              onPick('', emot.file_url, 'image');
+              const urlToUse = emotDataUrls[emot.file_url] || emot.file_url;
+              onPick('', urlToUse, 'image');
             } else {
               onPick(emot.emoji_text || '😊', '', 'emoji');
             }
@@ -42,7 +59,7 @@
           title={emot.name}
         >
           {#if emot.emot_type === 'image' && emot.file_url}
-            <img src={emot.file_url} alt={emot.name} class="w-6 h-6 object-contain pointer-events-none" />
+            <img src={emotDataUrls[emot.file_url] || emot.file_url} alt={emot.name} class="w-6 h-6 object-contain pointer-events-none" />
           {:else}
             <span class="text-xl">{emot.emoji_text || '😊'}</span>
           {/if}

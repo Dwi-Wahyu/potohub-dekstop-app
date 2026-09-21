@@ -592,6 +592,13 @@ export async function syncBoothSettings() {
     } catch (e) {
       console.warn("Sync banners gagal:", e);
     }
+    // Fetch & cache emots untuk booth
+    try {
+      const emots = await fetchEmots(boothId);
+      await writeApiCache(`emots:${boothId}`, emots);
+    } catch (e) {
+      console.warn("Sync emots gagal:", e);
+    }
     // Refresh cache tiket aktif utk verifikasi offline.
     try {
       const count = await fetchActiveQrTicketsForCache(boothId);

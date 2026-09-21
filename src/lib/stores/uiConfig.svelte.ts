@@ -1,3 +1,6 @@
+import { invoke } from '@tauri-apps/api/core';
+import { getAssetCacheMeta } from '$lib/db/local';
+
 export interface TextStyle {
   size: 'Kecil' | 'Sedang' | 'Besar';
   font: 'Sans Serif' | 'Serif' | 'Monospace';
@@ -95,9 +98,59 @@ export const DEFAULT_UI_CONFIG: BoothUIConfig = {
 class UIConfigStore {
   config = $state<BoothUIConfig>({ ...DEFAULT_UI_CONFIG });
   boothId = $state<string>('default');
+  resolvedBackgrounds = $state<Record<string, string>>({});
 
   get templateVariant() {
     return this.config.templateVariant;
+  }
+
+  get tutorialImageUrl(): string {
+    const raw = this.config.tutorialImageUrl;
+    if (!raw) return '';
+    return this.resolvedBackgrounds[raw] || raw;
+  }
+
+  getTutorialImageUrl(): string {
+    return this.tutorialImageUrl;
+  }
+
+  setResolvedBackground(url: string, resolvedUrl: string) {
+    this.resolvedBackgrounds[url] = resolvedUrl;
+  }
+
+  async resolveCachedAssets() {
+    for (const s of this.config.stepStyles ?? []) {
+      if (s.bgType === 'image' && s.bgValue && !s.bgValue.startsWith('data:')) {
+        try {
+          const meta = await getAssetCacheMeta(s.bgValue);
+          if (meta) {
+            const dataUrl = await invoke<string | null>('read_cached_asset', {
+              cacheKey: meta.cache_key,
+            });
+            if (dataUrl) {
+              this.resolvedBackgrounds[s.bgValue] = dataUrl;
+            }
+          }
+        } catch (e) {
+          console.warn('[uiConfig] Gagal resolve background cache:', e);
+        }
+      }
+    }
+    if (this.config.tutorialImageUrl && !this.config.tutorialImageUrl.startsWith('data:')) {
+      try {
+        const meta = await getAssetCacheMeta(this.config.tutorialImageUrl);
+        if (meta) {
+          const dataUrl = await invoke<string | null>('read_cached_asset', {
+            cacheKey: meta.cache_key,
+          });
+          if (dataUrl) {
+            this.resolvedBackgrounds[this.config.tutorialImageUrl] = dataUrl;
+          }
+        }
+      } catch (e) {
+        console.warn('[uiConfig] Gagal resolve tutorial image cache:', e);
+      }
+    }
   }
 
   getStepStyle(step: string): { background: string | null } {
@@ -113,18 +166,49 @@ class UIConfigStore {
     if (s.bgValue.startsWith('url(')) {
       return { background: s.bgValue };
     }
+    const val = (s.bgValue && this.resolvedBackgrounds[s.bgValue]) ? this.resolvedBackgrounds[s.bgValue] : s.bgValue;
     if (
       s.bgType === 'image' ||
-      s.bgValue.startsWith('http://') ||
-      s.bgValue.startsWith('https://') ||
-      s.bgValue.startsWith('data:') ||
-      s.bgValue.startsWith('blob:') ||
-      s.bgValue.startsWith('asset://') ||
-      s.bgValue.startsWith('tauri://')
+      val.startsWith('http://') ||
+      val.startsWith('https://') ||
+      val.startsWith('data:') ||
+      val.startsWith('blob:') ||
+      val.startsWith('asset://') ||
+      val.startsWith('tauri://')
     ) {
-      return { background: `url("${s.bgValue}") center / cover no-repeat` };
+      return { background: `url("${val}") center / cover no-repeat` };
     }
-    return { background: s.bgValue };
+    return { background: val };
+  }
+
+  async getResolvedStepBackground(step: string): Promise<string | null> {
+    const s = this.config.stepStyles?.find(
+      (x) =>
+        x.step === step ||
+        (step === 'download' && x.step === 'softfile') ||
+        (step === 'softfile' && x.step === 'download') ||
+        (step === 'payment' && x.step === 'package') ||
+        (step === 'package' && x.step === 'payment')
+    );
+    if (!s || s.bgType === 'none' || !s.bgValue) return null;
+    if (this.resolvedBackgrounds[s.bgValue]) {
+      return `url("${this.resolvedBackgrounds[s.bgValue]}") center / cover no-repeat`;
+    }
+    try {
+      const meta = await getAssetCacheMeta(s.bgValue);
+      if (meta) {
+        const dataUrl = await invoke<string | null>('read_cached_asset', {
+          cacheKey: meta.cache_key,
+        });
+        if (dataUrl) {
+          this.setResolvedBackground(s.bgValue, dataUrl);
+          return `url("${dataUrl}") center / cover no-repeat`;
+        }
+      }
+    } catch (e) {
+      console.warn('[uiConfig] getResolvedStepBackground error:', e);
+    }
+    return this.getStepStyle(step).background;
   }
 
   getElementLabel(screenKey: string, elementKey: string, fallbackLabel: string): string {
@@ -158,6 +242,7 @@ class UIConfigStore {
   init(boothId: string = 'default') {
     this.boothId = boothId;
     this.load();
+    void this.resolveCachedAssets();
   }
 
   load() {
@@ -202,6 +287,7 @@ class UIConfigStore {
     } catch {
       this.config = { ...DEFAULT_UI_CONFIG };
     }
+    void this.resolveCachedAssets();
   }
 
   save(newCfg?: Partial<BoothUIConfig>) {
@@ -216,6 +302,7 @@ class UIConfigStore {
     } catch (e) {
       console.error('Failed to save UI config:', e);
     }
+    void this.resolveCachedAssets();
   }
 }
 

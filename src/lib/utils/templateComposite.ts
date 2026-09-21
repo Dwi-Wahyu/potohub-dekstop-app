@@ -4,6 +4,7 @@ import { boothConfig } from '$lib/stores/boothConfig.svelte';
 import type { Sticker } from '$lib/utils/stickers';
 import { resolveFilterCss, applyFilterToCanvas } from '$lib/utils/filters';
 import { invoke } from '@tauri-apps/api/core';
+import { ensureAsset } from '$lib/utils/offlineCache';
 import QRCode from 'qrcode';
 
 export interface TemplateDesignLayer {
@@ -139,9 +140,9 @@ async function loadImage(src: string): Promise<HTMLImageElement | null> {
     });
   }
 
-  // 2. In Tauri environment: fetch image bytes natively via Rust to completely bypass CORS, WebKit CSP, or canvas tainting
+  // 2. In Tauri environment: try local offline cache first via ensureAsset (reads cached disk or downloads if missing)
   try {
-    const dataUrl = await invoke<string>('fetch_image_as_data_url', { url: src });
+    const dataUrl = await ensureAsset(src);
     if (dataUrl && dataUrl.startsWith('data:')) {
       return new Promise((resolve) => {
         const img = new Image();
@@ -151,7 +152,8 @@ async function loadImage(src: string): Promise<HTMLImageElement | null> {
       });
     }
   } catch (err) {
-    // Invoke error (e.g. running in pure browser environment) - fall back to browser fetch
+    // Invoke error or ensureAsset error - fall back to fetch
+    console.warn('[templateComposite] ensureAsset failed for image, trying fallback:', src, err);
   }
 
   // 3. Fallback: load via fetch Blob URL

@@ -210,19 +210,19 @@ Pemetaan step desktop ↔ `ui_step` backend (dipakai `step_styles[].step`) sudah
 ## 6. Daftar File yang Diubah & Ditambah
 
 ### Ditambah
-1. [`src/lib/components/shared/StepIndicator.svelte`](file:///home/dwiwahyuilahi/Personal/Projects/PotoHub/source-code/dekstop-app/src/lib/components/shared/StepIndicator.svelte) — Komponen stepper bersama V2 (pill) & V3 (film-strip).
-2. [`src/lib/components/shared/stepLabels.ts`](file:///home/dwiwahyuilahi/Personal/Projects/PotoHub/source-code/dekstop-app/src/lib/components/shared/stepLabels.ts) — Label stepper kanonik (`V2_STEPPER_LABELS`, `V3_STEPPER_LABELS`).
+1. [`src/lib/components/shared/StepIndicator.svelte`](/dekstop-app/src/lib/components/shared/StepIndicator.svelte) — Komponen stepper bersama V2 (pill) & V3 (film-strip).
+2. [`src/lib/components/shared/stepLabels.ts`](/dekstop-app/src/lib/components/shared/stepLabels.ts) — Label stepper kanonik (`V2_STEPPER_LABELS`, `V3_STEPPER_LABELS`).
 
 ### Diubah
-3. [`src/lib/api/boothClient.ts`](file:///home/dwiwahyuilahi/Personal/Projects/PotoHub/source-code/dekstop-app/src/lib/api/boothClient.ts) — `PublicUIConfigResponse` (+`show_step_indicator`, +`label`, +`bg_type:'image'`) & `mapPublicConfigToBoothUIConfig` (+`showStepIndicator`, +`label`).
-4. [`src/lib/stores/uiConfig.svelte.ts`](file:///home/dwiwahyuilahi/Personal/Projects/PotoHub/source-code/dekstop-app/src/lib/stores/uiConfig.svelte.ts) — Tipe/default baru, `getStepStyle()` dukung image, `getElementLabel()` baru.
+3. [`src/lib/api/boothClient.ts`](/dekstop-app/src/lib/api/boothClient.ts) — `PublicUIConfigResponse` (+`show_step_indicator`, +`label`, +`bg_type:'image'`) & `mapPublicConfigToBoothUIConfig` (+`showStepIndicator`, +`label`).
+4. [`src/lib/stores/uiConfig.svelte.ts`](/dekstop-app/src/lib/stores/uiConfig.svelte.ts) — Tipe/default baru, `getStepStyle()` dukung image, `getElementLabel()` baru.
 5. `src/lib/components/v1/V1Landing.svelte` — teks tombol start via `getElementLabel`.
 6. `src/lib/components/v2/V2Landing.svelte` — teks tombol start via `getElementLabel`.
 7. `src/lib/components/v3/V3Start.svelte` — teks tombol start via `getElementLabel`.
 8. `src/lib/components/custom/CustomLanding.svelte` — teks tombol start via `getElementLabel`.
 9. `src/lib/components/v2/V2Tutorial.svelte`, `V2Payment.svelte`, `V2Qris.svelte`, `V2Ticket.svelte`, `V2Frame.svelte`, `V2Session.svelte`, `V2Filter.svelte`, `V2Download.svelte` — `StepIndicator` di header (gated `showStepIndicator`).
 10. `src/lib/components/v3/V3Package.svelte`, `V3Payment.svelte`, `V3Ticket.svelte`, `V3Frame.svelte`, `V3Session.svelte`, `V3Filter.svelte` — `StepIndicator` variant `v3` di header (gated `showStepIndicator`).
-11. [`instructions-reports/UI_CUSTOMIZE_SYNC_IMPLEMENTATION_REPORT.md`](file:///home/dwiwahyuilahi/Personal/Projects/PotoHub/source-code/dekstop-app/instructions-reports/UI_CUSTOMIZE_SYNC_IMPLEMENTATION_REPORT.md) — Laporan ini.
+11. [`instructions-reports/UI_CUSTOMIZE_SYNC_IMPLEMENTATION_REPORT.md`](/dekstop-app/instructions-reports/UI_CUSTOMIZE_SYNC_IMPLEMENTATION_REPORT.md) — Laporan ini.
 
 ---
 

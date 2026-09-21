@@ -29,17 +29,17 @@ When users clicked "Gunakan Mode Offline", hardcoded fake IDs (`'strip2'`, `'gri
 
 #### Changes Implemented
 1. **Centralized Booth ID Resolver**:
-   Added `requireActiveBoothId(): Promise<string>` to [`src/lib/api/boothClient.ts`](file:///home/dwiwahyuilahi/Personal/Projects/PotoHub/source-code/dekstop-app/src/lib/api/boothClient.ts#L155-L169). It queries SQLite activation data and explicitly throws if unactivated or invalid UUID.
+   Added `requireActiveBoothId(): Promise<string>` to [`src/lib/api/boothClient.ts`](/dekstop-app/src/lib/api/boothClient.ts#L155-L169). It queries SQLite activation data and explicitly throws if unactivated or invalid UUID.
 2. **Replaced Fallback Patterns**:
    Replaced all occurrences of `localStorage.getItem('booth_id') || 'default'` across 8 components with `await requireActiveBoothId()`:
-   - [`src/lib/components/v1/V1CategoryFrame.svelte`](file:///home/dwiwahyuilahi/Personal/Projects/PotoHub/source-code/dekstop-app/src/lib/components/v1/V1CategoryFrame.svelte)
-   - [`src/lib/components/v1/V1Camera.svelte`](file:///home/dwiwahyuilahi/Personal/Projects/PotoHub/source-code/dekstop-app/src/lib/components/v1/V1Camera.svelte)
-   - [`src/lib/components/v1/V1Customize.svelte`](file:///home/dwiwahyuilahi/Personal/Projects/PotoHub/source-code/dekstop-app/src/lib/components/v1/V1Customize.svelte)
-   - [`src/lib/components/v1/V1Complete.svelte`](file:///home/dwiwahyuilahi/Personal/Projects/PotoHub/source-code/dekstop-app/src/lib/components/v1/V1Complete.svelte)
-   - [`src/lib/components/v2/V2Session.svelte`](file:///home/dwiwahyuilahi/Personal/Projects/PotoHub/source-code/dekstop-app/src/lib/components/v2/V2Session.svelte)
-   - [`src/lib/components/v2/V2Download.svelte`](file:///home/dwiwahyuilahi/Personal/Projects/PotoHub/source-code/dekstop-app/src/lib/components/v2/V2Download.svelte)
-   - [`src/lib/components/v3/V3Session.svelte`](file:///home/dwiwahyuilahi/Personal/Projects/PotoHub/source-code/dekstop-app/src/lib/components/v3/V3Session.svelte)
-   - [`src/lib/components/v3/V3Download.svelte`](file:///home/dwiwahyuilahi/Personal/Projects/PotoHub/source-code/dekstop-app/src/lib/components/v3/V3Download.svelte)
+   - [`src/lib/components/v1/V1CategoryFrame.svelte`](/dekstop-app/src/lib/components/v1/V1CategoryFrame.svelte)
+   - [`src/lib/components/v1/V1Camera.svelte`](/dekstop-app/src/lib/components/v1/V1Camera.svelte)
+   - [`src/lib/components/v1/V1Customize.svelte`](/dekstop-app/src/lib/components/v1/V1Customize.svelte)
+   - [`src/lib/components/v1/V1Complete.svelte`](/dekstop-app/src/lib/components/v1/V1Complete.svelte)
+   - [`src/lib/components/v2/V2Session.svelte`](/dekstop-app/src/lib/components/v2/V2Session.svelte)
+   - [`src/lib/components/v2/V2Download.svelte`](/dekstop-app/src/lib/components/v2/V2Download.svelte)
+   - [`src/lib/components/v3/V3Session.svelte`](/dekstop-app/src/lib/components/v3/V3Session.svelte)
+   - [`src/lib/components/v3/V3Download.svelte`](/dekstop-app/src/lib/components/v3/V3Download.svelte)
 3. **Removed Dangerous Fake Offline Catalog Fallback**:
    In `V1CategoryFrame.svelte`, replaced the hardcoded fake template array and "Gunakan Mode Offline" button with a clean error view and a "Coba Lagi" (Retry) action button to prevent ID mismatch corruption.
 
@@ -54,15 +54,15 @@ When users clicked "Gunakan Mode Offline", hardcoded fake IDs (`'strip2'`, `'gri
 
 #### Changes Implemented
 1. **Early Viewfinder Re-enable**:
-   Moved `set_viewfinder(camera, true)` in [`src-tauri/src/gphoto.rs`](file:///home/dwiwahyuilahi/Personal/Projects/PotoHub/source-code/dekstop-app/src-tauri/src/gphoto.rs#L216-L218) to execute immediately after `camera.fs().download()` completes, restoring liveview frame capture faster.
+   Moved `set_viewfinder(camera, true)` in [`src-tauri/src/gphoto.rs`](/dekstop-app/src-tauri/src/gphoto.rs#L216-L218) to execute immediately after `camera.fs().download()` completes, restoring liveview frame capture faster.
 2. **Increased Buffer Size & Retention Window**:
-   - Expanded `LiveviewBuffer` capacity from 8,000 ms to 12,000 ms in [`src-tauri/src/lib.rs`](file:///home/dwiwahyuilahi/Personal/Projects/PotoHub/source-code/dekstop-app/src-tauri/src/lib.rs#L253).
-   - Increased default `liveviewClipPostSecs` from 1.5s to 2.5s in [`src/lib/stores/boothConfig.svelte.ts`](file:///home/dwiwahyuilahi/Personal/Projects/PotoHub/source-code/dekstop-app/src/lib/stores/boothConfig.svelte.ts#L42).
+   - Expanded `LiveviewBuffer` capacity from 8,000 ms to 12,000 ms in [`src-tauri/src/lib.rs`](/dekstop-app/src-tauri/src/lib.rs#L253).
+   - Increased default `liveviewClipPostSecs` from 1.5s to 2.5s in [`src/lib/stores/boothConfig.svelte.ts`](/dekstop-app/src/lib/stores/boothConfig.svelte.ts#L42).
 3. **Explicit Extraction & Buffer Logging**:
-   - Added `console.log` and `console.warn` inside `extractLiveviewClipNonWebcam()` in [`src/lib/camera.svelte.ts`](file:///home/dwiwahyuilahi/Personal/Projects/PotoHub/source-code/dekstop-app/src/lib/camera.svelte.ts#L265-L269).
-   - Added Rust logging in `get_liveview_clip_frames` in [`src-tauri/src/lib.rs`](file:///home/dwiwahyuilahi/Personal/Projects/PotoHub/source-code/dekstop-app/src-tauri/src/lib.rs#L105-L113) reporting `total_buffer`, `matched_window`, `capture_ts`, and `range`.
+   - Added `console.log` and `console.warn` inside `extractLiveviewClipNonWebcam()` in [`src/lib/camera.svelte.ts`](/dekstop-app/src/lib/camera.svelte.ts#L265-L269).
+   - Added Rust logging in `get_liveview_clip_frames` in [`src-tauri/src/lib.rs`](/dekstop-app/src-tauri/src/lib.rs#L105-L113) reporting `total_buffer`, `matched_window`, `capture_ts`, and `range`.
 4. **Resilient Session Video Asset Handling**:
-   Added explicit status logging and non-blocking failure reporting in [`src/lib/utils/sessionAssets.ts`](file:///home/dwiwahyuilahi/Personal/Projects/PotoHub/source-code/dekstop-app/src/lib/utils/sessionAssets.ts#L90-L142).
+   Added explicit status logging and non-blocking failure reporting in [`src/lib/utils/sessionAssets.ts`](/dekstop-app/src/lib/utils/sessionAssets.ts#L90-L142).
 
 ---
 
@@ -73,11 +73,11 @@ In `uploadSessionMedia()`, when HTTP responses were not OK, it logged a generic 
 
 #### Changes Implemented
 1. **Detailed Status & Body Error Handling in `uploadSessionMedia`**:
-   Updated [`src/lib/api/boothClient.ts`](file:///home/dwiwahyuilahi/Personal/Projects/PotoHub/source-code/dekstop-app/src/lib/api/boothClient.ts#L496-L514) to read `res.text()`, output HTTP status codes with full body payload upon error, and throw an explicit `Error`.
+   Updated [`src/lib/api/boothClient.ts`](/dekstop-app/src/lib/api/boothClient.ts#L496-L514) to read `res.text()`, output HTTP status codes with full body payload upon error, and throw an explicit `Error`.
 2. **Pipeline Logging in `uploadGalleryAsset`**:
-   Added step-by-step logging in [`src/lib/api/boothClient.ts`](file:///home/dwiwahyuilahi/Personal/Projects/PotoHub/source-code/dekstop-app/src/lib/api/boothClient.ts#L449-L473) showing asset file type, byte size, presigned URL acquisition, R2 PUT upload success/failure, and metadata registration.
+   Added step-by-step logging in [`src/lib/api/boothClient.ts`](/dekstop-app/src/lib/api/boothClient.ts#L449-L473) showing asset file type, byte size, presigned URL acquisition, R2 PUT upload success/failure, and metadata registration.
 3. **Execution Diagnostics in `saveSessionAssets`**:
-   Added initial log entry in [`src/lib/utils/sessionAssets.ts`](file:///home/dwiwahyuilahi/Personal/Projects/PotoHub/source-code/dekstop-app/src/lib/utils/sessionAssets.ts#L25-L31) outputting session parameters, count of raw photos taken, and count of valid liveview clips.
+   Added initial log entry in [`src/lib/utils/sessionAssets.ts`](/dekstop-app/src/lib/utils/sessionAssets.ts#L25-L31) outputting session parameters, count of raw photos taken, and count of valid liveview clips.
 
 ---
 
@@ -101,20 +101,20 @@ $ cargo check (in src-tauri)
 
 | File Path | Description of Changes |
 | :--- | :--- |
-| [`src/lib/api/boothClient.ts`](file:///home/dwiwahyuilahi/Personal/Projects/PotoHub/source-code/dekstop-app/src/lib/api/boothClient.ts) | Added `requireActiveBoothId()`, detailed status/body logging & error throwing in `uploadGalleryAsset` and `uploadSessionMedia`. |
-| [`src/lib/components/v1/V1CategoryFrame.svelte`](file:///home/dwiwahyuilahi/Personal/Projects/PotoHub/source-code/dekstop-app/src/lib/components/v1/V1CategoryFrame.svelte) | Uses `requireActiveBoothId()`, replaced fake offline IDs with retry button. |
-| [`src/lib/components/v1/V1Camera.svelte`](file:///home/dwiwahyuilahi/Personal/Projects/PotoHub/source-code/dekstop-app/src/lib/components/v1/V1Camera.svelte) | Uses `requireActiveBoothId()`. |
-| [`src/lib/components/v1/V1Customize.svelte`](file:///home/dwiwahyuilahi/Personal/Projects/PotoHub/source-code/dekstop-app/src/lib/components/v1/V1Customize.svelte) | Uses `requireActiveBoothId()`, fixed `addSticker` signature for `StickerPicker`. |
-| [`src/lib/components/v1/V1Complete.svelte`](file:///home/dwiwahyuilahi/Personal/Projects/PotoHub/source-code/dekstop-app/src/lib/components/v1/V1Complete.svelte) | Uses `requireActiveBoothId()`. |
-| [`src/lib/components/v2/V2Session.svelte`](file:///home/dwiwahyuilahi/Personal/Projects/PotoHub/source-code/dekstop-app/src/lib/components/v2/V2Session.svelte) | Uses `requireActiveBoothId()`. |
-| [`src/lib/components/v2/V2Download.svelte`](file:///home/dwiwahyuilahi/Personal/Projects/PotoHub/source-code/dekstop-app/src/lib/components/v2/V2Download.svelte) | Uses `requireActiveBoothId()`. |
-| [`src/lib/components/v3/V3Session.svelte`](file:///home/dwiwahyuilahi/Personal/Projects/PotoHub/source-code/dekstop-app/src/lib/components/v3/V3Session.svelte) | Uses `requireActiveBoothId()`. |
-| [`src/lib/components/v3/V3Download.svelte`](file:///home/dwiwahyuilahi/Personal/Projects/PotoHub/source-code/dekstop-app/src/lib/components/v3/V3Download.svelte) | Uses `requireActiveBoothId()`. |
-| [`src/lib/camera.svelte.ts`](file:///home/dwiwahyuilahi/Personal/Projects/PotoHub/source-code/dekstop-app/src/lib/camera.svelte.ts) | Added liveview extraction window logging and buffer warnings. |
-| [`src/lib/stores/boothConfig.svelte.ts`](file:///home/dwiwahyuilahi/Personal/Projects/PotoHub/source-code/dekstop-app/src/lib/stores/boothConfig.svelte.ts) | Increased default `liveviewClipPostSecs` to 2.5s. |
-| [`src/lib/utils/sessionAssets.ts`](file:///home/dwiwahyuilahi/Personal/Projects/PotoHub/source-code/dekstop-app/src/lib/utils/sessionAssets.ts) | Added `saveSessionAssets` entry diagnostics and video clip status logging. |
-| [`src-tauri/src/lib.rs`](file:///home/dwiwahyuilahi/Personal/Projects/PotoHub/source-code/dekstop-app/src-tauri/src/lib.rs) | Added `get_liveview_clip_frames` logging, expanded `LiveviewBuffer` capacity to 12000 ms. |
-| [`src-tauri/src/gphoto.rs`](file:///home/dwiwahyuilahi/Personal/Projects/PotoHub/source-code/dekstop-app/src-tauri/src/gphoto.rs) | Re-enabled viewfinder immediately after photo download completes in `capture_photo()`. |
+| [`src/lib/api/boothClient.ts`](/dekstop-app/src/lib/api/boothClient.ts) | Added `requireActiveBoothId()`, detailed status/body logging & error throwing in `uploadGalleryAsset` and `uploadSessionMedia`. |
+| [`src/lib/components/v1/V1CategoryFrame.svelte`](/dekstop-app/src/lib/components/v1/V1CategoryFrame.svelte) | Uses `requireActiveBoothId()`, replaced fake offline IDs with retry button. |
+| [`src/lib/components/v1/V1Camera.svelte`](/dekstop-app/src/lib/components/v1/V1Camera.svelte) | Uses `requireActiveBoothId()`. |
+| [`src/lib/components/v1/V1Customize.svelte`](/dekstop-app/src/lib/components/v1/V1Customize.svelte) | Uses `requireActiveBoothId()`, fixed `addSticker` signature for `StickerPicker`. |
+| [`src/lib/components/v1/V1Complete.svelte`](/dekstop-app/src/lib/components/v1/V1Complete.svelte) | Uses `requireActiveBoothId()`. |
+| [`src/lib/components/v2/V2Session.svelte`](/dekstop-app/src/lib/components/v2/V2Session.svelte) | Uses `requireActiveBoothId()`. |
+| [`src/lib/components/v2/V2Download.svelte`](/dekstop-app/src/lib/components/v2/V2Download.svelte) | Uses `requireActiveBoothId()`. |
+| [`src/lib/components/v3/V3Session.svelte`](/dekstop-app/src/lib/components/v3/V3Session.svelte) | Uses `requireActiveBoothId()`. |
+| [`src/lib/components/v3/V3Download.svelte`](/dekstop-app/src/lib/components/v3/V3Download.svelte) | Uses `requireActiveBoothId()`. |
+| [`src/lib/camera.svelte.ts`](/dekstop-app/src/lib/camera.svelte.ts) | Added liveview extraction window logging and buffer warnings. |
+| [`src/lib/stores/boothConfig.svelte.ts`](/dekstop-app/src/lib/stores/boothConfig.svelte.ts) | Increased default `liveviewClipPostSecs` to 2.5s. |
+| [`src/lib/utils/sessionAssets.ts`](/dekstop-app/src/lib/utils/sessionAssets.ts) | Added `saveSessionAssets` entry diagnostics and video clip status logging. |
+| [`src-tauri/src/lib.rs`](/dekstop-app/src-tauri/src/lib.rs) | Added `get_liveview_clip_frames` logging, expanded `LiveviewBuffer` capacity to 12000 ms. |
+| [`src-tauri/src/gphoto.rs`](/dekstop-app/src-tauri/src/gphoto.rs) | Re-enabled viewfinder immediately after photo download completes in `capture_photo()`. |
 
 ---
 

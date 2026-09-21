@@ -1,4 +1,4 @@
-import { invoke } from '@tauri-apps/api/core';
+import { invoke, convertFileSrc } from '@tauri-apps/api/core';
 import { getAssetCacheMeta } from '$lib/db/local';
 
 export interface TextStyle {
@@ -120,15 +120,28 @@ class UIConfigStore {
 
   async resolveCachedAssets() {
     for (const s of this.config.stepStyles ?? []) {
-      if (s.bgType === 'image' && s.bgValue && !s.bgValue.startsWith('data:')) {
+      if (
+        s.bgType === 'image' &&
+        s.bgValue &&
+        !s.bgValue.startsWith('data:') &&
+        !s.bgValue.startsWith('asset:') &&
+        !s.bgValue.startsWith('http://asset.localhost')
+      ) {
         try {
           const meta = await getAssetCacheMeta(s.bgValue);
           if (meta) {
-            const dataUrl = await invoke<string | null>('read_cached_asset', {
+            const filePath = await invoke<string | null>('get_cached_asset_path', {
               cacheKey: meta.cache_key,
             });
-            if (dataUrl) {
-              this.resolvedBackgrounds[s.bgValue] = dataUrl;
+            if (filePath) {
+              this.resolvedBackgrounds[s.bgValue] = convertFileSrc(filePath);
+            } else {
+              const dataUrl = await invoke<string | null>('read_cached_asset', {
+                cacheKey: meta.cache_key,
+              });
+              if (dataUrl) {
+                this.resolvedBackgrounds[s.bgValue] = dataUrl;
+              }
             }
           }
         } catch (e) {
@@ -136,15 +149,27 @@ class UIConfigStore {
         }
       }
     }
-    if (this.config.tutorialImageUrl && !this.config.tutorialImageUrl.startsWith('data:')) {
+    if (
+      this.config.tutorialImageUrl &&
+      !this.config.tutorialImageUrl.startsWith('data:') &&
+      !this.config.tutorialImageUrl.startsWith('asset:') &&
+      !this.config.tutorialImageUrl.startsWith('http://asset.localhost')
+    ) {
       try {
         const meta = await getAssetCacheMeta(this.config.tutorialImageUrl);
         if (meta) {
-          const dataUrl = await invoke<string | null>('read_cached_asset', {
+          const filePath = await invoke<string | null>('get_cached_asset_path', {
             cacheKey: meta.cache_key,
           });
-          if (dataUrl) {
-            this.resolvedBackgrounds[this.config.tutorialImageUrl] = dataUrl;
+          if (filePath) {
+            this.resolvedBackgrounds[this.config.tutorialImageUrl] = convertFileSrc(filePath);
+          } else {
+            const dataUrl = await invoke<string | null>('read_cached_asset', {
+              cacheKey: meta.cache_key,
+            });
+            if (dataUrl) {
+              this.resolvedBackgrounds[this.config.tutorialImageUrl] = dataUrl;
+            }
           }
         }
       } catch (e) {
@@ -173,7 +198,7 @@ class UIConfigStore {
       val.startsWith('https://') ||
       val.startsWith('data:') ||
       val.startsWith('blob:') ||
-      val.startsWith('asset://') ||
+      val.startsWith('asset:') ||
       val.startsWith('tauri://')
     ) {
       return { background: `url("${val}") center / cover no-repeat` };
@@ -197,6 +222,14 @@ class UIConfigStore {
     try {
       const meta = await getAssetCacheMeta(s.bgValue);
       if (meta) {
+        const filePath = await invoke<string | null>('get_cached_asset_path', {
+          cacheKey: meta.cache_key,
+        });
+        if (filePath) {
+          const assetUrl = convertFileSrc(filePath);
+          this.setResolvedBackground(s.bgValue, assetUrl);
+          return `url("${assetUrl}") center / cover no-repeat`;
+        }
         const dataUrl = await invoke<string | null>('read_cached_asset', {
           cacheKey: meta.cache_key,
         });

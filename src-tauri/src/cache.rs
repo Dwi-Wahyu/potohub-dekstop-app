@@ -20,7 +20,22 @@ fn sanitize_key(key: &str) -> String {
         .collect()
 }
 
-/// Download URL ke cache dir, return path relatif cache_key (bukan path absolut).
+/// Ambil path absolut file di disk cache jika ada.
+#[tauri::command]
+pub async fn get_cached_asset_path(
+    app: AppHandle,
+    cache_key: String,
+) -> Result<Option<String>, String> {
+    let key = sanitize_key(&cache_key);
+    let path = assets_dir(&app).join(&key);
+    if path.exists() {
+        Ok(Some(path.to_string_lossy().to_string()))
+    } else {
+        Ok(None)
+    }
+}
+
+/// Download URL ke cache dir, return path absolut di filesystem lokal.
 #[tauri::command]
 pub async fn download_asset_to_cache(
     app: AppHandle,
@@ -42,7 +57,7 @@ pub async fn download_asset_to_cache(
     }
     let bytes = resp.bytes().await.map_err(|e| e.to_string())?;
     std::fs::write(&path, &bytes).map_err(|e| e.to_string())?;
-    Ok(key)
+    Ok(path.to_string_lossy().to_string())
 }
 
 /// Baca file cache, return data URL (konsisten dengan fetch_image_as_data_url).

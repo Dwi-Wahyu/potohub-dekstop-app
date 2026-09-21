@@ -1,4 +1,4 @@
-import { invoke } from '@tauri-apps/api/core';
+import { invoke, convertFileSrc } from '@tauri-apps/api/core';
 import {
   getApiCache,
   setApiCache,
@@ -56,44 +56,69 @@ export async function cachedFetch<T>(
 }
 
 // ============================================================================
-// ASSET CACHE — data URL dari cache lokal, atau download bila belum ada
+// ASSET CACHE — Tauri Asset Protocol (convertFileSrc) atau fallback data URL
 // ============================================================================
 
 /**
- * Cache-first untuk aset: return data URL dari cache lokal, atau download
- * bila belum ada. Tidak pernah gagal (fallback: fetch langsung sebagai
- * data URL via command `fetch_image_as_data_url`).
+ * Cache-first untuk aset: return streaming asset URL native (convertFileSrc) dari
+ * cache disk lokal, atau download bila belum ada.
+ * Menghemat memori RAM dan menghindari overhead Base64 IPC.
  */
 export async function ensureAsset(url: string): Promise<string> {
   if (!url) throw new Error('ensureAsset: url kosong');
-  if (url.startsWith('data:')) return url; // sudah data URL, tak perlu cache
+  // Jika sudah merupakan data URL, blob URL, atau asset streaming URL, langsung return
+  if (
+    url.startsWith('data:') ||
+    url.startsWith('blob:') ||
+    url.startsWith('asset:') ||
+    url.startsWith('http://asset.localhost')
+  ) {
+    return url;
+  }
 
+  // 1. Cek apakah metadata aset sudah ada di SQLite
   const meta = await getAssetCacheMeta(url);
   if (meta) {
+    try {
+      const filePath = await invoke<string | null>('get_cached_asset_path', {
+        cacheKey: meta.cache_key,
+      });
+      if (filePath) {
+        return convertFileSrc(filePath);
+      }
+    } catch (e) {
+      console.warn('[offlineCache] get_cached_asset_path gagal, coba fallback data URL:', e);
+    }
+    // Fallback: baca sebagai data URL jika get_cached_asset_path gagal
     const dataUrl = await invoke<string | null>('read_cached_asset', {
       cacheKey: meta.cache_key,
     });
     if (dataUrl) return dataUrl;
   }
 
-  const cacheKey = assetCacheKey(url); // mis. slug/hash pendek dari url
+  // 2. Download aset ke cache lokal
+  const cacheKey = assetCacheKey(url);
   try {
-    const savedKey = await invoke<string>('download_asset_to_cache', {
+    const savedAbsPath = await invoke<string>('download_asset_to_cache', {
       url,
       cacheKey,
     });
-    const dataUrl = await invoke<string>('read_cached_asset', {
-      cacheKey: savedKey,
-    });
-    if (dataUrl) {
-      await setAssetCacheMeta(url, savedKey, mimeFromUrl(url), 0);
-      return dataUrl;
+    if (savedAbsPath) {
+      await setAssetCacheMeta(url, cacheKey, mimeFromUrl(url), 0);
+      try {
+        return convertFileSrc(savedAbsPath);
+      } catch {
+        const dataUrl = await invoke<string | null>('read_cached_asset', {
+          cacheKey,
+        });
+        if (dataUrl) return dataUrl;
+      }
     }
   } catch (e) {
     console.warn('[offlineCache] download aset gagal, fallback fetch langsung:', e);
   }
 
-  // Fallback terakhir: fetch langsung sebagai data URL (konsisten dgn media.rs)
+  // 3. Fallback terakhir: fetch langsung sebagai data URL via Rust reqwest
   return invoke<string>('fetch_image_as_data_url', { url });
 }
 

@@ -105,14 +105,14 @@ This report documents the full end-to-end execution of the **libgphoto2 Camera M
 To support development and offline testing on laptops without physical DSLR hardware, the camera control stack has been expanded with WebRTC and Mock fallbacks.
 
 ### Implemented Enhancements
-1. **Multi-mode Camera Store** ([camera.svelte.ts](file:///home/dwiwahyuilahi/Personal/Projects/PotoHub/source-code/dekstop-app/src/lib/camera.svelte.ts)):
+1. **Multi-mode Camera Store** ([camera.svelte.ts](/dekstop-app/src/lib/camera.svelte.ts)):
    - Added `cameraMode = $state<"usb" | "webcam" | "demo">("usb")`.
    - **Webcam Mode**: Connects to the laptop's built-in camera using `navigator.mediaDevices.getUserMedia`. Captured frames are drawn to an offscreen canvas and serialized to JPEG `Uint8Array` bytes.
    - **Demo Mode**: Generates mock liveview canvas animations and placeholder JPEG images when no physical camera is present.
-2. **UI Config Page Selector** ([+page.svelte](file:///home/dwiwahyuilahi/Personal/Projects/PotoHub/source-code/dekstop-app/src/routes/camera-config/+page.svelte)):
+2. **UI Config Page Selector** ([+page.svelte](/dekstop-app/src/routes/camera-config/+page.svelte)):
    - Integrated dropdown selector to toggle between DSLR (USB), Laptop Webcam, and Demo Camera.
    - DSLR-specific settings (ISO, Shutter Speed, Aperture, Exposure) are conditionally rendered and only query the gphoto backend when USB DSLR mode is active.
-3. **Session View Video Pipeline** ([+page.svelte](file:///home/dwiwahyuilahi/Personal/Projects/PotoHub/source-code/dekstop-app/src/routes/session/+page.svelte)):
+3. **Session View Video Pipeline** ([+page.svelte](/dekstop-app/src/routes/session/+page.svelte)):
    - Dynamically binds and plays the webcam stream directly in a mirrored HTML5 `<video>` element when Webcam mode is active, saving CPU cycles by bypassing Tauri IPC liveview polling.
    - Gracefully falls back to polling JPEG bytes if in USB DSLR or Demo modes.
 

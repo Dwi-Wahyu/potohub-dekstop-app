@@ -78,11 +78,11 @@ Upon inspecting the source files, three main structural issues were identified:
 We modified several core frontend files to unify liveview streams across **USB DSLR**, **Webcam**, and **Demo** modes.
 
 ### 4.1 Auto-Connect on Boot
-* **File:** [`src/routes/+page.svelte`](file:///home/dwiwahyuilahi/Personal/Projects/PotoHub/source-code/dekstop-app/src/routes/+page.svelte)
+* **File:** [`src/routes/+page.svelte`](/dekstop-app/src/routes/+page.svelte)
 * **Change:** Imported `cameraStore` and wired `cameraStore.connect` inside `onMount` using the loaded `boothConfig.config.cameraMode`. The app now automatically establishes connection to the camera on boot.
 
 ### 4.2 Making Stream Reactive & Public
-* **File:** [`src/lib/camera.svelte.ts`](file:///home/dwiwahyuilahi/Personal/Projects/PotoHub/source-code/dekstop-app/src/lib/camera.svelte.ts)
+* **File:** [`src/lib/camera.svelte.ts`](/dekstop-app/src/lib/camera.svelte.ts)
 * **Change:** Exposed `stream` as public and wrapped it with Svelte 5 `$state` rune:
   ```typescript
   stream = $state<MediaStream | null>(null);
@@ -90,10 +90,10 @@ We modified several core frontend files to unify liveview streams across **USB D
 
 ### 4.3 Adapting Viewfinder UI Components
 We updated the following files:
-* [`src/lib/components/v1/V1Camera.svelte`](file:///home/dwiwahyuilahi/Personal/Projects/PotoHub/source-code/dekstop-app/src/lib/components/v1/V1Camera.svelte)
-* [`src/lib/components/v1/V1CategoryFrame.svelte`](file:///home/dwiwahyuilahi/Personal/Projects/PotoHub/source-code/dekstop-app/src/lib/components/v1/V1CategoryFrame.svelte)
-* [`src/lib/components/v2/V2Session.svelte`](file:///home/dwiwahyuilahi/Personal/Projects/PotoHub/source-code/dekstop-app/src/lib/components/v2/V2Session.svelte)
-* [`src/lib/components/v3/V3Session.svelte`](file:///home/dwiwahyuilahi/Personal/Projects/PotoHub/source-code/dekstop-app/src/lib/components/v3/V3Session.svelte)
+* [`src/lib/components/v1/V1Camera.svelte`](/dekstop-app/src/lib/components/v1/V1Camera.svelte)
+* [`src/lib/components/v1/V1CategoryFrame.svelte`](/dekstop-app/src/lib/components/v1/V1CategoryFrame.svelte)
+* [`src/lib/components/v2/V2Session.svelte`](/dekstop-app/src/lib/components/v2/V2Session.svelte)
+* [`src/lib/components/v3/V3Session.svelte`](/dekstop-app/src/lib/components/v3/V3Session.svelte)
 
 **Key changes per file:**
 1. Created Svelte 5 state variables: `let frameSrc = $state('')` and `let videoEl = $state<HTMLVideoElement | null>(null)`.

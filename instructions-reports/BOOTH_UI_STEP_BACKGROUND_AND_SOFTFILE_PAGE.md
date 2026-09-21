@@ -35,7 +35,7 @@ This report documents the implementation and verification of per-step custom bac
 ## 2. Implementation Details
 
 ### 2.1 Store `uiConfig.svelte.ts`
-* **File:** [`src/lib/stores/uiConfig.svelte.ts`](file:///home/dwiwahyuilahi/Personal/Projects/PotoHub/source-code/dekstop-app/src/lib/stores/uiConfig.svelte.ts)
+* **File:** [`src/lib/stores/uiConfig.svelte.ts`](/dekstop-app/src/lib/stores/uiConfig.svelte.ts)
 * **Actions:**
   - Defined `StepStyle` interface (`step: string`, `bgType: 'color' | 'gradient' | 'none'`, `bgValue: string | null`).
   - Added `stepStyles: StepStyle[]` to `BoothUIConfig` and `DEFAULT_UI_CONFIG`.
@@ -49,7 +49,7 @@ This report documents the implementation and verification of per-step custom bac
     ```
 
 ### 2.2 API Client Mapping `boothClient.ts`
-* **File:** [`src/lib/api/boothClient.ts`](file:///home/dwiwahyuilahi/Personal/Projects/PotoHub/source-code/dekstop-app/src/lib/api/boothClient.ts)
+* **File:** [`src/lib/api/boothClient.ts`](/dekstop-app/src/lib/api/boothClient.ts)
 * **Actions:**
   - Removed deprecated `bg_type` and `bg_value` fields from `PublicUIConfigResponse.general`.
   - Added `step_styles` to `PublicUIConfigResponse`.
@@ -57,18 +57,18 @@ This report documents the implementation and verification of per-step custom bac
 
 ### 2.3 Layout Background Applications
 * **Files:**
-  - [`src/lib/components/v3/V3Layout.svelte`](file:///home/dwiwahyuilahi/Personal/Projects/PotoHub/source-code/dekstop-app/src/lib/components/v3/V3Layout.svelte)
-  - [`src/lib/components/v1/V1Layout.svelte`](file:///home/dwiwahyuilahi/Personal/Projects/PotoHub/source-code/dekstop-app/src/lib/components/v1/V1Layout.svelte)
-  - [`src/lib/components/v2/V2Layout.svelte`](file:///home/dwiwahyuilahi/Personal/Projects/PotoHub/source-code/dekstop-app/src/lib/components/v2/V2Layout.svelte)
+  - [`src/lib/components/v3/V3Layout.svelte`](/dekstop-app/src/lib/components/v3/V3Layout.svelte)
+  - [`src/lib/components/v1/V1Layout.svelte`](/dekstop-app/src/lib/components/v1/V1Layout.svelte)
+  - [`src/lib/components/v2/V2Layout.svelte`](/dekstop-app/src/lib/components/v2/V2Layout.svelte)
 * **Actions:**
   - Bound root container element's `style:background` to `uiConfig.getStepStyle(mappedStep).background ?? undefined`.
 
 ### 2.4 Download Step & Softfile QR Code
 * **Files:**
-  - [`src/lib/stores/booth.svelte.ts`](file:///home/dwiwahyuilahi/Personal/Projects/PotoHub/source-code/dekstop-app/src/lib/stores/booth.svelte.ts)
-  - [`src/lib/components/v3/V3Download.svelte`](file:///home/dwiwahyuilahi/Personal/Projects/PotoHub/source-code/dekstop-app/src/lib/components/v3/V3Download.svelte)
-  - [`src/lib/components/v2/V2Download.svelte`](file:///home/dwiwahyuilahi/Personal/Projects/PotoHub/source-code/dekstop-app/src/lib/components/v2/V2Download.svelte)
-  - [`src/lib/components/v1/V1Complete.svelte`](file:///home/dwiwahyuilahi/Personal/Projects/PotoHub/source-code/dekstop-app/src/lib/components/v1/V1Complete.svelte)
+  - [`src/lib/stores/booth.svelte.ts`](/dekstop-app/src/lib/stores/booth.svelte.ts)
+  - [`src/lib/components/v3/V3Download.svelte`](/dekstop-app/src/lib/components/v3/V3Download.svelte)
+  - [`src/lib/components/v2/V2Download.svelte`](/dekstop-app/src/lib/components/v2/V2Download.svelte)
+  - [`src/lib/components/v1/V1Complete.svelte`](/dekstop-app/src/lib/components/v1/V1Complete.svelte)
 * **Actions:**
   - Added `sessionId` to `boothFlow` store.
   - Implemented reactive QR generation with `QRCode.toDataURL(`${ADMIN_DASHBOARD_PUBLIC_URL}/s/${sessionId}`)`.

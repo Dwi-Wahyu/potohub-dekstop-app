@@ -511,6 +511,7 @@ pub fn run() {
             media::encode_jpeg_frames_to_video,
             media::compose_template_video,
             cache::download_asset_to_cache,
+            cache::get_cached_asset_path,
             cache::read_cached_asset,
             storage::save_session_file,
             storage::save_session_manifest,

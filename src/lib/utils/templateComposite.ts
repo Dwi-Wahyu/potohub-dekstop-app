@@ -140,15 +140,15 @@ async function loadImage(src: string): Promise<HTMLImageElement | null> {
     });
   }
 
-  // 2. In Tauri environment: try local offline cache first via ensureAsset (reads cached disk or downloads if missing)
+  // 2. In Tauri environment: try local offline cache first via ensureAsset (streaming asset protocol or data URL)
   try {
-    const dataUrl = await ensureAsset(src);
-    if (dataUrl && dataUrl.startsWith('data:')) {
+    const assetUrl = await ensureAsset(src);
+    if (assetUrl) {
       return new Promise((resolve) => {
         const img = new Image();
         img.onload = () => resolve(img);
         img.onerror = () => resolve(null);
-        img.src = dataUrl;
+        img.src = assetUrl;
       });
     }
   } catch (err) {

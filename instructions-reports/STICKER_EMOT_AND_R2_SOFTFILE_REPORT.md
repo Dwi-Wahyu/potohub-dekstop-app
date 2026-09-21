@@ -88,11 +88,11 @@ Updated `compositeTemplateImage()` to draw chosen `stickers` (defaulting to `boo
 
 | File | Description |
 | :--- | :--- |
-| [`src/lib/api/boothClient.ts`](file:///home/dwiwahyuilahi/Personal/Projects/PotoHub/source-code/dekstop-app/src/lib/api/boothClient.ts) | Added `BoothEmot` interface and `fetchEmots()` function. |
-| [`src/lib/stores/booth.svelte.ts`](file:///home/dwiwahyuilahi/Personal/Projects/PotoHub/source-code/dekstop-app/src/lib/stores/booth.svelte.ts) | Added `stickers` state and reset handling in `boothFlow`. |
-| [`src/lib/components/shared/StickerPicker.svelte`](file:///home/dwiwahyuilahi/Personal/Projects/PotoHub/source-code/dekstop-app/src/lib/components/shared/StickerPicker.svelte) | Support `emots` prop for image and emoji stickers from backend. |
-| [`src/lib/components/shared/StickerCanvas.svelte`](file:///home/dwiwahyuilahi/Personal/Projects/PotoHub/source-code/dekstop-app/src/lib/components/shared/StickerCanvas.svelte) | Fixed drag and positioning container for image stickers. |
-| [`src/lib/utils/templateComposite.ts`](file:///home/dwiwahyuilahi/Personal/Projects/PotoHub/source-code/dekstop-app/src/lib/utils/templateComposite.ts) | Added high-res canvas drawing for image & emoji stickers in `compositeTemplateImage()`. |
-| [`src/lib/components/v1/V1Customize.svelte`](file:///home/dwiwahyuilahi/Personal/Projects/PotoHub/source-code/dekstop-app/src/lib/components/v1/V1Customize.svelte) | Integrated backend emots fetching and synced stickers with `boothFlow`. |
-| [`src/lib/components/v2/V2Filter.svelte`](file:///home/dwiwahyuilahi/Personal/Projects/PotoHub/source-code/dekstop-app/src/lib/components/v2/V2Filter.svelte) | Added `StickerCanvas` preview, backend emots picker, and `boothFlow.stickers` sync. |
-| [`src/lib/components/v3/V3Filter.svelte`](file:///home/dwiwahyuilahi/Personal/Projects/PotoHub/source-code/dekstop-app/src/lib/components/v3/V3Filter.svelte) | Added `StickerCanvas` preview, backend emots picker, and `boothFlow.stickers` sync. |
+| [`src/lib/api/boothClient.ts`](/dekstop-app/src/lib/api/boothClient.ts) | Added `BoothEmot` interface and `fetchEmots()` function. |
+| [`src/lib/stores/booth.svelte.ts`](/dekstop-app/src/lib/stores/booth.svelte.ts) | Added `stickers` state and reset handling in `boothFlow`. |
+| [`src/lib/components/shared/StickerPicker.svelte`](/dekstop-app/src/lib/components/shared/StickerPicker.svelte) | Support `emots` prop for image and emoji stickers from backend. |
+| [`src/lib/components/shared/StickerCanvas.svelte`](/dekstop-app/src/lib/components/shared/StickerCanvas.svelte) | Fixed drag and positioning container for image stickers. |
+| [`src/lib/utils/templateComposite.ts`](/dekstop-app/src/lib/utils/templateComposite.ts) | Added high-res canvas drawing for image & emoji stickers in `compositeTemplateImage()`. |
+| [`src/lib/components/v1/V1Customize.svelte`](/dekstop-app/src/lib/components/v1/V1Customize.svelte) | Integrated backend emots fetching and synced stickers with `boothFlow`. |
+| [`src/lib/components/v2/V2Filter.svelte`](/dekstop-app/src/lib/components/v2/V2Filter.svelte) | Added `StickerCanvas` preview, backend emots picker, and `boothFlow.stickers` sync. |
+| [`src/lib/components/v3/V3Filter.svelte`](/dekstop-app/src/lib/components/v3/V3Filter.svelte) | Added `StickerCanvas` preview, backend emots picker, and `boothFlow.stickers` sync. |

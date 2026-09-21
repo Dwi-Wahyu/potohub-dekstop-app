@@ -26,8 +26,8 @@ We modified and updated several core components and API adapters to achieve dyna
 
 ### 2.1 Public UI Config Mapper & Response Mapping (§1)
 * **Files:** 
-  * [`src/lib/stores/uiConfig.svelte.ts`](file:///home/dwiwahyuilahi/Personal/Projects/PotoHub/source-code/dekstop-app/src/lib/stores/uiConfig.svelte.ts)
-  * [`src/lib/api/boothClient.ts`](file:///home/dwiwahyuilahi/Personal/Projects/PotoHub/source-code/dekstop-app/src/lib/api/boothClient.ts)
+  * [`src/lib/stores/uiConfig.svelte.ts`](/dekstop-app/src/lib/stores/uiConfig.svelte.ts)
+  * [`src/lib/api/boothClient.ts`](/dekstop-app/src/lib/api/boothClient.ts)
 * **Action:**
   1. Defined the `ElementPosition` interface.
   2. Added `elementPositions` as a new field inside the `BoothUIConfig` interface and initialized it to `[]` in `DEFAULT_UI_CONFIG`.
@@ -41,8 +41,8 @@ We modified and updated several core components and API adapters to achieve dyna
 
 ### 2.2 Dynamic Start Button Positioning in Variant 1 (§2)
 * **Files:**
-  * [`src/lib/stores/uiConfig.svelte.ts`](file:///home/dwiwahyuilahi/Personal/Projects/PotoHub/source-code/dekstop-app/src/lib/stores/uiConfig.svelte.ts)
-  * [`src/lib/components/v1/V1Landing.svelte`](file:///home/dwiwahyuilahi/Personal/Projects/PotoHub/source-code/dekstop-app/src/lib/components/v1/V1Landing.svelte)
+  * [`src/lib/stores/uiConfig.svelte.ts`](/dekstop-app/src/lib/stores/uiConfig.svelte.ts)
+  * [`src/lib/components/v1/V1Landing.svelte`](/dekstop-app/src/lib/components/v1/V1Landing.svelte)
 * **Action:**
   1. Added a helper method `getElementPosition(screenKey, elementKey, fallback)` to `UIConfigStore` to fetch percent positions safely.
   2. In `V1Landing.svelte`, imported `uiConfig` and derived the start button position:
@@ -56,8 +56,8 @@ We modified and updated several core components and API adapters to achieve dyna
 
 ### 2.3 Dynamic Categories & Templates Integration (§3)
 * **Files:**
-  * [`src/lib/api/boothClient.ts`](file:///home/dwiwahyuilahi/Personal/Projects/PotoHub/source-code/dekstop-app/src/lib/api/boothClient.ts)
-  * [`src/lib/components/v1/V1CategoryFrame.svelte`](file:///home/dwiwahyuilahi/Personal/Projects/PotoHub/source-code/dekstop-app/src/lib/components/v1/V1CategoryFrame.svelte)
+  * [`src/lib/api/boothClient.ts`](/dekstop-app/src/lib/api/boothClient.ts)
+  * [`src/lib/components/v1/V1CategoryFrame.svelte`](/dekstop-app/src/lib/components/v1/V1CategoryFrame.svelte)
 * **Action:**
   1. Added `fetchCategories` and `fetchTemplates` functions querying `/api/booths/{boothId}/categories` and `/api/booths/{boothId}/templates` endpoints.
   2. Substituted the hardcoded mocks in `V1CategoryFrame.svelte` with reactive `categoriesData` and `templatesData` state variables.

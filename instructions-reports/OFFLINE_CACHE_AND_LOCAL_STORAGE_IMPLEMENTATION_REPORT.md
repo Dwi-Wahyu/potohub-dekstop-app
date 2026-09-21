@@ -190,24 +190,24 @@ Pola di komponen: `await cachedFetch(key, () => fetchTemplates(boothId), (t) => 
 
 ### Ditambah
 
-1. [`src-tauri/src/cache.rs`](file:///home/dwiwahyuilahi/Personal/Projects/PotoHub/source-code/dekstop-app/src-tauri/src/cache.rs) — command download & baca aset cache.
-2. [`src-tauri/src/storage.rs`](file:///home/dwiwahyuilahi/Personal/Projects/PotoHub/source-code/dekstop-app/src-tauri/src/storage.rs) — command simpan file & manifest sesi.
-3. [`src/lib/utils/offlineCache.ts`](file:///home/dwiwahyuilahi/Personal/Projects/PotoHub/source-code/dekstop-app/src/lib/utils/offlineCache.ts) — `readApiCache`/`writeApiCache`/`ensureAsset`/`cachedFetch`.
-4. [`src/lib/api/prefetch.ts`](file:///home/dwiwahyuilahi/Personal/Projects/PotoHub/source-code/dekstop-app/src/lib/api/prefetch.ts) — `prefetchBoothAssets()`.
-5. [`src/lib/utils/localSessionStorage.ts`](file:///home/dwiwahyuilahi/Personal/Projects/PotoHub/source-code/dekstop-app/src/lib/utils/localSessionStorage.ts) — `saveLocalSessionAssets()`.
-6. [`instructions-reports/OFFLINE_CACHE_AND_LOCAL_STORAGE_IMPLEMENTATION_REPORT.md`](file:///home/dwiwahyuilahi/Personal/Projects/PotoHub/source-code/dekstop-app/instructions-reports/OFFLINE_CACHE_AND_LOCAL_STORAGE_IMPLEMENTATION_REPORT.md) — Laporan ini.
+1. [`src-tauri/src/cache.rs`](/dekstop-app/src-tauri/src/cache.rs) — command download & baca aset cache.
+2. [`src-tauri/src/storage.rs`](/dekstop-app/src-tauri/src/storage.rs) — command simpan file & manifest sesi.
+3. [`src/lib/utils/offlineCache.ts`](/dekstop-app/src/lib/utils/offlineCache.ts) — `readApiCache`/`writeApiCache`/`ensureAsset`/`cachedFetch`.
+4. [`src/lib/api/prefetch.ts`](/dekstop-app/src/lib/api/prefetch.ts) — `prefetchBoothAssets()`.
+5. [`src/lib/utils/localSessionStorage.ts`](/dekstop-app/src/lib/utils/localSessionStorage.ts) — `saveLocalSessionAssets()`.
+6. [`instructions-reports/OFFLINE_CACHE_AND_LOCAL_STORAGE_IMPLEMENTATION_REPORT.md`](/dekstop-app/instructions-reports/OFFLINE_CACHE_AND_LOCAL_STORAGE_IMPLEMENTATION_REPORT.md) — Laporan ini.
 
 ### Diubah
 
-7. [`src-tauri/src/lib.rs`](file:///home/dwiwahyuilahi/Personal/Projects/PotoHub/source-code/dekstop-app/src-tauri/src/lib.rs) — migration v2 (`api_cache`) & v3 (`asset_cache`), `mod cache/storage`, 4 command baru di `invoke_handler`.
-8. [`src/lib/db/local.ts`](file:///home/dwiwahyuilahi/Personal/Projects/PotoHub/source-code/dekstop-app/src/lib/db/local.ts) — `getApiCache`/`setApiCache`/`getAssetCacheMeta`/`setAssetCacheMeta`.
-9. [`src/lib/api/boothClient.ts`](file:///home/dwiwahyuilahi/Personal/Projects/PotoHub/source-code/dekstop-app/src/lib/api/boothClient.ts) — `fetchAndCacheUiConfig()` SWR + `syncBoothSettings()` panggil prefetch.
-10. [`src/lib/utils/sessionAssets.ts`](file:///home/dwiwahyuilahi/Personal/Projects/PotoHub/source-code/dekstop-app/src/lib/utils/sessionAssets.ts) — integrasi `saveLocalSessionAssets` (paralel, non-blocking).
+7. [`src-tauri/src/lib.rs`](/dekstop-app/src-tauri/src/lib.rs) — migration v2 (`api_cache`) & v3 (`asset_cache`), `mod cache/storage`, 4 command baru di `invoke_handler`.
+8. [`src/lib/db/local.ts`](/dekstop-app/src/lib/db/local.ts) — `getApiCache`/`setApiCache`/`getAssetCacheMeta`/`setAssetCacheMeta`.
+9. [`src/lib/api/boothClient.ts`](/dekstop-app/src/lib/api/boothClient.ts) — `fetchAndCacheUiConfig()` SWR + `syncBoothSettings()` panggil prefetch.
+10. [`src/lib/utils/sessionAssets.ts`](/dekstop-app/src/lib/utils/sessionAssets.ts) — integrasi `saveLocalSessionAssets` (paralel, non-blocking).
 11. `src/lib/components/v1/V1CategoryFrame.svelte`, `V1Camera.svelte`, `V1Customize.svelte`, `V1Complete.svelte` — `cachedFetch` untuk categories/templates.
 12. `src/lib/components/v2/V2Session.svelte`, `V2Download.svelte` — `cachedFetch` untuk templates.
 13. `src/lib/components/v3/V3Session.svelte`, `V3Download.svelte` — `cachedFetch` untuk templates.
-14. [`src/routes/onboarding/+page.svelte`](file:///home/dwiwahyuilahi/Personal/Projects/PotoHub/source-code/dekstop-app/src/routes/onboarding/+page.svelte) — prefetch setelah aktivasi.
-15. [`src/routes/+page.svelte`](file:///home/dwiwahyuilahi/Personal/Projects/PotoHub/source-code/dekstop-app/src/routes/+page.svelte) — prefetch saat boot.
+14. [`src/routes/onboarding/+page.svelte`](/dekstop-app/src/routes/onboarding/+page.svelte) — prefetch setelah aktivasi.
+15. [`src/routes/+page.svelte`](/dekstop-app/src/routes/+page.svelte) — prefetch saat boot.
 
 ---
 

@@ -71,7 +71,7 @@ The implementation is seamlessly customized to match the unique design systems a
 ## 3. Key Components & Implementation Details
 
 ### 3.1 Type Definitions
-* **File:** [`src/lib/types/qr.ts`](file:///home/dwiwahyuilahi/Personal/Projects/PotoHub/source-code/dekstop-app/src/lib/types/qr.ts)
+* **File:** [`src/lib/types/qr.ts`](/dekstop-app/src/lib/types/qr.ts)
 * **Definitions:**
   - `QrPoint`: `{ x: number; y: number }`
   - `QrScanResult`: `{ content: string; cornerPoints: QrPoint[] }`
@@ -80,7 +80,7 @@ The implementation is seamlessly customized to match the unique design systems a
 ---
 
 ### 3.2 Core Shared Scanner Component
-* **File:** [`src/lib/components/shared/QrTicketScanner.svelte`](file:///home/dwiwahyuilahi/Personal/Projects/PotoHub/source-code/dekstop-app/src/lib/components/shared/QrTicketScanner.svelte)
+* **File:** [`src/lib/components/shared/QrTicketScanner.svelte`](/dekstop-app/src/lib/components/shared/QrTicketScanner.svelte)
 * **Key Features:**
   1. **Dual Detection Engine**:
      - Uses `window.BarcodeDetector` with `{ formats: ['qr_code'] }` for hardware-accelerated detection.
@@ -104,7 +104,7 @@ The implementation is seamlessly customized to match the unique design systems a
 ---
 
 ### 3.3 Backend Tauri Command
-* **File:** [`src-tauri/src/lib.rs`](file:///home/dwiwahyuilahi/Personal/Projects/PotoHub/source-code/dekstop-app/src-tauri/src/lib.rs)
+* **File:** [`src-tauri/src/lib.rs`](/dekstop-app/src-tauri/src/lib.rs)
 * **Implementation:**
   ```rust
   #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
@@ -132,7 +132,7 @@ The implementation is seamlessly customized to match the unique design systems a
 ### 3.4 Variant-Specific UI Implementations
 
 #### A. V1 Theme: Dark Cyber Modern Photobooth
-* **File:** [`src/lib/components/v1/V1TicketScan.svelte`](file:///home/dwiwahyuilahi/Personal/Projects/PotoHub/source-code/dekstop-app/src/lib/components/v1/V1TicketScan.svelte)
+* **File:** [`src/lib/components/v1/V1TicketScan.svelte`](/dekstop-app/src/lib/components/v1/V1TicketScan.svelte)
 * **Styling & Design:**
   - Background: `#090810` dark aesthetic with typography `Plus Jakarta Sans`.
   - Accent Color: `#3b82f6` / `#93c5fd` electric blue.
@@ -142,7 +142,7 @@ The implementation is seamlessly customized to match the unique design systems a
   - Verification: Calls `validateAndRedeemQrTicket(token, boothId)` from `$lib/api/boothClient` and routes to `onSuccess()`.
 
 #### B. V2 Theme: Retro Neo-Brutalist Photobooth
-* **File:** [`src/lib/components/v2/V2Ticket.svelte`](file:///home/dwiwahyuilahi/Personal/Projects/PotoHub/source-code/dekstop-app/src/lib/components/v2/V2Ticket.svelte)
+* **File:** [`src/lib/components/v2/V2Ticket.svelte`](/dekstop-app/src/lib/components/v2/V2Ticket.svelte)
 * **Styling & Design:**
   - Background: `#fafafa` with `#C7EED8` mint header bar.
   - Typography: `Playfair Display` + `Nunito` + `Courier New`.
@@ -153,7 +153,7 @@ The implementation is seamlessly customized to match the unique design systems a
   - Verification: Calls `validateAndRedeemQrTicket(token, boothId)` and triggers `onConfirm()`.
 
 #### C. V3 Theme: Luxury Cyber Gold Studio
-* **File:** [`src/lib/components/v3/V3Ticket.svelte`](file:///home/dwiwahyuilahi/Personal/Projects/PotoHub/source-code/dekstop-app/src/lib/components/v3/V3Ticket.svelte)
+* **File:** [`src/lib/components/v3/V3Ticket.svelte`](/dekstop-app/src/lib/components/v3/V3Ticket.svelte)
 * **Styling & Design:**
   - Background: `#0a0a0f` deep dark background with `#FFC107` amber/gold glowing accents.
   - Typography: `Inter` + `Space Mono`.
@@ -164,7 +164,7 @@ The implementation is seamlessly customized to match the unique design systems a
   - Verification: Calls `validateAndRedeemQrTicket(token, boothId)` and triggers `onConfirm()`.
 
 #### D. Custom Layout Support
-* **File:** [`src/lib/components/custom/CustomLayout.svelte`](file:///home/dwiwahyuilahi/Personal/Projects/PotoHub/source-code/dekstop-app/src/lib/components/custom/CustomLayout.svelte)
+* **File:** [`src/lib/components/custom/CustomLayout.svelte`](/dekstop-app/src/lib/components/custom/CustomLayout.svelte)
 * **Enhancements:**
   - Added `'ticket'` substep mapping to `V1TicketScan` when user selects ticket payment method in custom layout.
 
@@ -187,11 +187,11 @@ The implementation is seamlessly customized to match the unique design systems a
 
 ## 5. Summary of Modified & Added Files
 
-1. [`src/lib/types/qr.ts`](file:///home/dwiwahyuilahi/Personal/Projects/PotoHub/source-code/dekstop-app/src/lib/types/qr.ts) — Created QR types (`QrPoint`, `QrScanResult`, `QrScanStatus`).
-2. [`src/lib/components/shared/QrTicketScanner.svelte`](file:///home/dwiwahyuilahi/Personal/Projects/PotoHub/source-code/dekstop-app/src/lib/components/shared/QrTicketScanner.svelte) — Created reusable high-performance QR scanner with dynamic bounding box.
-3. [`src/lib/components/v1/V1TicketScan.svelte`](file:///home/dwiwahyuilahi/Personal/Projects/PotoHub/source-code/dekstop-app/src/lib/components/v1/V1TicketScan.svelte) — Updated V1 ticket scanning step with blue dynamic bounding box and verification.
-4. [`src/lib/components/v2/V2Ticket.svelte`](file:///home/dwiwahyuilahi/Personal/Projects/PotoHub/source-code/dekstop-app/src/lib/components/v2/V2Ticket.svelte) — Upgraded V2 ticket step to dual QR scanner with neo-brutalist styling.
-5. [`src/lib/components/v3/V3Ticket.svelte`](file:///home/dwiwahyuilahi/Personal/Projects/PotoHub/source-code/dekstop-app/src/lib/components/v3/V3Ticket.svelte) — Upgraded V3 ticket step to dual QR scanner with luxury cyber gold styling.
-6. [`src/lib/components/custom/CustomLayout.svelte`](file:///home/dwiwahyuilahi/Personal/Projects/PotoHub/source-code/dekstop-app/src/lib/components/custom/CustomLayout.svelte) — Integrated ticket scan substep for custom layout.
-7. [`src-tauri/src/lib.rs`](file:///home/dwiwahyuilahi/Personal/Projects/PotoHub/source-code/dekstop-app/src-tauri/src/lib.rs) — Added `save_qr_result` Tauri command.
-8. [`instructions-reports/TICKET_SCAN_BOUNDING_BOX_IMPLEMENTATION_REPORT.md`](file:///home/dwiwahyuilahi/Personal/Projects/PotoHub/source-code/dekstop-app/instructions-reports/TICKET_SCAN_BOUNDING_BOX_IMPLEMENTATION_REPORT.md) — Implementation report.
+1. [`src/lib/types/qr.ts`](/dekstop-app/src/lib/types/qr.ts) — Created QR types (`QrPoint`, `QrScanResult`, `QrScanStatus`).
+2. [`src/lib/components/shared/QrTicketScanner.svelte`](/dekstop-app/src/lib/components/shared/QrTicketScanner.svelte) — Created reusable high-performance QR scanner with dynamic bounding box.
+3. [`src/lib/components/v1/V1TicketScan.svelte`](/dekstop-app/src/lib/components/v1/V1TicketScan.svelte) — Updated V1 ticket scanning step with blue dynamic bounding box and verification.
+4. [`src/lib/components/v2/V2Ticket.svelte`](/dekstop-app/src/lib/components/v2/V2Ticket.svelte) — Upgraded V2 ticket step to dual QR scanner with neo-brutalist styling.
+5. [`src/lib/components/v3/V3Ticket.svelte`](/dekstop-app/src/lib/components/v3/V3Ticket.svelte) — Upgraded V3 ticket step to dual QR scanner with luxury cyber gold styling.
+6. [`src/lib/components/custom/CustomLayout.svelte`](/dekstop-app/src/lib/components/custom/CustomLayout.svelte) — Integrated ticket scan substep for custom layout.
+7. [`src-tauri/src/lib.rs`](/dekstop-app/src-tauri/src/lib.rs) — Added `save_qr_result` Tauri command.
+8. [`instructions-reports/TICKET_SCAN_BOUNDING_BOX_IMPLEMENTATION_REPORT.md`](/dekstop-app/instructions-reports/TICKET_SCAN_BOUNDING_BOX_IMPLEMENTATION_REPORT.md) — Implementation report.

@@ -150,7 +150,9 @@
         selectedTemplate?.frame_image_url || selectedTemplate?.design_data?.find((l) => l.isBackground)?.imageUrl,
         photos.length > 0 ? [...photos] : [...boothFlow.photosTaken],
         [...boothFlow.liveviewClips],
-        boothFlow.sessionCode
+        boothFlow.sessionCode,
+        selectedTemplate,
+        softfileUrl
       );
     } catch (err) {
       console.error('Failed to save session assets:', err);

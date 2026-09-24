@@ -155,39 +155,39 @@ pub async fn compose_template_video(
 
     let mut input_args: Vec<String> = Vec::new();
     let mut filter = String::new();
-    let mut clip_index_offset = 0;
-
-    if let Some(bg_bytes) = background_jpeg {
-        let bg_path = tmp_dir.join("bg.png");
-        std::fs::write(&bg_path, bg_bytes).map_err(|e| e.to_string())?;
-        input_args.push("-loop".into());
-        input_args.push("1".into());
-        input_args.push("-i".into());
-        input_args.push(bg_path.to_str().unwrap().into());
-        filter.push_str(&format!(
-            "[0:v]scale={}:{}[base];",
-            canvas_w, canvas_h
-        ));
-        clip_index_offset = 1;
-    } else {
-        filter.push_str(&format!(
-            "color=c=white:s={}x{}[base];",
-            canvas_w, canvas_h
-        ));
-    }
 
     for (i, clip) in clips.iter().enumerate() {
-        let p = tmp_dir.join(format!("clip_{}.mp4", i));
+        let ext = if clip.len() >= 4 && &clip[0..4] == b"\x1a\x45\xdf\xa3" {
+            "webm"
+        } else {
+            "mp4"
+        };
+        let p = tmp_dir.join(format!("clip_{}.{}", i, ext));
         std::fs::write(&p, clip).map_err(|e| e.to_string())?;
         input_args.push("-i".into());
         input_args.push(p.to_str().unwrap().into());
     }
 
+    let overlay_idx = if let Some(bg_bytes) = background_jpeg {
+        let bg_path = tmp_dir.join("overlay.png");
+        std::fs::write(&bg_path, bg_bytes).map_err(|e| e.to_string())?;
+        input_args.push("-loop".into());
+        input_args.push("1".into());
+        input_args.push("-i".into());
+        input_args.push(bg_path.to_str().unwrap().into());
+        Some(clips.len())
+    } else {
+        None
+    };
+
+    filter.push_str(&format!(
+        "color=c=white:s={}x{}[base];",
+        canvas_w, canvas_h
+    ));
+
     let mut last_label = "base".to_string();
-    let total_slots = slot_rects.len();
 
     for (i, (x, y, w, h)) in slot_rects.iter().enumerate() {
-        let input_idx = i + clip_index_offset;
         let scaled_label = format!("v{}", i);
         let sw = (((*w as i32) / 2) * 2).max(2);
         let sh = (((*h as i32) / 2) * 2).max(2);
@@ -196,7 +196,7 @@ pub async fn compose_template_video(
 
         filter.push_str(&format!(
             "[{}:v]scale={}:{}:force_original_aspect_ratio=increase,crop={}:{},setsar=1,setpts=PTS-STARTPTS{}[{}];",
-            input_idx,
+            i,
             sw,
             sh,
             sw,
@@ -205,16 +205,26 @@ pub async fn compose_template_video(
             scaled_label
         ));
         let next_label = format!("tmp{}", i);
-        let shortest_str = if i == total_slots - 1 {
-            ":shortest=1"
-        } else {
-            ""
-        };
+        let shortest_str = if i == 0 { ":shortest=1" } else { "" };
         filter.push_str(&format!(
             "[{}][{}]overlay={}:{}{}[{}];",
             last_label, scaled_label, sx, sy, shortest_str, next_label
         ));
         last_label = next_label;
+    }
+
+    if let Some(overlay_i) = overlay_idx {
+        let overlay_label = "overlay_scaled".to_string();
+        filter.push_str(&format!(
+            "[{}:v]scale={}:{}[{}];",
+            overlay_i, canvas_w, canvas_h, overlay_label
+        ));
+        let final_label = "final_overlay".to_string();
+        filter.push_str(&format!(
+            "[{}][{}]overlay=0:0:shortest=1[{}];",
+            last_label, overlay_label, final_label
+        ));
+        last_label = final_label;
     }
 
     // Remove the trailing semicolon from the last filter if present
@@ -238,6 +248,7 @@ pub async fn compose_template_video(
         "yuv420p".into(),
         "-movflags".into(),
         "+faststart".into(),
+        "-shortest".into(),
         out_path.to_str().unwrap().into(),
     ]);
 

@@ -371,3 +371,132 @@ export async function compositeTemplateImage(
     return photos[0] || '';
   }
 }
+
+/**
+ * Menghasilkan data URL (image/png) overlay template untuk video liveview composite:
+ * - Canvas berukuran template (width x height)
+ * - Area slot foto dibiarkan transparan (agar klip video liveview di bawahnya terlihat)
+ * - Layer background frame (dengan lubang transparan) digambar di atas slot
+ * - QR code (jika ada qrCodeText dan slot isQr) digambar di posisinya
+ * - Stiker yang dipilih user digambar di atas frame
+ */
+export async function compositeTemplateVideoOverlay(
+  template: BoothTemplate,
+  qrCodeText?: string,
+  stickers: Sticker[] = boothFlow.stickers
+): Promise<string> {
+  const canvas = document.createElement('canvas');
+  canvas.width = template.width || 1200;
+  canvas.height = template.height || 1800;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('Could not get 2d context for video overlay');
+
+  // Mulai dengan canvas transparan
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  const allLayers = getTemplateLayers(template);
+
+  // Urutkan layer berdasarkan z-index (bottommost to topmost)
+  const layersInDrawOrder = [...allLayers].sort((a, b) => {
+    return getLayerZIndex(a, allLayers) - getLayerZIndex(b, allLayers);
+  });
+
+  for (const layer of layersInDrawOrder) {
+    // Lewati slot foto karena slot foto harus transparan agar video terlihat di bawahnya
+    if (!layer.isBackground && !layer.isQr) {
+      continue;
+    }
+
+    ctx.save();
+
+    const layerX = layer.x || 0;
+    const layerY = layer.y || 0;
+    const layerW = layer.w || canvas.width;
+    const layerH = layer.h || canvas.height;
+    const rot = layer.rot || 0;
+
+    const centerX = layerX + layerW / 2;
+    const centerY = layerY + layerH / 2;
+
+    ctx.translate(centerX, centerY);
+    if (rot) {
+      ctx.rotate((rot * Math.PI) / 180);
+    }
+
+    const drawX = -layerW / 2;
+    const drawY = -layerH / 2;
+
+    if (layer.isBackground) {
+      const bgUrl = layer.imageUrl || template.frame_image_url;
+      if (bgUrl) {
+        const bgImg = await loadImage(bgUrl);
+        if (bgImg) {
+          ctx.drawImage(bgImg, drawX, drawY, layerW, layerH);
+        }
+      }
+    } else if (layer.isQr) {
+      if (qrCodeText) {
+        try {
+          const qrSize = Math.max(1, Math.round(Math.max(layerW, layerH)));
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(drawX, drawY, layerW, layerH);
+
+          const qrDataUrl = await QRCode.toDataURL(qrCodeText, {
+            margin: 0,
+            width: qrSize,
+            color: {
+              dark: '#000000',
+              light: '#ffffff',
+            },
+          });
+          const qrImg = await loadImage(qrDataUrl);
+          if (qrImg) {
+            ctx.drawImage(qrImg, drawX, drawY, layerW, layerH);
+          }
+        } catch (e) {
+          console.warn('Failed to draw QR code on video overlay canvas:', e);
+        }
+      }
+    }
+
+    ctx.restore();
+  }
+
+  // Gambar stiker yang dipilih user di atas frame overlay
+  if (stickers && stickers.length > 0) {
+    for (const s of stickers) {
+      ctx.save();
+      const cx = (s.x / 100) * canvas.width;
+      const cy = (s.y / 100) * canvas.height;
+
+      if (s.type === 'image' && s.imageUrl) {
+        const img = await loadImage(s.imageUrl);
+        if (img) {
+          const baseWidth = s.width || 64;
+          const targetW = (baseWidth / 400) * canvas.width;
+          const targetH = s.height ? (s.height / 400) * canvas.height : (img.height / img.width) * targetW;
+
+          ctx.translate(cx, cy);
+          if (s.rotation) {
+            ctx.rotate((s.rotation * Math.PI) / 180);
+          }
+          ctx.drawImage(img, -targetW / 2, -targetH / 2, targetW, targetH);
+        }
+      } else if (s.emoji) {
+        ctx.translate(cx, cy);
+        if (s.rotation) {
+          ctx.rotate((s.rotation * Math.PI) / 180);
+        }
+        const fontSize = Math.round((32 / 400) * canvas.width);
+        ctx.font = `${fontSize}px "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(s.emoji, 0, 0);
+      }
+      ctx.restore();
+    }
+  }
+
+  return canvas.toDataURL('image/png');
+}
+

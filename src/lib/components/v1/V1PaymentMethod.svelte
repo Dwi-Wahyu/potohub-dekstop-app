@@ -1,6 +1,8 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
   import { uiConfig } from '$lib/stores/uiConfig.svelte';
+  import { boothConfig } from '$lib/stores/boothConfig.svelte';
+  import { boothFlow } from '$lib/stores/booth.svelte';
   import { formatTime } from '$lib/utils/shared';
   import { networkStatus } from '$lib/stores/networkStatus.svelte';
   import OfflineBanner from '$lib/components/shared/OfflineBanner.svelte';
@@ -32,6 +34,11 @@
 
   const DEFAULT_BG = 'linear-gradient(135deg, #1e1b4b 0%, #2a2873 50%, #312e81 100%)';
   let effectiveBg = $derived(background ?? uiConfig.getStepStyle('payment').background ?? DEFAULT_BG);
+  let displayPrice = $derived(
+    boothConfig.config.earlyPaymentPage && boothConfig.config.basePrice > 0
+      ? boothConfig.config.basePrice * (boothFlow.printQty || 1)
+      : 0
+  );
 </script>
 
 <div
@@ -54,9 +61,14 @@
       <h1 class="m-0 mb-2 text-[34px] font-bold tracking-[-0.01em] text-white">
         Pilih Metode Pembayaran
       </h1>
-      <p class="m-0 text-[15px] text-white/[0.35] font-normal">
+      <!-- <p class="m-0 text-[15px] text-white/[0.35] font-normal">
         Silahkan sebelumnya, pilih metode yang akan kamu pakai
-      </p>
+      </p> -->
+      <!-- {#if displayPrice > 0}
+        <div class="mt-2 inline-flex items-center gap-1.5 px-3.5 py-1 rounded-full bg-white/10 text-white font-bold text-xs border border-white/15">
+          <span>Biaya Paket: Rp {displayPrice.toLocaleString('id-ID')}</span>
+        </div>
+      {/if} -->
       <div class="flex justify-center mt-2">
         <OfflineBanner />
       </div>
@@ -123,9 +135,16 @@
         </svg>
       </div>
       <div class="w-full flex items-center justify-between">
-        <span class="font-['Plus_Jakarta_Sans',sans-serif] font-bold text-xl text-[#1a1a1e] tracking-[-0.01em]">
-          Cashless
-        </span>
+        <div>
+          <span class="font-['Plus_Jakarta_Sans',sans-serif] font-bold text-xl text-[#1a1a1e] tracking-[-0.01em] block text-left">
+            Cashless
+          </span>
+          {#if displayPrice > 0}
+            <span class="text-xs font-semibold text-gray-500 block text-left mt-0.5">
+              Rp {displayPrice.toLocaleString('id-ID')}
+            </span>
+          {/if}
+        </div>
         <div class="w-[42px] h-[42px] rounded-full flex items-center justify-center shrink-0 bg-[#f5f5f5] group-hover:bg-[#f5d9cc] transition-colors">
           <svg width="18" height="18" fill="none" stroke="#333" stroke-width="2.5" viewBox="0 0 24 24">
             <path d="M8.25 4.5l7.5 7.5-7.5 7.5" stroke-linecap="round" stroke-linejoin="round" />

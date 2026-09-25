@@ -8,7 +8,7 @@
   import { formatTime, getLiveviewTransformStyle } from '$lib/utils/shared';
   import { fetchTemplates, requireActiveBoothId, type BoothTemplate } from '$lib/api/boothClient';
   import { cachedFetch } from '$lib/utils/offlineCache';
-  import { getSortedPhotoSlots } from '$lib/utils/templateComposite';
+  import { getSortedPhotoSlots, getTemplateLayers, getLayerZIndex } from '$lib/utils/templateComposite';
   import { Check, Sparkles, ChevronRight, Search, RotateCw, Camera, FlipHorizontal2 } from '@lucide/svelte';
 
   interface Props {
@@ -21,9 +21,10 @@
   let { selectedFrame, onComplete, onBack, background }: Props = $props();
 
   let selectedTemplate = $state<BoothTemplate | null>(null);
-  let photoSlots = $derived(getSortedPhotoSlots(selectedTemplate?.design_data));
+  let templateLayers = $derived(getTemplateLayers(selectedTemplate));
+  let photoSlots = $derived(getSortedPhotoSlots(templateLayers));
   let totalPhotos = $derived(photoSlots.length > 0 ? photoSlots.length : 3);
-  let bgLayer = $derived(selectedTemplate?.design_data?.find((l) => l.isBackground));
+  let bgLayer = $derived(templateLayers.find((l) => l.isBackground));
   let bgUrl = $derived(bgLayer?.imageUrl || selectedTemplate?.frame_image_url || '');
 
   let isRunning = $state(false);
@@ -252,9 +253,9 @@
             class="relative h-full max-w-full overflow-hidden rounded-xl bg-black/40 shadow-xl border-2 border-gray-200"
             style="aspect-ratio: {tWidth} / {tHeight};"
           >
-            {#if selectedTemplate.design_data}
-              {#each (selectedTemplate.design_data || []).filter((l) => !l.isQr) as layer, idx (layer.id ?? idx)}
-                {@const layerZIndex = selectedTemplate.design_data.length - idx}
+            {#if templateLayers.length > 0}
+              {#each templateLayers.filter((l) => !l.isQr) as layer, idx (layer.id ?? idx)}
+                {@const layerZIndex = getLayerZIndex(layer, templateLayers)}
                 {@const isPhotoSlot = !layer.isBackground}
                 {@const slotIdx = isPhotoSlot ? photoSlots.findIndex((s) => s.id === layer.id || s === layer) : -1}
                 {@const targetIdx = slotIdx >= 0 ? slotIdx : 0}
@@ -266,13 +267,15 @@
                     width: {((layer.w || 200) / tWidth) * 100}%;
                     height: {((layer.h || 200) / tHeight) * 100}%;
                     transform: rotate({layer.rot || 0}deg);
-                    z-index: {allDone && isPhotoSlot ? 40 + targetIdx : layerZIndex};
+                    z-index: {layerZIndex};
+                    pointer-events: {layer.isBackground ? 'none' : 'auto'};
                   "
                 >
                   {#if layer.isBackground}
-                    {#if bgUrl}
+                    {@const layerBgUrl = layer.imageUrl || bgUrl}
+                    {#if layerBgUrl}
                       <img
-                        src={bgUrl}
+                        src={layerBgUrl}
                         alt="Frame Overlay"
                         class="w-full h-full object-fill pointer-events-none block"
                       />

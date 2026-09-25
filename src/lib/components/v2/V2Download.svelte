@@ -5,7 +5,7 @@
   import { boothFlow } from '$lib/stores/booth.svelte';
   import { sendSoftfileEmail, sendSoftfileWA, generateSessionCode } from '$lib/utils/shared';
   import { boothConfig } from '$lib/stores/boothConfig.svelte';
-  import { Delete, QrCode } from '@lucide/svelte';
+  import { Delete, QrCode, Image, Film, Video } from '@lucide/svelte';
 
   import { compositeTemplateImage } from '$lib/utils/templateComposite';
   import { saveSessionAssets } from '$lib/utils/sessionAssets';
@@ -50,6 +50,7 @@
   let isSaving = $state(false);
   let compositeUrl = $state<string | null>(null);
   let selectedTemplate = $state<BoothTemplate | null>(null);
+  let activePreviewTab = $state<'strip' | 'gif' | 'liveview'>('strip');
 
   const envs = import.meta.env as Record<string, string>;
   const rawAdminDashboardUrl =
@@ -125,6 +126,7 @@
           softfileUrl,
           boothFlow.stickers
         );
+        boothFlow.compositeStripUrl = compositeUrl;
       } catch (err) {
         console.error('Failed to composite template in V2Download:', err);
       }
@@ -411,22 +413,94 @@
       </button>
     </div>
 
-    <!-- Center: composited frame mockup -->
+    <!-- Center: composited frame mockup with Toggle -->
     <div class="flex flex-col items-center shrink-0">
       <div
         class="flex flex-col overflow-hidden bg-white border-[3px] border-black rounded-[24px] w-[240px] shadow-[10px_10px_0_0_rgba(0,0,0,1)] p-3"
       >
-        {#if compositeUrl}
-          <img
-            src={compositeUrl}
-            alt="Hasil Foto Template"
-            class="w-full h-auto max-h-[52vh] object-contain rounded-xl block"
-          />
-        {:else}
-          <div class="w-[200px] h-[300px] flex items-center justify-center text-black/30 text-xs animate-pulse font-['Nunito',sans-serif]">
-            Memproses Foto...
-          </div>
-        {/if}
+        <div class="flex items-center justify-center min-h-[340px]">
+          {#if activePreviewTab === 'strip'}
+            {#if compositeUrl}
+              <img
+                src={compositeUrl}
+                alt="Hasil Foto Template"
+                class="w-full h-auto max-h-[52vh] object-contain rounded-xl block"
+              />
+            {:else}
+              <div class="w-[200px] h-[300px] flex flex-col items-center justify-center gap-2 text-black/40 text-xs font-['Nunito',sans-serif]">
+                <div class="w-6 h-6 border-2 border-black/20 border-t-black rounded-full animate-spin"></div>
+                <span>Memproses Foto...</span>
+              </div>
+            {/if}
+          {:else if activePreviewTab === 'gif'}
+            {#if boothFlow.sessionGifUrl}
+              <img
+                src={boothFlow.sessionGifUrl}
+                alt="Hasil Foto GIF"
+                class="w-full h-auto max-h-[52vh] object-contain rounded-xl block"
+              />
+            {:else if boothFlow.isGeneratingGif}
+              <div class="w-[200px] h-[300px] flex flex-col items-center justify-center gap-2 text-black/40 text-xs font-['Nunito',sans-serif]">
+                <div class="w-6 h-6 border-2 border-black/20 border-t-black rounded-full animate-spin"></div>
+                <span>Memproses GIF...</span>
+              </div>
+            {:else}
+              <div class="w-[200px] h-[300px] flex flex-col items-center justify-center gap-2 text-black/30 text-xs font-['Nunito',sans-serif] p-4 text-center">
+                <Film size={26} class="opacity-40" strokeWidth={2.5} />
+                <span>GIF tidak tersedia</span>
+              </div>
+            {/if}
+          {:else if activePreviewTab === 'liveview'}
+            {#if boothFlow.sessionVideoUrl}
+              <video
+                src={boothFlow.sessionVideoUrl}
+                autoplay
+                loop
+                muted
+                playsinline
+                class="w-full h-auto max-h-[52vh] object-contain rounded-xl block"
+              ></video>
+            {:else if boothFlow.isGeneratingVideo}
+              <div class="w-[200px] h-[300px] flex flex-col items-center justify-center gap-2 text-black/40 text-xs font-['Nunito',sans-serif]">
+                <div class="w-6 h-6 border-2 border-black/20 border-t-black rounded-full animate-spin"></div>
+                <span>Memproses Live View...</span>
+              </div>
+            {:else}
+              <div class="w-[200px] h-[300px] flex flex-col items-center justify-center gap-2 text-black/30 text-xs font-['Nunito',sans-serif] p-4 text-center">
+                <Video size={26} class="opacity-40" strokeWidth={2.5} />
+                <span>Live View tidak tersedia</span>
+              </div>
+            {/if}
+          {/if}
+        </div>
+      </div>
+
+      <!-- Toggle buttons below card preview -->
+      <div class="mt-4 flex items-center gap-1.5 font-['Nunito',sans-serif]">
+        <button
+          type="button"
+          onclick={() => (activePreviewTab = 'strip')}
+          class="px-3 py-1 rounded-full border-2 border-black text-xs font-black uppercase tracking-wider flex items-center gap-1 transition-all {activePreviewTab === 'strip' ? 'bg-[#C7EED8] text-black shadow-[3px_3px_0_0_rgba(0,0,0,1)]' : 'bg-white text-black/60 border-black/40 hover:border-black hover:text-black'}"
+        >
+          <Image size={13} strokeWidth={2.5} />
+          <span>Strip</span>
+        </button>
+        <button
+          type="button"
+          onclick={() => (activePreviewTab = 'gif')}
+          class="px-3 py-1 rounded-full border-2 border-black text-xs font-black uppercase tracking-wider flex items-center gap-1 transition-all {activePreviewTab === 'gif' ? 'bg-[#C7EED8] text-black shadow-[3px_3px_0_0_rgba(0,0,0,1)]' : 'bg-white text-black/60 border-black/40 hover:border-black hover:text-black'}"
+        >
+          <Film size={13} strokeWidth={2.5} />
+          <span>GIF</span>
+        </button>
+        <button
+          type="button"
+          onclick={() => (activePreviewTab = 'liveview')}
+          class="px-3 py-1 rounded-full border-2 border-black text-xs font-black uppercase tracking-wider flex items-center gap-1 transition-all {activePreviewTab === 'liveview' ? 'bg-[#C7EED8] text-black shadow-[3px_3px_0_0_rgba(0,0,0,1)]' : 'bg-white text-black/60 border-black/40 hover:border-black hover:text-black'}"
+        >
+          <Video size={13} strokeWidth={2.5} />
+          <span>Live View</span>
+        </button>
       </div>
     </div>
 

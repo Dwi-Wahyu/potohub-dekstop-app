@@ -347,33 +347,6 @@
 
             <button
               type="button"
-              onclick={() => update('paymentPage', !boothConfig.config.paymentPage)}
-              style="
-                display: flex;
-                align-items: center;
-                gap: 10px;
-                background: {NEU_BG};
-                box-shadow: {neuCfg.btnSm};
-                border-radius: 12px;
-                padding: 10px 14px;
-                border: none;
-                cursor: pointer;
-                text-align: left;
-                width: 100%;
-              "
-            >
-              <div style="width: 17px; height: 17px; border-radius: 50%; border: 2px solid {boothConfig.config.paymentPage ? '#22c55e' : '#c8d2e0'}; background: {boothConfig.config.paymentPage ? '#22c55e' : 'transparent'}; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
-                {#if boothConfig.config.paymentPage}
-                  <div style="width: 6px; height: 6px; border-radius: 50%; background: white;"></div>
-                {/if}
-              </div>
-              <span style="font-size: 13px; font-weight: 600; color: {boothConfig.config.paymentPage ? '#334155' : '#94a3b8'}; flex: 1;">
-                Pembayaran (Cashless)
-              </span>
-            </button>
-
-            <button
-              type="button"
               onclick={() => update('enableIdleBanner', !boothConfig.config.enableIdleBanner)}
               style="
                 display: flex;

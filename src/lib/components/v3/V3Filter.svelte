@@ -159,80 +159,86 @@
 
       <p class="text-white/60 text-[9px] font-bold uppercase tracking-[0.3em] relative z-10 m-0">Preview</p>
 
-      <StickerCanvas
-        {stickers}
-        onMove={moveSticker}
-        onRemove={removeSticker}
-        class="relative z-10 flex-1 max-h-[60vh] w-full flex items-center justify-center"
-        containerStyle="width: 240px; position: relative;"
-      >
+      <div class="relative z-10 flex-1 max-h-[60vh] w-full flex items-center justify-center">
         {#if selectedTemplate}
           {@const tWidth = selectedTemplate.width || 1200}
           {@const tHeight = selectedTemplate.height || 1800}
-          <div
-            class="relative h-full max-w-full overflow-hidden rounded-xl bg-black/40 shadow-2xl border-2 border-gray-200"
-            style="aspect-ratio: {tWidth} / {tHeight};"
+          <StickerCanvas
+            {stickers}
+            onMove={moveSticker}
+            onRemove={removeSticker}
+            class="relative h-full max-w-full overflow-hidden rounded-xl shadow-2xl border-2 border-gray-200"
+            containerStyle="aspect-ratio: {tWidth} / {tHeight};"
           >
-            {#if templateLayers.length > 0}
-              {#each templateLayers.filter((l) => !l.isQr) as layer, idx (layer.id ?? idx)}
-                {@const layerZIndex = getLayerZIndex(layer, templateLayers)}
-                <div
-                  class="absolute overflow-hidden {layer.isBackground ? 'pointer-events-none' : ''}"
-                  style="
-                    left: {((layer.x || 0) / tWidth) * 100}%;
-                    top: {((layer.y || 0) / tHeight) * 100}%;
-                    width: {((layer.w || 200) / tWidth) * 100}%;
-                    height: {((layer.h || 200) / tHeight) * 100}%;
-                    transform: rotate({layer.rot || 0}deg);
-                    z-index: {layerZIndex};
-                    pointer-events: {layer.isBackground ? 'none' : 'auto'};
-                  "
-                >
-                  {#if layer.isBackground}
-                    {@const layerBgUrl = layer.imageUrl || bgUrl}
-                    {#if layerBgUrl}
-                      <img
-                        src={layerBgUrl}
-                        alt="Frame Overlay"
-                        class="w-full h-full object-fill pointer-events-none block"
-                      />
-                    {/if}
-                  {:else}
-                    {@const slotIdx = photoSlots.findIndex((s) => s.id === layer.id || s === layer)}
-                    {@const targetIdx = slotIdx >= 0 ? slotIdx : 0}
-                    {@const capturedPhoto = boothFlow.photosTaken[targetIdx]}
-                    <div class="w-full h-full bg-black/40 relative overflow-hidden">
-                      {#if capturedPhoto}
+            <div class="relative w-full h-full bg-black/40 overflow-hidden">
+              {#if templateLayers.length > 0}
+                {#each templateLayers.filter((l) => !l.isQr) as layer, idx (layer.id ?? idx)}
+                  {@const layerZIndex = getLayerZIndex(layer, templateLayers)}
+                  <div
+                    class="absolute overflow-hidden {layer.isBackground ? 'pointer-events-none' : ''}"
+                    style="
+                      left: {((layer.x || 0) / tWidth) * 100}%;
+                      top: {((layer.y || 0) / tHeight) * 100}%;
+                      width: {((layer.w || 200) / tWidth) * 100}%;
+                      height: {((layer.h || 200) / tHeight) * 100}%;
+                      transform: rotate({layer.rot || 0}deg);
+                      z-index: {layerZIndex};
+                      pointer-events: {layer.isBackground ? 'none' : 'auto'};
+                    "
+                  >
+                    {#if layer.isBackground}
+                      {@const layerBgUrl = layer.imageUrl || bgUrl}
+                      {#if layerBgUrl}
                         <img
-                          src={capturedPhoto}
-                          alt={`Photo ${targetIdx + 1}`}
-                          class="w-full h-full object-cover block"
-                          style="filter: {currentFilterCss === 'none' ? 'none' : currentFilterCss}; transform: {getLiveviewTransformStyle(boothConfig.config, cameraStore.cameraMode)};"
+                          src={layerBgUrl}
+                          alt="Frame Overlay"
+                          class="w-full h-full object-fill pointer-events-none block"
                         />
                       {/if}
-                    </div>
-                  {/if}
-                </div>
-              {/each}
-            {/if}
-          </div>
-        {:else}
-          <div class="bg-[#fdfdfd] w-[230px] flex items-center justify-center py-6 px-3 shadow-2xl rounded-2xl">
-            <div class="flex flex-col gap-1.5 w-full">
-              {#each boothFlow.photosTaken as photo, i}
-                <div class="w-full aspect-[4/3] rounded-lg overflow-hidden border border-gray-200">
-                  <img
-                    src={photo}
-                    alt={`Photo ${i + 1}`}
-                    class="w-full h-full object-cover"
-                    style="filter: {currentFilterCss === 'none' ? 'none' : currentFilterCss}; transform: {getLiveviewTransformStyle(boothConfig.config, cameraStore.cameraMode)};"
-                  />
-                </div>
-              {/each}
+                    {:else}
+                      {@const slotIdx = photoSlots.findIndex((s) => s.id === layer.id || s === layer)}
+                      {@const targetIdx = slotIdx >= 0 ? slotIdx : 0}
+                      {@const capturedPhoto = boothFlow.photosTaken[targetIdx]}
+                      <div class="w-full h-full bg-black/40 relative overflow-hidden">
+                        {#if capturedPhoto}
+                          <img
+                            src={capturedPhoto}
+                            alt={`Photo ${targetIdx + 1}`}
+                            class="w-full h-full object-cover block"
+                            style="filter: {currentFilterCss === 'none' ? 'none' : currentFilterCss}; transform: {getLiveviewTransformStyle(boothConfig.config, cameraStore.cameraMode)};"
+                          />
+                        {/if}
+                      </div>
+                    {/if}
+                  </div>
+                {/each}
+              {/if}
             </div>
-          </div>
+          </StickerCanvas>
+        {:else}
+          <StickerCanvas
+            {stickers}
+            onMove={moveSticker}
+            onRemove={removeSticker}
+            class="relative h-full max-w-full overflow-hidden rounded-xl shadow-2xl border-2 border-gray-200"
+          >
+            <div class="bg-[#fdfdfd] w-[230px] flex items-center justify-center py-6 px-3 shadow-2xl rounded-2xl">
+              <div class="flex flex-col gap-1.5 w-full">
+                {#each boothFlow.photosTaken as photo, i}
+                  <div class="w-full aspect-[4/3] rounded-lg overflow-hidden border border-gray-200">
+                    <img
+                      src={photo}
+                      alt={`Photo ${i + 1}`}
+                      class="w-full h-full object-cover"
+                      style="filter: {currentFilterCss === 'none' ? 'none' : currentFilterCss}; transform: {getLiveviewTransformStyle(boothConfig.config, cameraStore.cameraMode)};"
+                    />
+                  </div>
+                {/each}
+              </div>
+            </div>
+          </StickerCanvas>
         {/if}
-      </StickerCanvas>
+      </div>
 
       <div class="flex items-center gap-2 bg-black/20 rounded-full px-4 py-1.5 relative z-10">
         <div class="w-2 h-2 rounded-full bg-[#FFC107]"></div>

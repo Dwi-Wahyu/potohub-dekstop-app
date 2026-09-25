@@ -2,15 +2,24 @@
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
   import ConfigDashboard from '$lib/components/shared/ConfigDashboard.svelte';
-  import { clearActivation } from '$lib/db/local';
+  import { clearActivation, getActivation } from '$lib/db/local';
   import { setWindowDecorations } from '$lib/utils/windowControl';
 
   onMount(() => {
     void setWindowDecorations(true);
   });
 
-  function handleBack() {
-    goto('/onboarding');
+  async function handleBack() {
+    if (window.history.length > 1) {
+      window.history.back();
+    } else {
+      const activation = await getActivation();
+      if (activation?.boothId) {
+        await goto('/?journey=1');
+      } else {
+        await goto('/onboarding');
+      }
+    }
   }
 
   async function handleLogout() {

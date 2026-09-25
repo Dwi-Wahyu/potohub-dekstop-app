@@ -122,6 +122,51 @@ export async function ensureAsset(url: string): Promise<string> {
   return invoke<string>('fetch_image_as_data_url', { url });
 }
 
+/**
+ * Mengambil aset gambar sebagai Base64 Data URL (data:image/...;base64,...)
+ * khusus untuk operasi HTML5 Canvas (seperti templateComposite).
+ * Menjamin kanvas TIDAK tainted (origin-clean) sehingga toDataURL() / toBlob() berhasil 100%.
+ * Membaca dari cache offline lokal jika sudah ada, atau mengunduh lalu menyimpan ke cache.
+ */
+export async function ensureAssetDataUrl(url: string): Promise<string> {
+  if (!url) return '';
+  if (url.startsWith('data:') || url.startsWith('blob:')) return url;
+
+  // 1. Cek apakah file sudah ada di cache lokal via SQLite meta
+  const meta = await getAssetCacheMeta(url);
+  if (meta) {
+    try {
+      const dataUrl = await invoke<string | null>('read_cached_asset', {
+        cacheKey: meta.cache_key,
+      });
+      if (dataUrl) return dataUrl;
+    } catch (e) {
+      console.warn('[offlineCache] read_cached_asset gagal, coba fallback:', e);
+    }
+  }
+
+  // 2. Download aset ke cache lokal jika belum ada, lalu baca sebagai Data URL
+  const cacheKey = assetCacheKey(url);
+  try {
+    const savedAbsPath = await invoke<string>('download_asset_to_cache', {
+      url,
+      cacheKey,
+    });
+    if (savedAbsPath) {
+      await setAssetCacheMeta(url, cacheKey, mimeFromUrl(url), 0);
+      const dataUrl = await invoke<string | null>('read_cached_asset', {
+        cacheKey,
+      });
+      if (dataUrl) return dataUrl;
+    }
+  } catch (e) {
+    console.warn('[offlineCache] download_asset_to_cache gagal, fallback fetch langsung:', e);
+  }
+
+  // 3. Fallback: fetch langsung via Rust reqwest sebagai Data URL
+  return invoke<string>('fetch_image_as_data_url', { url });
+}
+
 function assetCacheKey(url: string): string {
   // hash sederhana (djb2) + ext dari path — cukup untuk unik & deterministik
   let h = 5381;

@@ -4,7 +4,7 @@ import { boothConfig } from '$lib/stores/boothConfig.svelte';
 import type { Sticker } from '$lib/utils/stickers';
 import { resolveFilterCss, applyFilterToCanvas } from '$lib/utils/filters';
 import { invoke } from '@tauri-apps/api/core';
-import { ensureAsset } from '$lib/utils/offlineCache';
+import { ensureAssetDataUrl } from '$lib/utils/offlineCache';
 import QRCode from 'qrcode';
 
 export interface TemplateDesignLayer {
@@ -88,43 +88,39 @@ export function getTemplateLayers<T extends TemplateDesignLayer = TemplateDesign
 }
 
 /**
- * Calculates the z-index (stacking order) of a layer:
- * - If layers have explicit numeric `layer` attribute (from API seed / JSON):
- *   `layer.layer` directly represents the z-index (higher number = drawn on top / higher z-index).
- *   If a layer lacks `layer`, background gets max + 1, non-background gets 0.
- * - If no layers have explicit `layer` (e.g. from admin-dashboard):
- *   Layers are ordered top-to-bottom where index 0 is topmost (e.g. Frame Background).
- *   Matches admin-dashboard line 1082: layers.length - findIndex
+ * Menghitung z-index (urutan penumpukan) sebuah layer template:
+ * - Frame Background (isBackground: true) adalah bingkai overlay berlubang transparan,
+ *   sehingga HARUS SELALU berada di atas seluruh slot foto kamera (z-index lebih tinggi).
+ * - QR code (isQr: true) berada di atas frame background.
+ * - Slot foto kamera berada di lapisan dasar (di bawah frame overlay).
  */
 export function getLayerZIndex(
   layer: TemplateDesignLayer,
   allLayers: TemplateDesignLayer[]
 ): number {
-  const hasExplicitLayer = allLayers.some(
-    (l) => typeof l.layer === 'number' && !isNaN(l.layer)
-  );
+  const photoSlots = allLayers.filter((l) => !l.isBackground && !l.isQr);
+  const maxPhotoLayer = photoSlots.reduce((max, s) => {
+    const l = typeof s.layer === 'number' ? s.layer : 0;
+    return Math.max(max, l);
+  }, 0);
 
-  if (hasExplicitLayer) {
-    if (typeof layer.layer === 'number' && !isNaN(layer.layer)) {
-      return Number(layer.layer);
-    }
-    const maxLayer = Math.max(
-      ...allLayers
-        .filter((l) => typeof l.layer === 'number' && !isNaN(l.layer))
-        .map((l) => Number(l.layer)),
-      0
-    );
-    if (layer.isBackground) {
-      return maxLayer + 1;
-    }
-    return 0;
+  // Background frame overlay dengan lubang transparan HARUS SELALU di atas seluruh foto
+  if (layer.isBackground) {
+    return Math.max(maxPhotoLayer + 1, allLayers.length + 10);
+  }
+
+  // QR Code berada di atas background frame
+  if (layer.isQr) {
+    return Math.max(maxPhotoLayer + 2, allLayers.length + 20);
+  }
+
+  // Slot foto: prioritaskan atribut layer eksplisit jika ada
+  if (typeof layer.layer === 'number' && !isNaN(layer.layer)) {
+    return Number(layer.layer);
   }
 
   const idx = allLayers.findIndex((l) => (layer.id != null && l.id === layer.id) || l === layer);
-  if (idx >= 0) {
-    return allLayers.length - idx;
-  }
-  return layer.isBackground ? allLayers.length + 1 : 1;
+  return idx >= 0 ? idx + 1 : 1;
 }
 
 async function loadImage(src: string): Promise<HTMLImageElement | null> {
@@ -140,20 +136,20 @@ async function loadImage(src: string): Promise<HTMLImageElement | null> {
     });
   }
 
-  // 2. In Tauri environment: try local offline cache first via ensureAsset (streaming asset protocol or data URL)
+  // 2. In Tauri environment: muat sebagai Base64 Data URL via ensureAssetDataUrl
+  // agar kanvas bebas dari batasan cross-origin dan 100% TIDAK TAINTED
   try {
-    const assetUrl = await ensureAsset(src);
-    if (assetUrl) {
+    const dataUrl = await ensureAssetDataUrl(src);
+    if (dataUrl && dataUrl.startsWith('data:')) {
       return new Promise((resolve) => {
         const img = new Image();
         img.onload = () => resolve(img);
         img.onerror = () => resolve(null);
-        img.src = assetUrl;
+        img.src = dataUrl;
       });
     }
   } catch (err) {
-    // Invoke error or ensureAsset error - fall back to fetch
-    console.warn('[templateComposite] ensureAsset failed for image, trying fallback:', src, err);
+    console.warn('[templateComposite] ensureAssetDataUrl failed for image, trying fallback:', src, err);
   }
 
   // 3. Fallback: load via fetch Blob URL

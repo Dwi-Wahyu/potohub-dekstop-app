@@ -18,7 +18,10 @@ export interface BoothCfg {
   cameraRotate: string;
   mirrorOn: boolean;
   flipVertical: boolean;
+  earlyPaymentPage: boolean;
   paymentPage: boolean;
+  basePrice: number;
+  skipPayment: boolean;
   cameraMode: 'usb' | 'webcam' | 'demo';
   bootScreen: 'welcome' | 'pin';
   liveviewClipPreSecs: number;
@@ -51,7 +54,10 @@ export const DEFAULT_CFG: BoothCfg = {
   cameraRotate: '0° (Default)',
   mirrorOn: true,
   flipVertical: false,
+  earlyPaymentPage: true,
   paymentPage: true,
+  basePrice: 35000,
+  skipPayment: false,
   cameraMode: 'usb',
   bootScreen: 'welcome',
   liveviewClipPreSecs: 2.5,
@@ -77,7 +83,23 @@ class BoothConfigStore {
     try {
       const raw = localStorage.getItem(`booth_settings_${this.boothId}`);
       if (raw) {
-        this.config = { ...DEFAULT_CFG, ...JSON.parse(raw) };
+        const parsed = JSON.parse(raw);
+        const early = parsed.earlyPaymentPage ?? parsed.paymentPage ?? DEFAULT_CFG.earlyPaymentPage;
+        const rawBase = parsed.basePrice ?? parsed.base_price;
+        let baseVal = 0;
+        if (rawBase !== undefined && rawBase !== null && !isNaN(Number(rawBase))) {
+          baseVal = Number(rawBase);
+        } else if (early) {
+          baseVal = 35000;
+        }
+        this.config = {
+          ...DEFAULT_CFG,
+          ...parsed,
+          earlyPaymentPage: !!early,
+          paymentPage: !!early,
+          basePrice: baseVal,
+          skipPayment: parsed.skipPayment ?? false,
+        };
       } else {
         this.config = { ...DEFAULT_CFG };
       }
@@ -88,6 +110,11 @@ class BoothConfigStore {
 
   save(newCfg?: Partial<BoothCfg>) {
     if (newCfg) {
+      if ('earlyPaymentPage' in newCfg && !('paymentPage' in newCfg)) {
+        newCfg.paymentPage = newCfg.earlyPaymentPage;
+      } else if ('paymentPage' in newCfg && !('earlyPaymentPage' in newCfg)) {
+        newCfg.earlyPaymentPage = newCfg.paymentPage;
+      }
       this.config = { ...this.config, ...newCfg };
     }
     try {

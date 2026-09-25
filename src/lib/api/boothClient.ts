@@ -557,13 +557,30 @@ function applyRemoteSettings(settings: Record<string, any>) {
   const timer = settings?.timer ?? {};
   const softfile = settings?.softfile ?? {};
 
+  const isEarly = general.early_payment_page ?? general.payment_page ?? boothConfig.config.earlyPaymentPage;
+  const rawBase = general.base_price ?? general.basePrice;
+  let basePriceVal = 0;
+  if (rawBase !== undefined && rawBase !== null && !isNaN(Number(rawBase))) {
+    basePriceVal = Number(rawBase);
+  } else if (isEarly) {
+    basePriceVal = typeof boothConfig.config.basePrice === 'number' && !isNaN(boothConfig.config.basePrice)
+      ? boothConfig.config.basePrice
+      : 35000;
+  }
+  const skipPaymentVal = typeof general.skip_payment === 'boolean'
+    ? general.skip_payment
+    : (boothConfig.config.skipPayment ?? false);
+
   boothConfig.save({
     pin: general.pin ?? boothConfig.config.pin,
     cameraRotate:
       CAMERA_ROTATE_MAP[general.camera_rotate] ??
       boothConfig.config.cameraRotate,
     mirrorOn: general.mirror ?? boothConfig.config.mirrorOn,
-    paymentPage: general.payment_page ?? boothConfig.config.paymentPage,
+    earlyPaymentPage: isEarly,
+    paymentPage: isEarly,
+    basePrice: basePriceVal,
+    skipPayment: skipPaymentVal,
     photoFilter: general.photo_filter ?? boothConfig.config.photoFilter,
     countdownSecs: timer.next_countdown_time ?? boothConfig.config.countdownSecs,
     firstCountdownSecs: timer.first_countdown_time ?? boothConfig.config.firstCountdownSecs,
@@ -588,6 +605,7 @@ export async function syncBoothSettings() {
     if (!res.ok) throw new Error("Sync gagal");
     const data = await res.json();
     applyRemoteSettings(data.settings ?? {});
+    await writeApiCache(`settings:${boothId}`, data.settings).catch(() => {});
     await fetchAndCacheUiConfig();
     // Fetch & cache banners untuk booth
     try {

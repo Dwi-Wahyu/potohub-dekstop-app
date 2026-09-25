@@ -1,6 +1,7 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
   import { boothFlow } from '$lib/stores/booth.svelte';
+  import { boothConfig } from '$lib/stores/boothConfig.svelte';
   import { uiConfig } from '$lib/stores/uiConfig.svelte';
   import type { StoreCategory } from '$lib/stores/uiConfig.svelte';
   import V3Start from './V3Start.svelte';
@@ -46,7 +47,13 @@
   }
 
   function handleTutorialNext() {
-    step = 'package';
+    if (boothConfig.config.skipPayment) {
+      step = 'frame';
+    } else if (boothConfig.config.earlyPaymentPage) {
+      step = 'package';
+    } else {
+      step = 'frame';
+    }
   }
 
   function handleSelectPackage(pkg: StoreCategory) {
@@ -58,17 +65,31 @@
     if (method === 'ticket') {
       step = 'ticket';
     } else {
-      step = 'frame';
+      if (boothConfig.config.earlyPaymentPage) {
+        step = 'frame';
+      } else {
+        step = 'session';
+      }
     }
   }
 
   function handleTicketConfirm() {
-    step = 'frame';
+    if (boothConfig.config.earlyPaymentPage) {
+      step = 'frame';
+    } else {
+      step = 'session';
+    }
   }
 
   function handleSelectFrame(frameId: string) {
     selectedFrameId = frameId;
-    step = 'session';
+    if (boothConfig.config.skipPayment) {
+      step = 'session';
+    } else if (boothConfig.config.earlyPaymentPage) {
+      step = 'session';
+    } else {
+      step = 'package';
+    }
   }
 
   function handleSessionComplete(photos: string[]) {
@@ -115,13 +136,34 @@
   {:else if step === 'tutorial'}
     <V3Tutorial background={getV3Bg('tutorial')} {customTutorialImg} onNext={handleTutorialNext} onBack={() => (step = 'start')} />
   {:else if step === 'package'}
-    <V3Package background={getV3Bg('package')} onSelectPackage={handleSelectPackage} onSelectMethod={handlePaymentSelectMethod} onBack={() => (step = 'tutorial')} />
+    <V3Package
+      background={getV3Bg('package')}
+      onSelectPackage={handleSelectPackage}
+      onSelectMethod={handlePaymentSelectMethod}
+      onBack={() => {
+        if (boothConfig.config.earlyPaymentPage) {
+          step = 'tutorial';
+        } else {
+          step = 'frame';
+        }
+      }}
+    />
   {:else if step === 'payment'}
     <V3Payment background={getV3Bg('payment')} selectedPackage={selectedPackage} onSelectMethod={handlePaymentSelectMethod} onBack={() => (step = 'package')} />
   {:else if step === 'ticket'}
     <V3Ticket background={getV3Bg('ticket')} onConfirm={handleTicketConfirm} onBack={() => (step = 'payment')} />
   {:else if step === 'frame'}
-    <V3Frame background={getV3Bg('frame')} onSelectFrame={handleSelectFrame} onBack={() => (step = 'payment')} />
+    <V3Frame
+      background={getV3Bg('frame')}
+      onSelectFrame={handleSelectFrame}
+      onBack={() => {
+        if (boothConfig.config.earlyPaymentPage && !boothConfig.config.skipPayment) {
+          step = 'payment';
+        } else {
+          step = 'tutorial';
+        }
+      }}
+    />
   {:else if step === 'session'}
     <V3Session background={getV3Bg('session')} selectedFrame={selectedFrameId} onComplete={handleSessionComplete} onBack={() => (step = 'frame')} />
   {:else if step === 'filter'}

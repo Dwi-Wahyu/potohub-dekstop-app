@@ -41,5 +41,9 @@ webkit2gtk = "2.0"
 [target.'cfg(windows)'.dependencies]
 winapi = { version = "0.3", features = ["winspool", "wingdi", "winuser"] }
 
-
-
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true # Membuang simbol debug, memangkas .exe dari ~400MB menjadi ~20-25MB

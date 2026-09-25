@@ -107,7 +107,7 @@
         <img
           src={tutorialImg}
           alt="Panduan Penggunaan"
-          class="max-w-full max-h-full object-contain rounded-2xl shadow-xl"
+          class="max-w-full max-h-full object-contain"
         />
       </div>
     {:else}

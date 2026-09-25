@@ -41,6 +41,12 @@
   let selectedPrice = $state(35000);
   let selectedFrameConfigId = $state('grid4');
 
+  let effectiveBasePrice = $derived(
+    boothConfig.config.earlyPaymentPage && boothConfig.config.basePrice > 0
+      ? boothConfig.config.basePrice
+      : selectedPrice
+  );
+
   function handleStart() {
     currentSubStep = 'tutorial';
   }
@@ -50,7 +56,13 @@
   }
 
   function handleTutorialNext() {
-    currentSubStep = 'category_frame';
+    if (boothConfig.config.skipPayment) {
+      currentSubStep = 'category_frame';
+    } else if (boothConfig.config.earlyPaymentPage) {
+      currentSubStep = 'method_select';
+    } else {
+      currentSubStep = 'category_frame';
+    }
   }
 
   function handleCategoryFrameNext(price: number, frameId: string) {
@@ -61,10 +73,12 @@
 
   function handlePrintQtyNext(quantity: number) {
     boothFlow.printQty = quantity;
-    if (boothConfig.config.paymentPage) {
-      currentSubStep = 'method_select';
-    } else {
+    if (boothConfig.config.skipPayment) {
       currentSubStep = 'camera';
+    } else if (boothConfig.config.earlyPaymentPage) {
+      currentSubStep = 'camera';
+    } else {
+      currentSubStep = 'method_select';
     }
   }
 
@@ -77,7 +91,11 @@
   }
 
   function handlePaymentSuccess() {
-    currentSubStep = 'camera';
+    if (boothConfig.config.earlyPaymentPage) {
+      currentSubStep = 'category_frame';
+    } else {
+      currentSubStep = 'camera';
+    }
   }
 
   function handleCameraComplete(photos: string[]) {
@@ -109,26 +127,52 @@
   {:else if currentSubStep === 'tutorial'}
     <V1Tutorial background={getV1Bg('tutorial')} {customTutorialImg} onNext={handleTutorialNext} onBack={() => (currentSubStep = 'welcome')} />
   {:else if currentSubStep === 'category_frame'}
-    <V1CategoryFrame background={getV1Bg('frame')} onNext={handleCategoryFrameNext} onBack={() => (currentSubStep = 'tutorial')} />
+    <V1CategoryFrame
+      background={getV1Bg('frame')}
+      onNext={handleCategoryFrameNext}
+      onBack={() => {
+        if (boothConfig.config.earlyPaymentPage && !boothConfig.config.skipPayment) {
+          currentSubStep = 'method_select';
+        } else {
+          currentSubStep = 'tutorial';
+        }
+      }}
+    />
   {:else if currentSubStep === 'print_qty'}
     <V1PrintQty
       background={getV1Bg('frame')}
-      basePrice={selectedPrice}
+      basePrice={effectiveBasePrice}
       onNext={handlePrintQtyNext}
       onBack={() => (currentSubStep = 'category_frame')}
     />
   {:else if currentSubStep === 'method_select'}
-    <V1PaymentMethod background={getV1Bg('payment')} onSelect={handleMethodSelect} onBack={() => (currentSubStep = 'print_qty')} />
+    <V1PaymentMethod
+      background={getV1Bg('payment')}
+      onSelect={handleMethodSelect}
+      onBack={() => {
+        if (boothConfig.config.earlyPaymentPage) {
+          currentSubStep = 'tutorial';
+        } else {
+          currentSubStep = 'print_qty';
+        }
+      }}
+    />
   {:else if currentSubStep === 'ticket'}
     <V1TicketScan
       background={getV1Bg('ticket')}
-      onSuccess={() => (currentSubStep = 'camera')}
+      onSuccess={() => {
+        if (boothConfig.config.earlyPaymentPage) {
+          currentSubStep = 'category_frame';
+        } else {
+          currentSubStep = 'camera';
+        }
+      }}
       onBack={() => (currentSubStep = 'method_select')}
     />
   {:else if currentSubStep === 'payment'}
     <V1QRISPayment
       background={getV1Bg('payment')}
-      totalPrice={selectedPrice * boothFlow.printQty}
+      totalPrice={effectiveBasePrice * (boothFlow.printQty || 1)}
       onSuccess={handlePaymentSuccess}
       onBack={() => (currentSubStep = 'method_select')}
     />

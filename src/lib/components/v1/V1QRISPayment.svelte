@@ -119,6 +119,11 @@
           <div class="text-[28px] font-extrabold text-gray-900 tracking-[-0.02em]">
             {fmtPrice(totalPrice)}
           </div>
+          <!-- {#if boothConfig.config.earlyPaymentPage && boothConfig.config.basePrice > 0}
+            <div class="text-[11px] text-gray-500 mt-0.5 font-medium">
+              Acuan Harga: Rp {boothConfig.config.basePrice.toLocaleString('id-ID')}
+            </div>
+          {/if} -->
         </div>
 
         <!-- Static QR SVG placeholder -->

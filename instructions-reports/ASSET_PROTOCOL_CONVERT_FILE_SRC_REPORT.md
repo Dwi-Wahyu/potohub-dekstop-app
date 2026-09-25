@@ -117,3 +117,17 @@ Dengan penerapan **Pendekatan 1 (`convertFileSrc`)**:
 1. Seluruh aset visual photobooth (background langkah, foto tutorial, promo banner, stiker/emot, frame template) kini disimpan di disk lokal dan di-stream langsung ke WebView melalui protokol native.
 2. Tidak ada lagi fetch ke Cloudflare R2 / blob storage saat customer journey berlangsung.
 3. Alokasi memori RAM dan jeda serialisasi IPC berhasil diminimalisasi secara signifikan.
+
+---
+
+## 5. Addendum: Pemisahan Akses Asset DOM vs HTML5 Canvas (Pencegahan Tainted Canvas)
+
+### Masalah Tainted Canvas pada WebKitGTK (Linux)
+Meskipun `convertFileSrc` (`http://asset.localhost/...`) sangat efisien dan aman untuk rendering DOM (`<img>` dan background CSS), penggunaannya pada operasi kanvas HTML5 2D (`ctx.drawImage`) memicu status *tainted canvas* pada WebView WebKitGTK karena perbedaan origin protokol internal. Saat `canvas.toDataURL()` atau `canvas.toBlob()` dipanggil, WebView melempar `SecurityError: The operation is insecure`, yang menyebabkan fungsi compositing strip foto gagal dan jatuh ke fallback `photos[0]`.
+
+### Solusi Dual-Path:
+1. **DOM Display Path (`ensureAsset`)**:
+   Tetap menggunakan `convertFileSrc(filePath)` untuk seluruh tag `<img>`, background CSS UI, preview liveview, dan stiker agar memori RAM dan GPU tetap efisien tanpa membebani V8 heap.
+2. **Canvas Export Path (`ensureAssetDataUrl`)**:
+   Menyediakan fungsi terpisah `ensureAssetDataUrl(url)` di `offlineCache.ts` yang membaca file lokal via Rust command `read_cached_asset` (mengembalikan Base64 `data:...`). Hal ini menjamin kanvas HTML5 tetap *origin-clean*, sehingga ekspor `canvas.toDataURL()` untuk gambar strip composite resolusi tinggi berjalan 100% sukses tanpa melanggar batasan keamanan browser.
+

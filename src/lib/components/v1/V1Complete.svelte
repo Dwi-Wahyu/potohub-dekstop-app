@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
   import QRCode from 'qrcode';
-  import { Printer, Send, Delete } from '@lucide/svelte';
+  import { Printer, Send, Delete, Image, Film, Video } from '@lucide/svelte';
   import { uiConfig } from '$lib/stores/uiConfig.svelte';
   import { boothFlow } from '$lib/stores/booth.svelte';
   import { sendSoftfileEmail, sendSoftfileWA, formatTime } from '$lib/utils/shared';
@@ -50,6 +50,7 @@
   let compositeUrl = $state<string | null>(null);
   let isSavingSession = $state(false);
   let selectedTemplate = $state<BoothTemplate | null>(null);
+  let activePreviewTab = $state<'strip' | 'gif' | 'liveview'>('strip');
 
   const envs = import.meta.env as Record<string, string>;
   const rawAdminDashboardUrl =
@@ -133,6 +134,7 @@
           softfileUrl,
           boothFlow.stickers
         );
+        boothFlow.compositeStripUrl = compositeUrl;
       } catch (err) {
         console.error('Failed to composite template:', err);
       }
@@ -318,24 +320,94 @@
     class="flex items-center gap-10 transition-transform duration-300"
     style="transform: {kbOpen ? 'translateY(-120px)' : 'translateY(0)'};"
   >
-    <!-- Left: composited photo frame mockup -->
+    <!-- Left: composited photo frame mockup with Toggle -->
     <div class="flex flex-col items-center shrink-0">
       <div
         class="flex flex-col overflow-hidden bg-[#1a1a1a] border-[3px] border-[#e8e8e8] rounded-[24px] w-[260px] shadow-[0_24px_64px_rgba(0,0,0,0.7)]"
       >
-        <div class="p-3 bg-[#111] flex items-center justify-center">
-          {#if compositeUrl}
-            <img
-              src={compositeUrl}
-              alt="Hasil Foto Template"
-              class="w-full h-auto max-h-[60vh] object-contain rounded-xl block shadow-md"
-            />
-          {:else}
-            <div class="w-[200px] h-[300px] flex items-center justify-center text-white/30 text-xs animate-pulse">
-              Memproses Foto...
-            </div>
+        <div class="p-3 bg-[#111] flex items-center justify-center min-h-[380px]">
+          {#if activePreviewTab === 'strip'}
+            {#if compositeUrl}
+              <img
+                src={compositeUrl}
+                alt="Hasil Foto Template"
+                class="w-full h-auto max-h-[60vh] object-contain rounded-xl block shadow-md"
+              />
+            {:else}
+              <div class="w-[200px] h-[300px] flex flex-col items-center justify-center gap-2 text-white/30 text-xs">
+                <div class="w-6 h-6 border-2 border-white/20 border-t-white rounded-full animate-spin"></div>
+                <span>Memproses Foto...</span>
+              </div>
+            {/if}
+          {:else if activePreviewTab === 'gif'}
+            {#if boothFlow.sessionGifUrl}
+              <img
+                src={boothFlow.sessionGifUrl}
+                alt="GIF Sesi Foto"
+                class="w-full h-auto max-h-[60vh] object-contain rounded-xl block shadow-md"
+              />
+            {:else if boothFlow.isGeneratingGif}
+              <div class="w-[200px] h-[300px] flex flex-col items-center justify-center gap-2 text-white/30 text-xs">
+                <div class="w-6 h-6 border-2 border-white/20 border-t-white rounded-full animate-spin"></div>
+                <span>Memproses GIF...</span>
+              </div>
+            {:else}
+              <div class="w-[200px] h-[300px] flex flex-col items-center justify-center gap-2 text-white/30 text-xs p-4 text-center">
+                <Film size={28} class="opacity-40" />
+                <span>GIF tidak tersedia</span>
+              </div>
+            {/if}
+          {:else if activePreviewTab === 'liveview'}
+            {#if boothFlow.sessionVideoUrl}
+              <video
+                src={boothFlow.sessionVideoUrl}
+                autoplay
+                loop
+                muted
+                playsinline
+                class="w-full h-auto max-h-[60vh] object-contain rounded-xl block shadow-md"
+              ></video>
+            {:else if boothFlow.isGeneratingVideo}
+              <div class="w-[200px] h-[300px] flex flex-col items-center justify-center gap-2 text-white/30 text-xs">
+                <div class="w-6 h-6 border-2 border-white/20 border-t-white rounded-full animate-spin"></div>
+                <span>Memproses Live View...</span>
+              </div>
+            {:else}
+              <div class="w-[200px] h-[300px] flex flex-col items-center justify-center gap-2 text-white/30 text-xs p-4 text-center">
+                <Video size={28} class="opacity-40" />
+                <span>Live View tidak tersedia</span>
+              </div>
+            {/if}
           {/if}
         </div>
+      </div>
+
+      <!-- Toggle buttons below card preview -->
+      <div class="mt-4 flex items-center gap-1.5 p-1 bg-white/10 backdrop-blur-md rounded-full border border-white/10 shadow-lg">
+        <button
+          type="button"
+          onclick={() => (activePreviewTab = 'strip')}
+          class="px-3.5 py-1.5 rounded-full text-xs font-semibold flex items-center gap-1.5 transition-all {activePreviewTab === 'strip' ? 'bg-white text-black shadow-md' : 'text-white/70 hover:text-white hover:bg-white/10'}"
+        >
+          <Image size={14} />
+          <span>Strip</span>
+        </button>
+        <button
+          type="button"
+          onclick={() => (activePreviewTab = 'gif')}
+          class="px-3.5 py-1.5 rounded-full text-xs font-semibold flex items-center gap-1.5 transition-all {activePreviewTab === 'gif' ? 'bg-white text-black shadow-md' : 'text-white/70 hover:text-white hover:bg-white/10'}"
+        >
+          <Film size={14} />
+          <span>GIF</span>
+        </button>
+        <button
+          type="button"
+          onclick={() => (activePreviewTab = 'liveview')}
+          class="px-3.5 py-1.5 rounded-full text-xs font-semibold flex items-center gap-1.5 transition-all {activePreviewTab === 'liveview' ? 'bg-white text-black shadow-md' : 'text-white/70 hover:text-white hover:bg-white/10'}"
+        >
+          <Video size={14} />
+          <span>Live View</span>
+        </button>
       </div>
     </div>
 

@@ -7,6 +7,7 @@
   import { fetchCategories, fetchTemplates, requireActiveBoothId, type BoothCategory, type BoothTemplate } from '$lib/api/boothClient';
   import { cachedFetch } from '$lib/utils/offlineCache';
   import ProgressiveImage from '$lib/components/shared/ProgressiveImage.svelte';
+  import { getTemplateLayers, getLayerZIndex } from '$lib/utils/templateComposite';
 
   interface Props {
     onNext: (price: number, frameConfigId: string) => void;
@@ -294,9 +295,10 @@
             <div class="grid grid-cols-3 gap-3.5 content-start">
               {#each visibleTemplatesForCategory as f, index}
                 {@const sel = f.id === frameId}
-                {@const bgLayer = f.design_data?.find((l) => l.isBackground)}
+                {@const tLayers = getTemplateLayers(f)}
+                {@const bgLayer = tLayers.find((l) => l.isBackground)}
                 {@const bgUrl = bgLayer?.imageUrl || f.frame_image_url}
-                {@const photoSlots = f.design_data?.filter((l) => !l.isBackground && !l.isQr) ?? []}
+                {@const photoSlots = tLayers.filter((l) => !l.isBackground && !l.isQr)}
                 {@const count = photoSlots.length || 1}
                 <button
                   onclick={() => (frameId = f.id)}
@@ -320,11 +322,11 @@
                         class="w-full h-full rounded-lg"
                         objectFit="contain"
                       />
-                    {:else if f.design_data && f.design_data.length > 0}
-                      {#each f.design_data.filter((l) => !l.isQr) as layer, idx (layer.id ?? idx)}
-                        {@const layerZIndex = f.design_data.length - idx}
+                    {:else if tLayers.length > 0}
+                      {#each tLayers.filter((l) => !l.isQr) as layer, idx (layer.id ?? idx)}
+                        {@const layerZIndex = getLayerZIndex(layer, tLayers)}
                         <div
-                          class="absolute overflow-hidden"
+                          class={`absolute overflow-hidden ${layer.isBackground ? 'pointer-events-none' : ''}`}
                           style="
                             left: {((layer.x || 0) / (f.width || 1200)) * 100}%;
                             top: {((layer.y || 0) / (f.height || 1800)) * 100}%;
@@ -332,11 +334,13 @@
                             height: {((layer.h || 200) / (f.height || 1800)) * 100}%;
                             transform: rotate({layer.rot || 0}deg);
                             z-index: {layerZIndex};
+                            pointer-events: {layer.isBackground ? 'none' : 'auto'};
                           "
                         >
                           {#if layer.isBackground}
-                            {#if bgUrl}
-                              <img src={bgUrl} alt="Template Frame" class="w-full h-full object-fill pointer-events-none block" />
+                            {@const layerBgUrl = layer.imageUrl || bgUrl}
+                            {#if layerBgUrl}
+                              <img src={layerBgUrl} alt="Template Frame" class="w-full h-full object-fill pointer-events-none block" />
                             {/if}
                           {:else}
                             <div class="w-full h-full bg-white/20 rounded-[2px] flex items-center justify-center text-[8px] text-white/50">
@@ -373,7 +377,8 @@
 
         <div class="flex-1 min-h-0 flex flex-col pt-4 px-5">
           {#if selectedFrame}
-            {@const bgLayer = selectedFrame.design_data?.find((l) => l.isBackground)}
+            {@const templateLayers = getTemplateLayers(selectedFrame)}
+            {@const bgLayer = templateLayers.find((l) => l.isBackground)}
             {@const bgUrl = bgLayer?.imageUrl || selectedFrame.frame_image_url}
             {@const tWidth = selectedFrame.width || 1200}
             {@const tHeight = selectedFrame.height || 1800}
@@ -383,11 +388,11 @@
                 class="relative h-full max-w-full overflow-hidden rounded-xl bg-black/40 shadow-xl"
                 style="aspect-ratio: {tWidth} / {tHeight};"
               >
-                {#if selectedFrame.design_data && selectedFrame.design_data.length > 0}
-                  {#each selectedFrame.design_data.filter((l) => !l.isQr) as layer, idx (layer.id ?? idx)}
-                    {@const layerZIndex = selectedFrame.design_data.length - idx}
+                {#if templateLayers.length > 0}
+                  {#each templateLayers.filter((l) => !l.isQr) as layer, idx (layer.id ?? idx)}
+                    {@const layerZIndex = getLayerZIndex(layer, templateLayers)}
                     <div
-                      class="absolute overflow-hidden"
+                      class={`absolute overflow-hidden ${layer.isBackground ? 'pointer-events-none' : ''}`}
                       style="
                         left: {((layer.x || 0) / tWidth) * 100}%;
                         top: {((layer.y || 0) / tHeight) * 100}%;
@@ -395,12 +400,14 @@
                         height: {((layer.h || 200) / tHeight) * 100}%;
                         transform: rotate({layer.rot || 0}deg);
                         z-index: {layerZIndex};
+                        pointer-events: {layer.isBackground ? 'none' : 'auto'};
                       "
                     >
                       {#if layer.isBackground}
-                        {#if bgUrl}
+                        {@const layerBgUrl = layer.imageUrl || bgUrl}
+                        {#if layerBgUrl}
                           <img
-                            src={bgUrl}
+                            src={layerBgUrl}
                             alt="Frame Overlay"
                             class="w-full h-full object-fill pointer-events-none block"
                           />

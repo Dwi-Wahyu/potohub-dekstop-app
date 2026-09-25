@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { uiConfig } from '$lib/stores/uiConfig.svelte';
+  import { boothConfig } from '$lib/stores/boothConfig.svelte';
   import { boothFlow } from '$lib/stores/booth.svelte';
   import { QrCode, Ticket } from '@lucide/svelte';
   import { fetchCategories, requireActiveBoothId, type BoothCategory } from '$lib/api/boothClient';
@@ -34,7 +35,9 @@
   });
 
   let priceBase = $derived(
-    categoriesData[0]?.base_price ?? uiConfig.config.categories[0]?.basePrice ?? 35000
+    boothConfig.config.earlyPaymentPage && boothConfig.config.basePrice > 0
+      ? boothConfig.config.basePrice
+      : (categoriesData[0]?.base_price ?? uiConfig.config.categories[0]?.basePrice ?? 35000)
   );
 
   const STEPPER_LABELS = ['Tutorial', 'Payment', 'Frames', 'Photo Session', 'Edit & Filter', 'Scan File'];

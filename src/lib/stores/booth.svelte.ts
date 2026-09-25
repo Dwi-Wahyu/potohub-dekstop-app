@@ -32,12 +32,23 @@ class BoothFlowStore {
   sessionId = $state<string | null>(null);
   stickersChoosen = $state<StickersChoosen[]>([]);
   stickers = $state<Sticker[]>([]);
+  compositeStripUrl = $state<string | null>(null);
+  sessionGifUrl = $state<string | null>(null);
+  sessionVideoUrl = $state<string | null>(null);
+  isGeneratingGif = $state<boolean>(false);
+  isGeneratingVideo = $state<boolean>(false);
 
   goTo(step: BoothStep) {
     this.step = step;
   }
 
   reset() {
+    if (this.sessionGifUrl && this.sessionGifUrl.startsWith('blob:')) {
+      try { URL.revokeObjectURL(this.sessionGifUrl); } catch {}
+    }
+    if (this.sessionVideoUrl && this.sessionVideoUrl.startsWith('blob:')) {
+      try { URL.revokeObjectURL(this.sessionVideoUrl); } catch {}
+    }
     this.step = "welcome";
     this.countdown = null;
     this.isFlashActive = false;
@@ -50,6 +61,11 @@ class BoothFlowStore {
     this.sessionId = null;
     this.stickersChoosen = [];
     this.stickers = [];
+    this.compositeStripUrl = null;
+    this.sessionGifUrl = null;
+    this.sessionVideoUrl = null;
+    this.isGeneratingGif = false;
+    this.isGeneratingVideo = false;
   }
 }
 

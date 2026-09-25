@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import QRCode from 'qrcode';
   import { uiConfig, type StoreCategory } from '$lib/stores/uiConfig.svelte';
+  import { boothConfig } from '$lib/stores/boothConfig.svelte';
   import { boothFlow } from '$lib/stores/booth.svelte';
   import { Check, Clock, ChevronLeft } from '@lucide/svelte';
   import { fetchCategories, requireActiveBoothId, type BoothCategory } from '$lib/api/boothClient';
@@ -24,7 +25,9 @@
 
   let qty = $derived(boothFlow.printQty || 1);
   let priceBase = $derived(
-    selectedPackage?.basePrice ?? categoriesData[0]?.base_price ?? uiConfig.config.categories[0]?.basePrice ?? 35000
+    boothConfig.config.earlyPaymentPage && boothConfig.config.basePrice > 0
+      ? boothConfig.config.basePrice
+      : (selectedPackage?.basePrice ?? categoriesData[0]?.base_price ?? uiConfig.config.categories[0]?.basePrice ?? 35000)
   );
   let total = $derived(priceBase * qty);
 

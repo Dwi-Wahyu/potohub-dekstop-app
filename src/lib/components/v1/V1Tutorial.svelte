@@ -147,11 +147,11 @@
           <div class="bg-[#0a0910] px-4 py-[13px] flex items-center gap-2.5 border-b border-white/5 shrink-0">
             <span class="w-[22px] h-[22px] rounded-full bg-white text-black flex items-center justify-center text-[11px] font-bold shrink-0">2</span>
             <h2 class="m-0 text-xs font-semibold text-white overflow-hidden text-ellipsis whitespace-nowrap">
-              {boothConfig.config.paymentPage ? 'Pilih Metode' : 'Metode (Dinonaktifkan)'}
+              {boothConfig.config.skipPayment ? 'Metode (Dilewati)' : boothConfig.config.earlyPaymentPage ? 'Pilih Metode (Awal)' : 'Pilih Metode'}
             </h2>
           </div>
           <div class="bg-[#e5d5cf] p-5 flex-grow flex items-center justify-center">
-            {#if boothConfig.config.paymentPage}
+            {#if !boothConfig.config.skipPayment}
               <div class="flex justify-center items-center gap-2.5 w-full">
                 {#each [true, false, false] as sel, i}
                   <div class={`w-[30%] aspect-square bg-[#cbb8b3] rounded-xl relative ${sel ? 'border-[3px] border-[#a8938d]' : ''}`}>
@@ -160,7 +160,7 @@
                 {/each}
               </div>
             {:else}
-              <div class="opacity-50 font-bold text-gray-700">Non-Aktif</div>
+              <div class="opacity-50 font-bold text-gray-700">Dilewati</div>
             {/if}
           </div>
         </article>
@@ -197,11 +197,11 @@
           <div class="bg-[#0a0910] px-4 py-[13px] flex items-center gap-2.5 border-b border-white/5 shrink-0">
             <span class="w-[22px] h-[22px] rounded-full bg-white text-black flex items-center justify-center text-[11px] font-bold shrink-0">4</span>
             <h2 class="m-0 text-xs font-semibold text-white overflow-hidden text-ellipsis whitespace-nowrap">
-              {boothConfig.config.paymentPage ? 'Pembayaran' : 'Pembayaran (Gratis)'}
+              {boothConfig.config.skipPayment ? 'Pembayaran (Dilewati)' : boothConfig.config.earlyPaymentPage ? 'Pembayaran (Awal)' : 'Pembayaran'}
             </h2>
           </div>
           <div class="bg-[#e5d5cf] p-5 flex-grow flex items-center justify-center">
-            {#if boothConfig.config.paymentPage}
+            {#if !boothConfig.config.skipPayment}
               <div class="w-[88px] h-[88px] border-[3px] border-[#cbb8b3] rounded-2xl flex items-center justify-center relative bg-white/50">
                 <div class="w-[44px] h-[44px] bg-[#cbb8b3] opacity-50 rounded"></div>
                 <div class="absolute w-3 h-3 border-2 border-[#cbb8b3] top-1.5 left-1.5"></div>
@@ -209,7 +209,7 @@
                 <div class="absolute w-3 h-3 border-2 border-[#cbb8b3] bottom-1.5 left-1.5"></div>
               </div>
             {:else}
-              <div class="opacity-50 font-bold text-gray-700">Gratis</div>
+              <div class="opacity-50 font-bold text-gray-700">Dilewati / Testing</div>
             {/if}
           </div>
         </article>
@@ -293,11 +293,11 @@
           <div class="bg-[#0a0910] px-4 py-[13px] flex items-center gap-2.5 border-b border-white/5 shrink-0">
             <span class="w-[22px] h-[22px] rounded-full bg-white text-black flex items-center justify-center text-[11px] font-bold shrink-0">5</span>
             <h2 class="m-0 text-xs font-semibold text-white overflow-hidden text-ellipsis whitespace-nowrap">
-              {boothConfig.config.paymentPage ? 'Cek Pembayaran Otomatis' : 'Lewati Pembayaran'}
+              {boothConfig.config.skipPayment ? 'Lewati Pembayaran (Testing)' : 'Cek Pembayaran Otomatis'}
             </h2>
           </div>
           <div class="bg-[#e5d5cf] p-5 flex-grow flex items-center justify-center">
-            {#if boothConfig.config.paymentPage}
+            {#if !boothConfig.config.skipPayment}
               <div class="flex flex-col items-center gap-3.5 w-full">
                 <div class="w-[60px] h-[60px] bg-[#cbb8b3] rounded-2xl flex items-center justify-center">
                   <div class="w-[22px] h-[13px] border-b-[4px] border-r-[4px] border-[#8c7873] rotate-45 mb-1 -mr-1"></div>
@@ -306,7 +306,7 @@
                 <div class="w-[35%] h-1.5 bg-[#cbb8b3] rounded-full opacity-60"></div>
               </div>
             {:else}
-              <div class="opacity-50 font-bold text-gray-700">Mati</div>
+              <div class="opacity-50 font-bold text-gray-700">Dilewati</div>
             {/if}
           </div>
         </article>

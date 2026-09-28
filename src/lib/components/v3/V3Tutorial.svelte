@@ -1,9 +1,6 @@
 <script lang="ts">
-  import { onMount, onDestroy } from 'svelte';
   import { Star, QrCode, Image as ImageIcon, Camera, Download, ChevronRight } from '@lucide/svelte';
-
   import { uiConfig } from '$lib/stores/uiConfig.svelte';
-  import { boothConfig } from '$lib/stores/boothConfig.svelte';
 
   interface Props {
     onNext: () => void;
@@ -13,23 +10,6 @@
   }
 
   let { onNext, onBack, background, customTutorialImg }: Props = $props();
-
-  let secs = $state(boothConfig.config.procedureTimeSecs || 15);
-  let timer: any = null;
-
-  onMount(() => {
-    timer = setInterval(() => {
-      if (secs > 0) secs--;
-      else {
-        clearInterval(timer);
-        onNext();
-      }
-    }, 1000);
-  });
-
-  onDestroy(() => {
-    if (timer) clearInterval(timer);
-  });
 
   const TUTORIAL_ITEMS = [
     { n: 1, icon: QrCode, title: 'Bayar Dulu', desc: 'QRIS atau voucher code', bg: '#fef2f2', accent: '#CD1C33', iconClass: 'text-[#CD1C33]' },

@@ -22,6 +22,7 @@
   let paid = $state(false);
   let qrUrl = $state('');
   let categoriesData = $state<BoothCategory[]>([]);
+  let deadlineStr = $state('');
 
   let qty = $derived(boothFlow.printQty || 1);
   let priceBase = $derived(
@@ -32,6 +33,8 @@
   let total = $derived(priceBase * qty);
 
   onMount(async () => {
+    const expireDate = new Date(Date.now() + (boothConfig.config.paymentTimeSecs || 120) * 1000);
+    deadlineStr = `${String(expireDate.getHours()).padStart(2, '0')}:${String(expireDate.getMinutes()).padStart(2, '0')}`;
     try {
       const boothId = await requireActiveBoothId();
       await cachedFetch(
@@ -171,7 +174,7 @@
           </div>
 
           <div class="w-full bg-[#0E8E5E] text-white px-5 py-2.5 rounded-full font-mono text-xs font-bold flex items-center justify-center gap-2 shadow">
-            <Clock size={15} /> Bayar sebelum 10:00
+            <Clock size={15} /> Bayar sebelum {deadlineStr || '10:00'}
           </div>
 
           <button

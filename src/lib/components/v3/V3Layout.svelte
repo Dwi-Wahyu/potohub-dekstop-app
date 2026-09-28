@@ -14,6 +14,7 @@
   import V3Filter from './V3Filter.svelte';
   import V3Loading from './V3Loading.svelte';
   import V3Download from './V3Download.svelte';
+  import V3Timer from './V3Timer.svelte';
   import ProgressiveBackground from '$lib/components/shared/ProgressiveBackground.svelte';
 
   interface Props {
@@ -110,6 +111,37 @@
     step = 'start';
   }
 
+  function handleStepTimeout(timedOutStep: V3Step) {
+    switch (timedOutStep) {
+      case 'tutorial':
+        handleTutorialNext();
+        break;
+      case 'package':
+      case 'payment':
+      case 'ticket':
+        handleDone();
+        break;
+      case 'frame':
+        if (boothConfig.config.skipPayment) {
+          step = 'session';
+        } else if (boothConfig.config.earlyPaymentPage) {
+          step = 'session';
+        } else {
+          step = 'package';
+        }
+        break;
+      case 'session':
+        step = 'filter';
+        break;
+      case 'filter':
+        step = 'loading';
+        break;
+      case 'download':
+        handleDone();
+        break;
+    }
+  }
+
   const V3_DEFAULT_BG_MAP: Record<string, string> = {
     start: '#CD1C33 repeating-linear-gradient(90deg, transparent, transparent 40px, rgba(0,0,0,0.05) 40px, rgba(0,0,0,0.05) 80px)',
     tutorial: '#fdfdfd',
@@ -173,4 +205,6 @@
   {:else if step === 'download'}
     <V3Download background={getV3Bg('download')} selectedFrame={selectedFrameId} onDone={handleDone} />
   {/if}
+
+  <V3Timer {step} onTimeout={handleStepTimeout} />
 </ProgressiveBackground>

@@ -2,7 +2,7 @@
 
 Dokumen ini adalah panduan teknis dan instruksi perbaikan mendalam untuk mengatasi masalah **salah mengira offline (false offline verdict)** yang terjadi pada mode development maupun build (production) pada aplikasi desktop Photobooth (`dekstop-app`).
 
-Dokumen ini melengkapi dan memperbaiki kelemahan yang ditemukan pada implementasi [`OFFLINE_SAFE_PAYMENT_TICKET_SOFTFILE_SYNC.md`](file:///home/dwiwahyu/Projects/PotoHub/source-code/dekstop-app/instructions/OFFLINE_SAFE_PAYMENT_TICKET_SOFTFILE_SYNC.md) dan laporan [`OFFLINE_SAFE_PAYMENT_TICKET_SOFTFILE_SYNC_REPORT.md`](file:///home/dwiwahyu/Projects/PotoHub/source-code/dekstop-app/instructions-reports/OFFLINE_SAFE_PAYMENT_TICKET_SOFTFILE_SYNC_REPORT.md).
+Dokumen ini melengkapi dan memperbaiki kelemahan yang ditemukan pada implementasi [`OFFLINE_SAFE_PAYMENT_TICKET_SOFTFILE_SYNC.md`](/instructions/OFFLINE_SAFE_PAYMENT_TICKET_SOFTFILE_SYNC.md) dan laporan [`OFFLINE_SAFE_PAYMENT_TICKET_SOFTFILE_SYNC_REPORT.md`](/instructions-reports/OFFLINE_SAFE_PAYMENT_TICKET_SOFTFILE_SYNC_REPORT.md).
 
 ---
 
@@ -11,7 +11,7 @@ Dokumen ini melengkapi dan memperbaiki kelemahan yang ditemukan pada implementas
 Berdasarkan audit mendalam terhadap kode sumber sistem, terdapat **6 faktor utama** yang secara simultan menyebabkan aplikasi sering salah memvonis status jaringan menjadi *offline* padahal perangkat terhubung ke internet/jaringan:
 
 ### 1.1. "Poison Outbox" Feedback Loop (`markOfflineDueToFailure()`) — *PENYEBAB UTAMA*
-- **Lokasi:** [`src/lib/utils/offlineOutbox.ts`](file:///home/dwiwahyu/Projects/PotoHub/source-code/dekstop-app/src/lib/utils/offlineOutbox.ts#L52-L57) & [`src/lib/stores/networkStatus.svelte.ts`](file:///home/dwiwahyu/Projects/PotoHub/source-code/dekstop-app/src/lib/stores/networkStatus.svelte.ts#L76-L78).
+- **Lokasi:** [`src/lib/utils/offlineOutbox.ts`](/src/lib/utils/offlineOutbox.ts#L52-L57) & [`src/lib/stores/networkStatus.svelte.ts`](/src/lib/stores/networkStatus.svelte.ts#L76-L78).
 - **Mekanisme Kegagalan:**
   1. Saat aplikasi mendeteksi jaringan, `verifyAndMaybeFlush()` memanggil `pingServer()`.
   2. Begitu ping sukses, `isOnline` bernilai `true`, lalu memanggil `flushOutbox()`.
@@ -28,7 +28,7 @@ Berdasarkan audit mendalam terhadap kode sumber sistem, terdapat **6 faktor utam
   6. **Efek Bumerang:** Setiap kali sistem berhasil ping online, milidetik berikutnya outbox mencoba mengeksekusi job beracun (poison job) ini -> gagal -> langsung memanggil `markOfflineDueToFailure()` -> **status seketika dibanting kembali ke OFFLINE (`isOnline = false`)**. Pengguna melihat aplikasi seolah "macet dalam mode offline".
 
 ### 1.2. Ketergantungan Buta pada `navigator.onLine` & Event OS Tanpa Debounce
-- **Lokasi:** [`src/lib/stores/networkStatus.svelte.ts`](file:///home/dwiwahyu/Projects/PotoHub/source-code/dekstop-app/src/lib/stores/networkStatus.svelte.ts#L24-L52).
+- **Lokasi:** [`src/lib/stores/networkStatus.svelte.ts`](/src/lib/stores/networkStatus.svelte.ts#L24-L52).
 - **Mekanisme Kegagalan:**
   - `navigator.onLine` pada WebView desktop (khususnya WebKitGTK di Linux via `GNetworkMonitor`, serta WebView2 di Windows) sering tidak akurat saat ada antarmuka virtual (Docker bridge `docker0`, veth, WireGuard, Tailscale, VM adapter) atau transisi Wi-Fi powersave.
   - Event `window.addEventListener('offline')` memicu `handleOsOffline()` yang **seketika mengubah `isOnline = false` tanpa debounce** dan tanpa verifikasi ping.
@@ -40,7 +40,7 @@ Berdasarkan audit mendalam terhadap kode sumber sistem, terdapat **6 faktor utam
   - Saat startup di mode build/dev, webview sering kali menginisialisasi `navigator.onLine` sebagai `false` selama beberapa puluh milidetik pertama. Akibatnya `init()` langsung mengunci `this.isOnline = false` tanpa menjalankan ping.
 
 ### 1.3. Ketiadaan Polling / Heartbeat Recovery Saat Offline ("One-Way Trap")
-- **Lokasi:** [`src/routes/+layout.svelte`](file:///home/dwiwahyu/Projects/PotoHub/source-code/dekstop-app/src/routes/+layout.svelte#L13-L19).
+- **Lokasi:** [`src/routes/+layout.svelte`](/src/routes/+layout.svelte#L13-L19).
 - **Mekanisme Kegagalan:**
   - Interval periodik 10 menit di `+layout.svelte` dibungkus kondisi:
     ```svelte
@@ -50,14 +50,14 @@ Berdasarkan audit mendalam terhadap kode sumber sistem, terdapat **6 faktor utam
   - Aplikasi 100% bergantung pada event OS `window.ononline`. Jika antarmuka fisik tidak pernah mati-nyala (misal koneksi internet yang sempat putus di router, atau backend yang baru saja dinyalakan), event `online` **tidak akan pernah dikirim oleh OS**. Aplikasi terkunci dalam mode offline selamanya sampai aplikasi direstart atau dibuka Config Dashboard secara manual.
 
 ### 1.4. Ping Server Terlalu Rapuh (Single Attempt, 4000ms, Tanpa Retry)
-- **Lokasi:** [`src/lib/stores/networkStatus.svelte.ts`](file:///home/dwiwahyu/Projects/PotoHub/source-code/dekstop-app/src/lib/stores/networkStatus.svelte.ts#L44-L55).
+- **Lokasi:** [`src/lib/stores/networkStatus.svelte.ts`](/src/lib/stores/networkStatus.svelte.ts#L44-L55).
 - **Mekanisme Kegagalan:**
   - `pingServer()` hanya mencoba 1 kali request ke `HEALTH_URL` dengan batas waktu 4000ms.
   - Jika backend sedang restart, cold start koneksi database/R2, atau terjadi jitter paket sesaat (>4000ms), ping gagal dan langsung memvonis sistem offline.
   - Tidak ada mekanisme multi-step probe atau retry cepat (fast retry).
 
 ### 1.5. Mismatch Konfigurasi URL API (`.env` vs Build vs Dev)
-- **Lokasi:** [`dekstop-app/.env`](file:///home/dwiwahyu/Projects/PotoHub/source-code/dekstop-app/.env), `vite.config.js`.
+- **Lokasi:** [`dekstop-app/.env`](/.env), `vite.config.js`.
 - **Mekanisme Kegagalan:**
   - Di `.env`:
     ```env
@@ -68,7 +68,7 @@ Berdasarkan audit mendalam terhadap kode sumber sistem, terdapat **6 faktor utam
   - Pada mode dev, jika frontend dinyalakan mendahului backend Actix (`cargo run`), ping awal gagal dan langsung masuk ke jebakan "One-Way Trap".
 
 ### 1.6. Head-of-Line Blocking & Ketiadaan Dead-Letter Queue pada Outbox
-- **Lokasi:** [`src/lib/db/local.ts`](file:///home/dwiwahyu/Projects/PotoHub/source-code/dekstop-app/src/lib/db/local.ts#L408-L434).
+- **Lokasi:** [`src/lib/db/local.ts`](/src/lib/db/local.ts#L408-L434).
 - **Mekanisme Kegagalan:**
   - Job yang gagal hanya ditandai `attempts = attempts + 1` dan tetap berstatus `pending`.
   - Fungsi `listPendingOutboxJobs()` selalu menarik baris dengan `WHERE status != 'done' ORDER BY id ASC`.
@@ -125,7 +125,7 @@ Prinsip Perbaikan:
 
 ### Bagian A: Perbaiki Database Outbox di `src/lib/db/local.ts`
 
-Buka [`src/lib/db/local.ts`](file:///home/dwiwahyu/Projects/PotoHub/source-code/dekstop-app/src/lib/db/local.ts). Ubah bagian outbox agar:
+Buka [`src/lib/db/local.ts`](/src/lib/db/local.ts). Ubah bagian outbox agar:
 1. Mendukung status `'dead_letter'`.
 2. `listPendingOutboxJobs` hanya mengambil job dengan `attempts < 5` dan `status = 'pending'`.
 3. Menambahkan fungsi `markOutboxJobDeadLetter`.
@@ -215,7 +215,7 @@ export async function countPendingOutboxJobs(): Promise<number> {
 
 ### Bagian B: Klasifikasi Error Jaringan di `src/lib/api/boothClient.ts`
 
-Buka [`src/lib/api/boothClient.ts`](file:///home/dwiwahyu/Projects/PotoHub/source-code/dekstop-app/src/lib/api/boothClient.ts). 
+Buka [`src/lib/api/boothClient.ts`](/src/lib/api/boothClient.ts). 
 
 1. Tambahkan utilitas helper untuk membedakan antara **Network Failure** murni vs **HTTP Response Failure**:
 
@@ -335,7 +335,7 @@ export async function redeemTicket(token: string, boothId: string): Promise<Rede
 
 ### Bagian C: Refactor Outbox Worker di `src/lib/utils/offlineOutbox.ts`
 
-Buka [`src/lib/utils/offlineOutbox.ts`](file:///home/dwiwahyu/Projects/PotoHub/source-code/dekstop-app/src/lib/utils/offlineOutbox.ts).
+Buka [`src/lib/utils/offlineOutbox.ts`](/src/lib/utils/offlineOutbox.ts).
 
 **Perubahan Kritis:**
 - Pisahkan penanganan error: Hanya panggil `markOfflineDueToFailure()` jika error terbukti merupakan `isNetworkTransportError`.
@@ -511,7 +511,7 @@ async function processJob(job: OutboxJob): Promise<JobProcessOutcome> {
 
 ### Bagian D: Refactor `src/lib/stores/networkStatus.svelte.ts`
 
-Buka [`src/lib/stores/networkStatus.svelte.ts`](file:///home/dwiwahyu/Projects/PotoHub/source-code/dekstop-app/src/lib/stores/networkStatus.svelte.ts).
+Buka [`src/lib/stores/networkStatus.svelte.ts`](/src/lib/stores/networkStatus.svelte.ts).
 
 **Perubahan Kritis:**
 1. **Hilangkan pemblokiran `if (!navigator.onLine) return false;`** di `pingServer()`. Selama kita ingin menguji server, coba lakukan HTTP fetch.
@@ -678,7 +678,7 @@ export const networkStatus = new NetworkStatusStore();
 
 ### Bagian E: Perbaiki `src/routes/+layout.svelte`
 
-Buka [`src/routes/+layout.svelte`](file:///home/dwiwahyu/Projects/PotoHub/source-code/dekstop-app/src/routes/+layout.svelte). Karena `networkStatus` sekarang sudah memiliki active heartbeat mandiri, background sync di `+layout.svelte` cukup memanggil sinkronisasi data booth jika online, dan tidak perlu mengintervensi pengecekan status jaringan:
+Buka [`src/routes/+layout.svelte`](/src/routes/+layout.svelte). Karena `networkStatus` sekarang sudah memiliki active heartbeat mandiri, background sync di `+layout.svelte` cukup memanggil sinkronisasi data booth jika online, dan tidak perlu mengintervensi pengecekan status jaringan:
 
 ```svelte
 <script lang="ts">
@@ -712,7 +712,7 @@ Buka [`src/routes/+layout.svelte`](file:///home/dwiwahyu/Projects/PotoHub/source
 
 ### Bagian F: Penanganan Environment URL pada Mode Dev dan Build
 
-Buka [`.env`](file:///home/dwiwahyu/Projects/PotoHub/source-code/dekstop-app/.env) di `dekstop-app`:
+Buka [`.env`](/.env) di `dekstop-app`:
 
 1. **Untuk Mode Development (`pnpm tauri dev`):**
    Pastikan port backend Actix (`api`) berjalan di port yang sama:
@@ -754,8 +754,8 @@ Setelah menerapkan perbaikan di atas, lakukan verifikasi skenario berikut:
 
 ## 5. Ringkasan Berkas yang Perlu Dimodifikasi
 
-1. [`dekstop-app/src/lib/db/local.ts`](file:///home/dwiwahyu/Projects/PotoHub/source-code/dekstop-app/src/lib/db/local.ts): Penambahan batas retry `attempts < 5`, status `dead_letter`, dan filter query antrean.
-2. [`dekstop-app/src/lib/api/boothClient.ts`](file:///home/dwiwahyu/Projects/PotoHub/source-code/dekstop-app/src/lib/api/boothClient.ts): Helper `isNetworkTransportError`, penanganan aman HTTP 400 di `validateAndRedeemQrTicket`, dan fallback network-aware di `redeemTicket`.
-3. [`dekstop-app/src/lib/utils/offlineOutbox.ts`](file:///home/dwiwahyu/Projects/PotoHub/source-code/dekstop-app/src/lib/utils/offlineOutbox.ts): Pemisahan error bisnis vs error jaringan transport, penghapusan pemanggilan `markOfflineDueToFailure()` pada error non-network.
-4. [`dekstop-app/src/lib/stores/networkStatus.svelte.ts`](file:///home/dwiwahyu/Projects/PotoHub/source-code/dekstop-app/src/lib/stores/networkStatus.svelte.ts): Penghapusan guard `!navigator.onLine`, penambahan active heartbeat polling (5s saat offline / 30s saat online), 2x fast ping probe, dan 3s debounce pada OS offline event.
-5. [`dekstop-app/.env`](file:///home/dwiwahyu/Projects/PotoHub/source-code/dekstop-app/.env) / `.env.production`: Penyesuaian `PUBLIC_API_BASE_URL` antara mode lokal dan produksi.
+1. [`dekstop-app/src/lib/db/local.ts`](/src/lib/db/local.ts): Penambahan batas retry `attempts < 5`, status `dead_letter`, dan filter query antrean.
+2. [`dekstop-app/src/lib/api/boothClient.ts`](/src/lib/api/boothClient.ts): Helper `isNetworkTransportError`, penanganan aman HTTP 400 di `validateAndRedeemQrTicket`, dan fallback network-aware di `redeemTicket`.
+3. [`dekstop-app/src/lib/utils/offlineOutbox.ts`](/src/lib/utils/offlineOutbox.ts): Pemisahan error bisnis vs error jaringan transport, penghapusan pemanggilan `markOfflineDueToFailure()` pada error non-network.
+4. [`dekstop-app/src/lib/stores/networkStatus.svelte.ts`](/src/lib/stores/networkStatus.svelte.ts): Penghapusan guard `!navigator.onLine`, penambahan active heartbeat polling (5s saat offline / 30s saat online), 2x fast ping probe, dan 3s debounce pada OS offline event.
+5. [`dekstop-app/.env`](/.env) / `.env.production`: Penyesuaian `PUBLIC_API_BASE_URL` antara mode lokal dan produksi.

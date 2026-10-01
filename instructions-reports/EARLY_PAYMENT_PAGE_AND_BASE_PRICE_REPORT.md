@@ -11,7 +11,7 @@ Implementasi fungsionalitas dan perbaikan bug alur pembayaran pada aplikasi kios
    - Pengaturan pembayaran dikelola secara terpusat melalui `admin-dashboard` (`SettingsPage.svelte`) dan otomatis diselaraskan ke desktop client saat sinkronisasi (`syncBoothSettings()`).
 3. **Perbaikan Bug Tombol Kembali (Navigasi Pengaturan Mesin)**:
    - **Masalah**: Ketika menekan tombol kembali (`<` Chevron) pada `ConfigDashboard`, aplikasi kembali ke halaman login/onboarding pertama sehingga operator harus memasukkan kode aktivasi/login ulang.
-   - **Analisis Root Cause**: Bukan karena token autentikasi yang gagal di-refresh. Penyebab aslinya adalah implementasi `handleBack()` pada [dekstop-app/src/routes/settings/+page.svelte](file:///home/dwiwahyu/Projects/PotoHub/source-code/dekstop-app/src/routes/settings/+page.svelte) sebelumnya di-hardcode ke `goto('/onboarding')`.
+   - **Analisis Root Cause**: Bukan karena token autentikasi yang gagal di-refresh. Penyebab aslinya adalah implementasi `handleBack()` pada [dekstop-app/src/routes/settings/+page.svelte](/src/routes/settings/+page.svelte) sebelumnya di-hardcode ke `goto('/onboarding')`.
    - **Solusi**: Memperbarui `handleBack()` untuk memanfaatkan riwayat navigasi (`window.history.length > 1 ? window.history.back() : goto(boothActive ? '/?journey=1' : '/onboarding')`). Navigasi kini kembali secara mulus ke layar asal (misal `/?journey=1` atau layar tes kamera) tanpa keluar dari sesi booth aktif.
 
 ---

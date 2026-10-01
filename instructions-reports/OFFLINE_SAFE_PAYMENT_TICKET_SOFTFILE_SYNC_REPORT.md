@@ -106,8 +106,8 @@ Fitur yang diimplementasikan mencakup:
 
 | Berkas | Perubahan | Keterangan |
 |---|---|---|
-| [`dekstop-app/src-tauri/src/lib.rs`](file:///home/dwiwahyu/Projects/PotoHub/source-code/dekstop-app/src-tauri/src/lib.rs) | Dimodifikasi | Menambahkan Migration 6 (`qr_ticket_cache`) dan Migration 7 (`offline_outbox`) pada SQLite `app.db`. Mendaftarkan command `storage::read_session_file` di `tauri::generate_handler!`. |
-| [`dekstop-app/src-tauri/src/storage.rs`](file:///home/dwiwahyu/Projects/PotoHub/source-code/dekstop-app/src-tauri/src/storage.rs) | Dimodifikasi | Menambahkan command Tauri `read_session_file(app, relative_path)` untuk membaca biner file sesi lokal dari `app_data_dir()/sessions/` dengan validasi pencegahan path traversal (`safe_relative`). |
+| [`dekstop-app/src-tauri/src/lib.rs`](/src-tauri/src/lib.rs) | Dimodifikasi | Menambahkan Migration 6 (`qr_ticket_cache`) dan Migration 7 (`offline_outbox`) pada SQLite `app.db`. Mendaftarkan command `storage::read_session_file` di `tauri::generate_handler!`. |
+| [`dekstop-app/src-tauri/src/storage.rs`](/src-tauri/src/storage.rs) | Dimodifikasi | Menambahkan command Tauri `read_session_file(app, relative_path)` untuk membaca biner file sesi lokal dari `app_data_dir()/sessions/` dengan validasi pencegahan path traversal (`safe_relative`). |
 
 ### 3.3. Database Layer SQLite (`src/lib/db/local.ts`)
 
@@ -134,7 +134,7 @@ Menyediakan antarmuka TypeScript lengkap untuk migrasi 6 dan migrasi 7:
   - Metode `pingServer()`: Menggunakan `fetch(..., { method: 'GET', signal: AbortSignal.timeout(3000), cache: 'no-store' })` ke URL base API + `/health`.
   - Metode `verifyAndMaybeFlush()`: Memverifikasi konektivitas server, jika pulih akan memanggil `flushOutbox()`.
   - Metode `markOfflineDueToFailure()`: Mengubah `isOnline = false` seketika saat permintaan API gagal di tengah jalan tanpa menunggu event browser.
-- Integrasi siklus hidup di [`src/routes/+layout.svelte`](file:///home/dwiwahyu/Projects/PotoHub/source-code/dekstop-app/src/routes/+layout.svelte): Menginisialisasi `networkStatus.init()` dan menjalankan timer sinkronisasi latar belakang setiap 10 menit.
+- Integrasi siklus hidup di [`src/routes/+layout.svelte`](/src/routes/+layout.svelte): Menginisialisasi `networkStatus.init()` dan menjalankan timer sinkronisasi latar belakang setiap 10 menit.
 
 ### 3.5. Prefetch Tiket & Single-Entrypoint Redemption (`src/lib/api/boothClient.ts`)
 
@@ -166,22 +166,22 @@ Menyediakan antarmuka TypeScript lengkap untuk migrasi 6 dan migrasi 7:
 
 ### 3.7. UI Payment & Offline Banner (`OfflineBanner.svelte`, `V1`, `V2`, `V3`)
 
-- **Komponen Shared [`src/lib/components/shared/OfflineBanner.svelte`](file:///home/dwiwahyu/Projects/PotoHub/source-code/dekstop-app/src/lib/components/shared/OfflineBanner.svelte):**
+- **Komponen Shared [`src/lib/components/shared/OfflineBanner.svelte`](/src/lib/components/shared/OfflineBanner.svelte):**
   - Banner peringatan offline dengan animasi pulse kuning/oranye.
   - Menjelaskan bahwa sistem dalam mode offline dan hanya pembayaran tiket/voucher yang dapat diterima.
-- **Payment Pages ([`V1PaymentMethod.svelte`](file:///home/dwiwahyu/Projects/PotoHub/source-code/dekstop-app/src/lib/components/v1/V1PaymentMethod.svelte), [`V2Payment.svelte`](file:///home/dwiwahyu/Projects/PotoHub/source-code/dekstop-app/src/lib/components/v2/V2Payment.svelte), [`V3Payment.svelte`](file:///home/dwiwahyu/Projects/PotoHub/source-code/dekstop-app/src/lib/components/v3/V3Payment.svelte)):**
+- **Payment Pages ([`V1PaymentMethod.svelte`](/src/lib/components/v1/V1PaymentMethod.svelte), [`V2Payment.svelte`](/src/lib/components/v2/V2Payment.svelte), [`V3Payment.svelte`](/src/lib/components/v3/V3Payment.svelte)):**
   - Opsi Cashless/QRIS di-disable secara visual (`opacity-50 pointer-events-none`) saat `!networkStatus.isOnline`.
   - Menampilkan badge "Offline Tidak Tersedia".
   - Mencegah inisialisasi QRIS saat offline.
   - Menampilkan `OfflineBanner` di bagian atas halaman pembayaran.
 
-### 3.8. UI Ticket Scan ([`V1TicketScan.svelte`](file:///home/dwiwahyu/Projects/PotoHub/source-code/dekstop-app/src/lib/components/v1/V1TicketScan.svelte), [`V2Ticket.svelte`](file:///home/dwiwahyu/Projects/PotoHub/source-code/dekstop-app/src/lib/components/v2/V2Ticket.svelte), [`V3Ticket.svelte`](file:///home/dwiwahyu/Projects/PotoHub/source-code/dekstop-app/src/lib/components/v3/V3Ticket.svelte))
+### 3.8. UI Ticket Scan ([`V1TicketScan.svelte`](/src/lib/components/v1/V1TicketScan.svelte), [`V2Ticket.svelte`](/src/lib/components/v2/V2Ticket.svelte), [`V3Ticket.svelte`](/src/lib/components/v3/V3Ticket.svelte))
 
 - Menggunakan `redeemTicket()` sebagai fungsi tunggal verifikasi tiket.
 - Jika validasi berhasil secara offline, antarmuka menampilkan pesan konfirmasi khusus: `"Tiket valid (offline mode). Sisa kuota: X. Antrean sinkronisasi tercatat."`
 - `OfflineBanner` ditampilkan sebagai konteks operasional bagi kasir / pengguna.
 
-### 3.9. UI Download / Complete Offline-Safe Delivery ([`V1Complete.svelte`](file:///home/dwiwahyu/Projects/PotoHub/source-code/dekstop-app/src/lib/components/v1/V1Complete.svelte), [`V2Download.svelte`](file:///home/dwiwahyu/Projects/PotoHub/source-code/dekstop-app/src/lib/components/v2/V2Download.svelte), [`V3Download.svelte`](file:///home/dwiwahyu/Projects/PotoHub/source-code/dekstop-app/src/lib/components/v3/V3Download.svelte))
+### 3.9. UI Download / Complete Offline-Safe Delivery ([`V1Complete.svelte`](/src/lib/components/v1/V1Complete.svelte), [`V2Download.svelte`](/src/lib/components/v2/V2Download.svelte), [`V3Download.svelte`](/src/lib/components/v3/V3Download.svelte))
 
 - Pemisahan jalur delivery (online vs offline fallback):
   - File sesi lokal selalu disimpan terlebih dahulu ke disk lokal (`saveLocalSessionAssets`) dengan manifest metadata dan relative paths.
@@ -190,7 +190,7 @@ Menyediakan antarmuka TypeScript lengkap untuk migrasi 6 dan migrasi 7:
     - Job `session_softfile` dimasukkan ke dalam `offline_outbox`.
     - Tampilan UI menampilkan status: `"Softfile Tersimpan di Antrean Sinkronisasi (Menunggu Koneksi)"` dan instruksi bahwa softfile akan aktif otomatis setelah booth kembali online.
 
-### 3.10. Config Dashboard Integration ([`ConfigDashboard.svelte`](file:///home/dwiwahyu/Projects/PotoHub/source-code/dekstop-app/src/lib/components/shared/ConfigDashboard.svelte))
+### 3.10. Config Dashboard Integration ([`ConfigDashboard.svelte`](/src/lib/components/shared/ConfigDashboard.svelte))
 
 - Menampilkan status konektivitas real-time (Online / Offline).
 - Menampilkan indikator antrean outbox: badge jumlah job yang belum tersinkronisasi.

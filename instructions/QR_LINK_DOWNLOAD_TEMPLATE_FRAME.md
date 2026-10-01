@@ -2,10 +2,10 @@
 
 **Target Repositori:** `dekstop-app` (Tauri + Svelte 5 + TypeScript)  
 **Berkas Terkait:**  
-- [`src/lib/utils/templateComposite.ts`](file:///home/dwiwahyu/Projects/PotoHub/source-code/dekstop-app/src/lib/utils/templateComposite.ts)
-- [`src/lib/components/v1/V1Complete.svelte`](file:///home/dwiwahyu/Projects/PotoHub/source-code/dekstop-app/src/lib/components/v1/V1Complete.svelte)
-- [`src/lib/components/v2/V2Download.svelte`](file:///home/dwiwahyu/Projects/PotoHub/source-code/dekstop-app/src/lib/components/v2/V2Download.svelte)
-- [`src/lib/components/v3/V3Download.svelte`](file:///home/dwiwahyu/Projects/PotoHub/source-code/dekstop-app/src/lib/components/v3/V3Download.svelte)
+- [`src/lib/utils/templateComposite.ts`](/src/lib/utils/templateComposite.ts)
+- [`src/lib/components/v1/V1Complete.svelte`](/src/lib/components/v1/V1Complete.svelte)
+- [`src/lib/components/v2/V2Download.svelte`](/src/lib/components/v2/V2Download.svelte)
+- [`src/lib/components/v3/V3Download.svelte`](/src/lib/components/v3/V3Download.svelte)
 
 ---
 
@@ -15,7 +15,7 @@ Fungsi utama yang diharapkan: **Menempatkan QR Code hasil tautan softfile admin 
 
 ### Investigasi Kode Saat Ini:
 1. **Shared Function Sudah Ada & Siap**:
-   Di [`src/lib/utils/templateComposite.ts`](file:///home/dwiwahyu/Projects/PotoHub/source-code/dekstop-app/src/lib/utils/templateComposite.ts), fungsi `compositeTemplateImage()` sudah memiliki parameter `qrCodeText?: string` dan blok rendering:
+   Di [`src/lib/utils/templateComposite.ts`](/src/lib/utils/templateComposite.ts), fungsi `compositeTemplateImage()` sudah memiliki parameter `qrCodeText?: string` dan blok rendering:
    ```typescript
    } else if (layer.isQr) {
      if (qrCodeText) {
@@ -71,7 +71,7 @@ Agar QR Code softfile tercetak langsung pada strip gambar final:
 ### Langkah A — Sempurnakan Rendering QR di `src/lib/utils/templateComposite.ts`
 Pastikan area di bawah QR Code selalu diberi latar belakang putih bersih (`#ffffff`) agar QR Code selalu dapat dipindai (*scannable*) meskipun ditempatkan di atas bingkai frame yang gelap, bergradasi, atau memiliki pola grafis ramai.
 
-Ganti blok `layer.isQr` di [`src/lib/utils/templateComposite.ts`](file:///home/dwiwahyu/Projects/PotoHub/source-code/dekstop-app/src/lib/utils/templateComposite.ts) baris ~273–285 menjadi:
+Ganti blok `layer.isQr` di [`src/lib/utils/templateComposite.ts`](/src/lib/utils/templateComposite.ts) baris ~273–285 menjadi:
 
 ```typescript
 } else if (layer.isQr) {

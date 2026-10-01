@@ -24,39 +24,39 @@ Menindaklanjuti pengujian alur perjalanan pengguna (*customer journey*) pada apl
 ## 2. Rincian Perubahan Kode Lintas Versi (V1, V2, V3)
 
 ### A. Tahap Pemilihan Frame (*Frame Selection*)
-1. [`src/lib/components/v1/V1CategoryFrame.svelte`](file:///home/dwiwahyu/Projects/PotoHub/source-code/dekstop-app/src/lib/components/v1/V1CategoryFrame.svelte):
+1. [`src/lib/components/v1/V1CategoryFrame.svelte`](/src/lib/components/v1/V1CategoryFrame.svelte):
    - `getGridSize`: Menyaring `!l.isBackground && !l.isQr` agar kalkulasi baris/kolom dan jumlah foto akurat.
    - `photoSlots`: `f.design_data?.filter((l) => !l.isBackground && !l.isQr) ?? []`.
    - Thumbnail preview card & Liveview preview: Loop `design_data.filter((l) => !l.isQr)` sehingga kamera liveview tidak ditampilkan di koordinat slot QR.
-2. [`src/lib/components/v2/V2Frame.svelte`](file:///home/dwiwahyu/Projects/PotoHub/source-code/dekstop-app/src/lib/components/v2/V2Frame.svelte):
+2. [`src/lib/components/v2/V2Frame.svelte`](/src/lib/components/v2/V2Frame.svelte):
    - Menyaring `!l.isQr` pada liveview preview kanvas dan perhitungan `photoSlots`.
-3. [`src/lib/components/v3/V3Frame.svelte`](file:///home/dwiwahyu/Projects/PotoHub/source-code/dekstop-app/src/lib/components/v3/V3Frame.svelte):
+3. [`src/lib/components/v3/V3Frame.svelte`](/src/lib/components/v3/V3Frame.svelte):
    - Menyaring `!l.isQr` pada kalkulasi `photoSlots` kartu frame.
 
 ### B. Tahap Sesi Foto & Retake (*Camera Session*)
-1. [`src/lib/components/v1/V1Camera.svelte`](file:///home/dwiwahyu/Projects/PotoHub/source-code/dekstop-app/src/lib/components/v1/V1Camera.svelte):
+1. [`src/lib/components/v1/V1Camera.svelte`](/src/lib/components/v1/V1Camera.svelte):
    - Menyaring `!l.isQr` dari loop `selectedTemplate.design_data`.
    - Menghapus blok placeholder `{:else if layer.isQr}`.
-2. [`src/lib/components/v2/V2Session.svelte`](file:///home/dwiwahyu/Projects/PotoHub/source-code/dekstop-app/src/lib/components/v2/V2Session.svelte):
+2. [`src/lib/components/v2/V2Session.svelte`](/src/lib/components/v2/V2Session.svelte):
    - Menyaring `!l.isQr` dari loop `selectedTemplate.design_data`.
    - Menghapus blok placeholder `{:else if layer.isQr}`.
-3. [`src/lib/components/v3/V3Session.svelte`](file:///home/dwiwahyu/Projects/PotoHub/source-code/dekstop-app/src/lib/components/v3/V3Session.svelte):
+3. [`src/lib/components/v3/V3Session.svelte`](/src/lib/components/v3/V3Session.svelte):
    - Menyaring `!l.isQr` dari loop `selectedTemplate.design_data`.
    - Menghapus blok placeholder `{:else if layer.isQr}`.
 
 ### C. Tahap Kustomisasi Filter & Stiker (*Customization / Filter*)
-1. [`src/lib/components/v1/V1Customize.svelte`](file:///home/dwiwahyu/Projects/PotoHub/source-code/dekstop-app/src/lib/components/v1/V1Customize.svelte):
+1. [`src/lib/components/v1/V1Customize.svelte`](/src/lib/components/v1/V1Customize.svelte):
    - Menyaring `templateLayers.filter((l) => !l.isQr)` pada kanvas filmstrip, menghilangkan blok QR mockup agar area foto bersih untuk penempatan stiker dan pemilihan filter.
-2. [`src/lib/components/v2/V2Filter.svelte`](file:///home/dwiwahyu/Projects/PotoHub/source-code/dekstop-app/src/lib/components/v2/V2Filter.svelte):
+2. [`src/lib/components/v2/V2Filter.svelte`](/src/lib/components/v2/V2Filter.svelte):
    - Menyaring `!l.isQr` baik pada daftar thumbnail filter maupun pratinjau utama.
-3. [`src/lib/components/v3/V3Filter.svelte`](file:///home/dwiwahyu/Projects/PotoHub/source-code/dekstop-app/src/lib/components/v3/V3Filter.svelte):
+3. [`src/lib/components/v3/V3Filter.svelte`](/src/lib/components/v3/V3Filter.svelte):
    - Menyaring `!l.isQr` pada pratinjau kanvas filter filmstrip.
 
 ### D. Tahap Hasil Akhir & Pencetakan (*Completion / Download*)
-1. [`src/lib/utils/templateComposite.ts`](file:///home/dwiwahyu/Projects/PotoHub/source-code/dekstop-app/src/lib/utils/templateComposite.ts):
+1. [`src/lib/utils/templateComposite.ts`](/src/lib/utils/templateComposite.ts):
    - `getTemplateLayers`: Mengembalikan `rawLayers` langsung untuk menghormati urutan layer admin dashboard.
    - `compositeTemplateImage`: Merender `layer.isQr` dengan alas putih pekat (`#ffffff`), QR Code kontras tinggi (`#000000`), dan tanpa padding (`margin: 0`) sesuai teks tautan softfile sesi.
-2. [`src/lib/components/v1/V1Complete.svelte`](file:///home/dwiwahyu/Projects/PotoHub/source-code/dekstop-app/src/lib/components/v1/V1Complete.svelte), [`src/lib/components/v2/V2Download.svelte`](file:///home/dwiwahyu/Projects/PotoHub/source-code/dekstop-app/src/lib/components/v2/V2Download.svelte), [`src/lib/components/v3/V3Download.svelte`](file:///home/dwiwahyu/Projects/PotoHub/source-code/dekstop-app/src/lib/components/v3/V3Download.svelte):
+2. [`src/lib/components/v1/V1Complete.svelte`](/src/lib/components/v1/V1Complete.svelte), [`src/lib/components/v2/V2Download.svelte`](/src/lib/components/v2/V2Download.svelte), [`src/lib/components/v3/V3Download.svelte`](/src/lib/components/v3/V3Download.svelte):
    - Menyelesaikan resolusi `softfileUrl` terlebih dahulu sebelum melakukan komposit gambar, sehingga `compositeUrl` yang tampil di layar, dicetak, dan diunggah memuat QR Code aktif.
 
 ---

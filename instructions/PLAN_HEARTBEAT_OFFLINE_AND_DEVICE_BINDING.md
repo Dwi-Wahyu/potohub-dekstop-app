@@ -10,9 +10,9 @@ Dokumen ini berisi rencana teknis implementasi pada repositori `dekstop-app` unt
 ## 1. Analisis & Gap di Desktop App Saat Ini
 
 1. **Aktivasi Tanpa Identitas Mesin**:
-   - `activateBooth(activationCode)` di [boothClient.ts](file:///home/dwiwahyu/Projects/PotoHub/source-code/dekstop-app/src/lib/api/boothClient.ts#L342) hanya mengirim `{ activation_code }`. Tidak ada identifikasi mesin sehingga dua PC berbeda dapat menggunakan kode aktivasi yang sama.
+   - `activateBooth(activationCode)` di [boothClient.ts](/src/lib/api/boothClient.ts#L342) hanya mengirim `{ activation_code }`. Tidak ada identifikasi mesin sehingga dua PC berbeda dapat menggunakan kode aktivasi yang sama.
 2. **Network Status Anonim**:
-   - `NetworkStatusStore` di [networkStatus.svelte.ts](file:///home/dwiwahyu/Projects/PotoHub/source-code/dekstop-app/src/lib/stores/networkStatus.svelte.ts) hanya melakukan ping `GET /api/health`. Server tidak tahu booth mana yang sedang online.
+   - `NetworkStatusStore` di [networkStatus.svelte.ts](/src/lib/stores/networkStatus.svelte.ts) hanya melakukan ping `GET /api/health`. Server tidak tahu booth mana yang sedang online.
 3. **Offline Mode Tanpa Konfirmasi ke Server**:
    - Saat koneksi putus, client masuk mode offline dan menyimpan transaksi di SQLite `offline_outbox`.
    - Saat internet pulih, `flushOutbox()` dieksekusi, tetapi server tidak pernah menerima konfirmasi bahwa kiosk sempat beroperasi di mode lokal (`LOCAL_MODE`), berapa lama offline, atau berapa antrean yang sedang disinkronkan.

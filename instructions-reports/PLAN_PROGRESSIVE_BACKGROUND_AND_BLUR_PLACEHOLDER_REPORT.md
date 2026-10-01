@@ -47,13 +47,13 @@ Sistem ini mendukung integrasi seamless antara offline-first caching (**Tauri As
 - Menambahkan method `getStepBlur(step: string): string | null` dan `getStepImageSrc(step: string): string | null` untuk layout booth client.
 
 ### F. Integrasi Layout Booth (`V1Layout`, `V2Layout`, `V3Layout`, `CustomLayout`)
-- Membungkus container utama di [V1Layout.svelte](file:///home/dwiwahyu/Projects/PotoHub/source-code/dekstop-app/src/lib/components/v1/V1Layout.svelte), [V2Layout.svelte](file:///home/dwiwahyu/Projects/PotoHub/source-code/dekstop-app/src/lib/components/v2/V2Layout.svelte), [V3Layout.svelte](file:///home/dwiwahyu/Projects/PotoHub/source-code/dekstop-app/src/lib/components/v3/V3Layout.svelte), dan [CustomLayout.svelte](file:///home/dwiwahyu/Projects/PotoHub/source-code/dekstop-app/src/lib/components/custom/CustomLayout.svelte) menggunakan `<ProgressiveBackground>`.
+- Membungkus container utama di [V1Layout.svelte](/src/lib/components/v1/V1Layout.svelte), [V2Layout.svelte](/src/lib/components/v2/V2Layout.svelte), [V3Layout.svelte](/src/lib/components/v3/V3Layout.svelte), dan [CustomLayout.svelte](/src/lib/components/custom/CustomLayout.svelte) menggunakan `<ProgressiveBackground>`.
 
 ### G. Integrasi Pemilihan Frame & Kategori (`V1CategoryFrame`, `V2Frame`, `V3Frame`)
 - Mengganti elemen `<img>` mentah untuk banner kategori dan thumbnail template preview dengan `<ProgressiveImage>` di:
-  - [V1CategoryFrame.svelte](file:///home/dwiwahyu/Projects/PotoHub/source-code/dekstop-app/src/lib/components/v1/V1CategoryFrame.svelte)
-  - [V2Frame.svelte](file:///home/dwiwahyu/Projects/PotoHub/source-code/dekstop-app/src/lib/components/v2/V2Frame.svelte)
-  - [V3Frame.svelte](file:///home/dwiwahyu/Projects/PotoHub/source-code/dekstop-app/src/lib/components/v3/V3Frame.svelte)
+  - [V1CategoryFrame.svelte](/src/lib/components/v1/V1CategoryFrame.svelte)
+  - [V2Frame.svelte](/src/lib/components/v2/V2Frame.svelte)
+  - [V3Frame.svelte](/src/lib/components/v3/V3Frame.svelte)
 
 ---
 

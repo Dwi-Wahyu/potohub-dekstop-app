@@ -45,7 +45,7 @@ Aplikasi desktop telah memiliki sistem offline-first menggunakan **Tauri Asset P
    - Memperbarui interface `BoothUIStepStyle` dengan `bg_blur?: string | null`.
    - Menambahkan method `getStepBlur(step: string): string | null`.
 
-7. **Layout Booth V1, V2, V3, & Custom** ([dekstop-app/src/lib/components/](file:///home/dwiwahyu/Projects/PotoHub/source-code/dekstop-app/src/lib/components)) (Modifikasi)
+7. **Layout Booth V1, V2, V3, & Custom** ([dekstop-app/src/lib/components/](/src/lib/components)) (Modifikasi)
    - `V1Layout.svelte`, `V2Layout.svelte`, `V3Layout.svelte`, dan `CustomLayout.svelte`: Membungkus tampilan dengan `ProgressiveBackground`.
 
 8. **Layar Pemilihan Frame & Kategori Booth** (Modifikasi)

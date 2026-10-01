@@ -16,7 +16,8 @@
     type BoothTemplate
   } from '$lib/api/boothClient';
   import { networkStatus } from '$lib/stores/networkStatus.svelte';
-  import { enqueueOutboxJob } from '$lib/db/local';
+  import { enqueueOutboxJob, enqueuePrintJob } from '$lib/db/local';
+  import { printerStore } from '$lib/printer.svelte';
   import OfflineBanner from '$lib/components/shared/OfflineBanner.svelte';
   import { buildAssetRelativePaths } from '$lib/utils/localSessionStorage';
   import { generateSessionCode } from '$lib/utils/shared';
@@ -36,6 +37,7 @@
   let waSent = $state(false);
   let sent = $derived(emailSent || waSent);
   let softfileQueued = $state(false);
+  let printStatus = $state<'IDLE' | 'PRINTING' | 'SUCCESS' | 'QUEUED'>('IDLE');
   let activeKbTarget = $state<'email' | 'phone' | null>(null);
 
   let emailEnabled = $derived(boothConfig.config.emailEnabled ?? true);
@@ -156,6 +158,51 @@
         selectedTemplate,
         softfileUrl
       );
+
+      // Programmatic Auto-Print Flow
+      const copies = boothFlow.printQty || 1;
+      const paperSize = selectedTemplate?.paper_size || '4x6';
+      const dateStr = new Date().toISOString().slice(0, 10);
+      const boothSanitized = (uiConfig.config.boothName || 'booth')
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '');
+      const diskPath = `${dateStr}/${localSessionCode}_${boothSanitized}/composite/print_strip.jpg`;
+
+      if (copies > 0 && compositeUrl) {
+        const check = printerStore.canPrint(copies);
+        if (check.ok) {
+          printStatus = 'PRINTING';
+          try {
+            const res = await fetch(compositeUrl);
+            const buf = new Uint8Array(await res.arrayBuffer());
+            await printerStore.printFromBuffer(buf, {
+              copies,
+              paper_size: paperSize as any,
+              quality: 'standard',
+            });
+            printStatus = 'SUCCESS';
+          } catch (err) {
+            console.warn('[V1Complete] Direct print failed, fallback enqueueing:', err);
+            await enqueuePrintJob({
+              sessionCode: localSessionCode,
+              imagePath: diskPath,
+              copies,
+              paperSize,
+            });
+            printStatus = 'QUEUED';
+          }
+        } else {
+          console.warn('[V1Complete] Printer check failed, enqueueing job:', check.reason);
+          await enqueuePrintJob({
+            sessionCode: localSessionCode,
+            imagePath: diskPath,
+            copies,
+            paperSize,
+          });
+          printStatus = 'QUEUED';
+        }
+      }
     } catch (err) {
       console.error('Failed to save session assets:', err);
     } finally {
@@ -455,6 +502,22 @@
             </div>
           {:else if softfileQueued}
             <div class="text-xs text-amber-600 font-semibold mt-1">Menunggu koneksi pulih untuk mengirim softfile…</div>
+          {/if}
+
+          {#if printStatus === 'SUCCESS'}
+            <div class="p-2.5 bg-green-50 border border-green-200 rounded-xl text-green-800 text-[11px] font-medium flex items-center gap-2">
+              <span>✅ Foto strip Anda sedang dicetak. Silakan ambil di tray printer.</span>
+            </div>
+          {:else if printStatus === 'QUEUED'}
+            <div class="p-2.5 bg-amber-50 border border-amber-200 rounded-xl text-amber-800 text-[11px] font-medium flex flex-col gap-0.5">
+              <span class="font-bold">⏳ Antrean Cetak Otomatis</span>
+              <span>Printer terputus. Foto Anda tersimpan di antrean cetak dan akan langsung dicetak saat printer terhubung kembali.</span>
+            </div>
+          {:else if printStatus === 'PRINTING'}
+            <div class="p-2.5 bg-blue-50 border border-blue-200 rounded-xl text-blue-800 text-[11px] font-medium flex items-center gap-2">
+              <div class="w-3 h-3 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+              <span>Mengirim perintah cetak ke printer...</span>
+            </div>
           {/if}
 
           {#if qrDataUrl}

@@ -17,7 +17,8 @@
     type BoothTemplate
   } from '$lib/api/boothClient';
   import { networkStatus } from '$lib/stores/networkStatus.svelte';
-  import { enqueueOutboxJob } from '$lib/db/local';
+  import { enqueueOutboxJob, enqueuePrintJob } from '$lib/db/local';
+  import { printerStore } from '$lib/printer.svelte';
   import OfflineBanner from '$lib/components/shared/OfflineBanner.svelte';
   import { buildAssetRelativePaths } from '$lib/utils/localSessionStorage';
 
@@ -40,6 +41,7 @@
 
   let sent = $derived(emailSent || waSent);
   let softfileQueued = $state(false);
+  let printStatus = $state<'IDLE' | 'PRINTING' | 'SUCCESS' | 'QUEUED'>('IDLE');
   let error = $state(false);
   let timer = $state(boothConfig.config.endScreenTimeSecs || 3);
   let kbOpen = $state(false);
@@ -148,6 +150,51 @@
         selectedTemplate,
         softfileUrl
       );
+
+      // Programmatic Auto-Print Flow
+      const copies = boothFlow.printQty || 1;
+      const paperSize = selectedTemplate?.paper_size || '4x6';
+      const dateStr = new Date().toISOString().slice(0, 10);
+      const boothSanitized = (uiConfig.config.boothName || 'booth')
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '');
+      const diskPath = `${dateStr}/${localSessionCode}_${boothSanitized}/composite/print_strip.jpg`;
+
+      if (copies > 0 && compositeUrl) {
+        const check = printerStore.canPrint(copies);
+        if (check.ok) {
+          printStatus = 'PRINTING';
+          try {
+            const res = await fetch(compositeUrl);
+            const buf = new Uint8Array(await res.arrayBuffer());
+            await printerStore.printFromBuffer(buf, {
+              copies,
+              paper_size: paperSize as any,
+              quality: 'standard',
+            });
+            printStatus = 'SUCCESS';
+          } catch (err) {
+            console.warn('[V3Download] Direct print failed, fallback enqueueing:', err);
+            await enqueuePrintJob({
+              sessionCode: localSessionCode,
+              imagePath: diskPath,
+              copies,
+              paperSize,
+            });
+            printStatus = 'QUEUED';
+          }
+        } else {
+          console.warn('[V3Download] Printer check failed, enqueueing job:', check.reason);
+          await enqueuePrintJob({
+            sessionCode: localSessionCode,
+            imagePath: diskPath,
+            copies,
+            paperSize,
+          });
+          printStatus = 'QUEUED';
+        }
+      }
     } catch (err) {
       console.error('Failed to save assets in V3Download:', err);
     } finally {

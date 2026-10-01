@@ -446,6 +446,24 @@ pub fn run() {
             ALTER TABLE booth_activation ADD COLUMN device_id TEXT;",
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 10,
+            description: "create print_queue table for offline-resilient auto printing",
+            sql: "CREATE TABLE IF NOT EXISTS print_queue (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_code TEXT NOT NULL,
+                image_path TEXT NOT NULL,
+                copies INTEGER NOT NULL DEFAULT 1,
+                paper_size TEXT NOT NULL DEFAULT '4x6',
+                status TEXT NOT NULL DEFAULT 'pending',
+                attempts INTEGER NOT NULL DEFAULT 0,
+                last_error TEXT,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_print_queue_status ON print_queue(status);",
+            kind: MigrationKind::Up,
+        },
     ];
 
     tauri::Builder::default()

@@ -1,5 +1,5 @@
 import { flushOutbox } from '$lib/utils/offlineOutbox';
-import { getActivation, getOrCreateDeviceId, countPendingOutboxJobs } from '$lib/db/local';
+import { getActivation, getOrCreateDeviceId, countPendingOutboxJobs, countPendingPrintJobs } from '$lib/db/local';
 import { printerStore } from '$lib/printer.svelte';
 import { cameraStore } from '$lib/camera.svelte';
 
@@ -82,6 +82,7 @@ class NetworkStatusStore {
     }));
 
     const pendingOutbox = await countPendingOutboxJobs().catch(() => 0);
+    const pendingPrints = await countPendingPrintJobs().catch(() => 0);
 
     const offlineDuration = this.offlineSince
       ? Math.floor((Date.now() - this.offlineSince) / 1000)
@@ -102,6 +103,7 @@ class NetworkStatusStore {
       printer_status: printerStatus,
       remaining_paper: printerStore.status?.paper_remaining ?? null,
       pending_outbox_count: pendingOutbox,
+      pending_print_count: pendingPrints,
       offline_duration_seconds: offlineDuration,
     };
 

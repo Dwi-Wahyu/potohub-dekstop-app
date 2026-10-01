@@ -484,3 +484,80 @@ export async function getOrCreateDeviceId(): Promise<DeviceIdentity> {
 
   return { deviceId: newDeviceId, deviceName, createdAt: now };
 }
+
+// ============================================================================
+// PRINT QUEUE (SQLite `print_queue`) — Antrean Cetak Otomatis Tangguh Offline
+// ============================================================================
+
+export interface PrintJob {
+  id: number;
+  sessionCode: string;
+  imagePath: string;
+  copies: number;
+  paperSize: string;
+  status: 'pending' | 'printing' | 'done' | 'failed';
+  attempts: number;
+  lastError: string | null;
+  createdAt: number;
+}
+
+export async function enqueuePrintJob(params: {
+  sessionCode: string;
+  imagePath: string;
+  copies: number;
+  paperSize: string;
+}): Promise<number> {
+  const conn = await db();
+  const now = Date.now();
+  const res = await conn.execute(
+    `INSERT INTO print_queue (session_code, image_path, copies, paper_size, status, attempts, created_at, updated_at)
+     VALUES ($1, $2, $3, $4, 'pending', 0, $5, $5)`,
+    [params.sessionCode, params.imagePath, params.copies, params.paperSize, now]
+  );
+  return Number(res.lastInsertId ?? 0);
+}
+
+export async function listPendingPrintJobs(): Promise<PrintJob[]> {
+  const conn = await db();
+  const rows = await conn.select<any[]>(
+    `SELECT * FROM print_queue WHERE status = 'pending' AND attempts < 5 ORDER BY id ASC`
+  );
+  return rows.map((r) => ({
+    id: r.id,
+    sessionCode: r.session_code,
+    imagePath: r.image_path,
+    copies: r.copies,
+    paperSize: r.paper_size,
+    status: r.status,
+    attempts: r.attempts,
+    lastError: r.last_error,
+    createdAt: r.created_at,
+  }));
+}
+
+export async function markPrintJobDone(id: number): Promise<void> {
+  const conn = await db();
+  await conn.execute(
+    `UPDATE print_queue SET status = 'done', updated_at = $2 WHERE id = $1`,
+    [id, Date.now()]
+  );
+}
+
+export async function markPrintJobFailedAttempt(id: number, error: string): Promise<void> {
+  const conn = await db();
+  const rows = await conn.select<any[]>("SELECT attempts FROM print_queue WHERE id = $1", [id]);
+  const attempts = (rows[0]?.attempts ?? 0) + 1;
+  const newStatus = attempts >= 5 ? 'failed' : 'pending';
+  await conn.execute(
+    `UPDATE print_queue SET status = $2, attempts = $3, last_error = $4, updated_at = $5 WHERE id = $1`,
+    [newStatus, attempts, error, Date.now()]
+  );
+}
+
+export async function countPendingPrintJobs(): Promise<number> {
+  const conn = await db();
+  const rows = await conn.select<any[]>(
+    `SELECT COUNT(*) as c FROM print_queue WHERE status = 'pending' AND attempts < 5`
+  );
+  return Number(rows[0]?.c ?? 0);
+}

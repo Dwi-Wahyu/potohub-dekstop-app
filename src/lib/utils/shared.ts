@@ -142,3 +142,22 @@ export function getLiveviewTransformStyle(
   }
   return parts.length > 0 ? parts.join(' ') : 'none';
 }
+
+/**
+ * Transform CSS untuk foto di slot: crop (pan & zoom) diterapkan di ruang layar
+ * SETELAH mirror/rotasi kamera, sehingga sama persis dengan urutan di
+ * `compositeTemplateImage` (crop dulu di context, baru mirror).
+ */
+export function getPhotoSlotTransformStyle(
+  crop: { x: number; y: number; zoom: number },
+  liveviewTransform: string
+): string {
+  const parts: string[] = [];
+  if (crop.x !== 0 || crop.y !== 0 || crop.zoom !== 1) {
+    parts.push(`translate(${crop.x * 100}%, ${crop.y * 100}%) scale(${crop.zoom})`);
+  }
+  if (liveviewTransform && liveviewTransform !== 'none') {
+    parts.push(liveviewTransform);
+  }
+  return parts.length > 0 ? parts.join(' ') : 'none';
+}

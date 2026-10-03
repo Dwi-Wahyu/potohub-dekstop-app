@@ -298,6 +298,14 @@ export async function compositeTemplateImage(
           slotCanvas.height = slotH;
           const slotCtx = slotCanvas.getContext('2d');
           if (slotCtx) {
+            // Crop dari modal Crop: diterapkan sebelum mirror agar urutannya sama
+            // dengan transform CSS preview (getPhotoSlotTransformStyle)
+            const crop = boothFlow.getPhotoTransform(photoSrc);
+            if (crop.x !== 0 || crop.y !== 0 || crop.zoom !== 1) {
+              slotCtx.translate(slotW / 2 + crop.x * slotW, slotH / 2 + crop.y * slotH);
+              slotCtx.scale(crop.zoom, crop.zoom);
+              slotCtx.translate(-slotW / 2, -slotH / 2);
+            }
             if (boothConfig.config.mirrorOn) {
               slotCtx.translate(slotW, 0);
               slotCtx.scale(-1, 1);

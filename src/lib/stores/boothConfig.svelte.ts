@@ -32,6 +32,8 @@ export interface BoothCfg {
   enableIdleBanner: boolean;
   emailEnabled: boolean;
   whatsappEnabled: boolean;
+  primaryPrinter: string;
+  secondaryPrinter: string;
 }
 
 export const DEFAULT_CFG: BoothCfg = {
@@ -68,6 +70,8 @@ export const DEFAULT_CFG: BoothCfg = {
   enableIdleBanner: true,
   emailEnabled: true,
   whatsappEnabled: true,
+  primaryPrinter: '',
+  secondaryPrinter: '',
 };
 
 class BoothConfigStore {

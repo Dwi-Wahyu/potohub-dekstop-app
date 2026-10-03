@@ -162,6 +162,7 @@
       // Programmatic Auto-Print Flow
       const copies = boothFlow.printQty || 1;
       const paperSize = selectedTemplate?.paper_size || '4x6';
+      const useSecondary = Boolean(selectedTemplate?.use_secondary_printer);
       const dateStr = new Date().toISOString().slice(0, 10);
       const boothSanitized = (uiConfig.config.boothName || 'booth')
         .toLowerCase()
@@ -170,7 +171,7 @@
       const diskPath = `${dateStr}/${localSessionCode}_${boothSanitized}/composite/print_strip.jpg`;
 
       if (copies > 0 && compositeUrl) {
-        const check = printerStore.canPrint(copies);
+        const check = printerStore.canPrint(copies, useSecondary);
         if (check.ok) {
           printStatus = 'PRINTING';
           try {
@@ -178,8 +179,9 @@
             const buf = new Uint8Array(await res.arrayBuffer());
             await printerStore.printFromBuffer(buf, {
               copies,
-              paper_size: paperSize as any,
+              paper_size: paperSize,
               quality: 'standard',
+              useSecondary,
             });
             printStatus = 'SUCCESS';
           } catch (err) {
@@ -189,6 +191,7 @@
               imagePath: diskPath,
               copies,
               paperSize,
+              useSecondary,
             });
             printStatus = 'QUEUED';
           }
@@ -199,6 +202,7 @@
             imagePath: diskPath,
             copies,
             paperSize,
+            useSecondary,
           });
           printStatus = 'QUEUED';
         }

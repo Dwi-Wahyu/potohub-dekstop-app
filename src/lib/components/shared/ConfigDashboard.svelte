@@ -7,7 +7,9 @@
     ChevronDown,
     CheckCircle2,
     Save,
-    FlipHorizontal2
+    FlipHorizontal2,
+    Printer,
+    RotateCw
   } from '@lucide/svelte';
   import { goto } from '$app/navigation';
   import { boothConfig, type BoothCfg } from '$lib/stores/boothConfig.svelte';
@@ -16,6 +18,7 @@
   import { networkStatus } from '$lib/stores/networkStatus.svelte';
   import { countPendingOutboxJobs } from '$lib/db/local';
   import { cameraStore } from '$lib/camera.svelte';
+  import { printerStore } from '$lib/printer.svelte';
 
   interface Props {
     onBack: () => void;
@@ -108,6 +111,7 @@
     pendingJobs = await countPendingOutboxJobs().catch(() => 0);
     void handleSync();
     void cameraStore.detect();
+    void printerStore.loadPrinters();
   });
 
   const ROTATE_OPTS = ['0° (Default)', '90° CW', '180°', '90° CCW'];
@@ -550,6 +554,127 @@
                 </p>
                 {#if cameraStore.detectError}
                   <p style="font-size: 10px; color: #dc2626; margin: 0;">{cameraStore.detectError}</p>
+                {/if}
+              {/if}
+            </div>
+
+            <div style="height: 1px; background: rgba(200,210,224,0.7);"></div>
+
+            <!-- Printer Terdeteksi -->
+            <div style="display: flex; flex-direction: column; gap: 10px;">
+              <div style="display: flex; align-items: center; justify-content: space-between;">
+                <h1 style="font-size: 10px; font-weight: 700; color: #334155; text-transform: uppercase; letter-spacing: 0.06em; margin: 0; display: flex; align-items: center; gap: 5px;">
+                  <Printer size={13} color="#475569" />
+                  Konfigurasi Printer
+                </h1>
+                <button
+                  type="button"
+                  onclick={() => printerStore.loadPrinters()}
+                  disabled={printerStore.isDetecting}
+                  style="
+                    font-size: 10px;
+                    font-weight: 600;
+                    color: #2a2873;
+                    background: {NEU_BG};
+                    box-shadow: {neuCfg.btnSm};
+                    border: none;
+                    border-radius: 8px;
+                    padding: 4px 10px;
+                    cursor: {printerStore.isDetecting ? 'not-allowed' : 'pointer'};
+                    display: flex;
+                    align-items: center;
+                    gap: 5px;
+                    opacity: {printerStore.isDetecting ? 0.7 : 1};
+                  "
+                >
+                  <RotateCw size={11} class={printerStore.isDetecting ? 'animate-spin' : ''} />
+                  <span>{printerStore.isDetecting ? 'Mendeteksi...' : 'Refresh'}</span>
+                </button>
+              </div>
+
+              {#if printerStore.printers.length > 0}
+                <!-- Primary Printer Dropdown -->
+                <div style="display: flex; flex-direction: column; gap: 4px;">
+                  <span style="font-size: 10px; font-weight: 600; color: #64748b;">Primary Printer (Default):</span>
+                  <div style="position: relative;">
+                    <select
+                      value={printerStore.selectedPrinter ?? ''}
+                      onchange={(e) => {
+                        const val = e.currentTarget.value || null;
+                        printerStore.selectedPrinter = val;
+                        boothConfig.save({ primaryPrinter: val || '' });
+                        printerStore.refreshStatus();
+                      }}
+                      style="
+                        width: 100%;
+                        appearance: none;
+                        background: {NEU_BG};
+                        box-shadow: {neuCfg.inset};
+                        border-radius: 12px;
+                        padding: 10px 36px 10px 14px;
+                        border: none;
+                        outline: none;
+                        font-size: 12px;
+                        font-weight: 600;
+                        color: {printerStore.status?.is_ready ? '#16a34a' : '#475569'};
+                        font-family: 'Poppins',sans-serif;
+                        cursor: pointer;
+                      "
+                    >
+                      {#each printerStore.printers as p}
+                        <option value={p}>
+                          {p} {printerStore.selectedPrinter === p && printerStore.status?.is_ready ? '(Ready)' : printerStore.selectedPrinter === p ? '(Offline)' : ''}
+                        </option>
+                      {/each}
+                    </select>
+                    <ChevronDown size={14} color="#94a3b8" style="position: absolute; right: 12px; top: 50%; transform: translateY(-50%); pointer-events: none;" />
+                  </div>
+                </div>
+
+                <!-- Secondary Printer Dropdown -->
+                <div style="display: flex; flex-direction: column; gap: 4px;">
+                  <span style="font-size: 10px; font-weight: 600; color: #64748b;">Secondary Printer (Opsional):</span>
+                  <div style="position: relative;">
+                    <select
+                      value={printerStore.secondaryPrinter ?? ''}
+                      onchange={(e) => {
+                        const val = e.currentTarget.value || null;
+                        printerStore.secondaryPrinter = val;
+                        boothConfig.save({ secondaryPrinter: val || '' });
+                        printerStore.refreshStatus();
+                      }}
+                      style="
+                        width: 100%;
+                        appearance: none;
+                        background: {NEU_BG};
+                        box-shadow: {neuCfg.inset};
+                        border-radius: 12px;
+                        padding: 10px 36px 10px 14px;
+                        border: none;
+                        outline: none;
+                        font-size: 12px;
+                        font-weight: 600;
+                        color: {printerStore.secondaryPrinter && printerStore.secondaryStatus?.is_ready ? '#16a34a' : '#475569'};
+                        font-family: 'Poppins',sans-serif;
+                        cursor: pointer;
+                      "
+                    >
+                      <option value="">-- Nonaktif (Gunakan Primary) --</option>
+                      {#each printerStore.printers as p}
+                        <option value={p}>
+                          {p} {printerStore.secondaryPrinter === p && printerStore.secondaryStatus?.is_ready ? '(Ready)' : printerStore.secondaryPrinter === p ? '(Offline)' : ''}
+                        </option>
+                      {/each}
+                    </select>
+                    <ChevronDown size={14} color="#94a3b8" style="position: absolute; right: 12px; top: 50%; transform: translateY(-50%); pointer-events: none;" />
+                  </div>
+                </div>
+              {:else}
+                <p style="font-size: 11px; margin: 4px 0;" class="text-gray-400">
+                  {printerStore.isDetecting ? 'Mencari printer via USB…' : 'Tidak ada printer terdeteksi.'}
+                </p>
+                {#if printerStore.errorMessage}
+                  <p style="font-size: 10px; color: #dc2626; margin: 0;">{printerStore.errorMessage}</p>
                 {/if}
               {/if}
             </div>

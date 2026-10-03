@@ -464,6 +464,12 @@ pub fn run() {
             CREATE INDEX IF NOT EXISTS idx_print_queue_status ON print_queue(status);",
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 11,
+            description: "add use_secondary column to print_queue",
+            sql: "ALTER TABLE print_queue ADD COLUMN use_secondary INTEGER NOT NULL DEFAULT 0;",
+            kind: MigrationKind::Up,
+        },
     ];
 
     tauri::Builder::default()

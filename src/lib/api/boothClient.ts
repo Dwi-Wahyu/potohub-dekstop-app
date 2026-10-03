@@ -447,6 +447,7 @@ export interface BoothTemplate {
     isQr?: boolean;
   }>;
   is_active: boolean;
+  use_secondary_printer?: boolean;
 }
 
 export async function fetchCategories(

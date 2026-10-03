@@ -7,9 +7,9 @@ let isFlushing = false;
 export async function flushPrintQueue(): Promise<{ processed: number; errors: number }> {
   if (isFlushing) return { processed: 0, errors: 0 };
   
-  // Refresh status printer & pastikan online + ready
+  // Refresh status printer
   await printerStore.refreshStatus();
-  if (!printerStore.status?.is_online || !printerStore.status?.is_ready) {
+  if (!printerStore.status?.is_online && !printerStore.secondaryStatus?.is_online) {
     return { processed: 0, errors: 0 };
   }
 
@@ -20,15 +20,22 @@ export async function flushPrintQueue(): Promise<{ processed: number; errors: nu
   try {
     const jobs = await listPendingPrintJobs();
     for (const job of jobs) {
-      // Re-check printer status sebelum cetak tiap job
       await printerStore.refreshStatus();
-      if (!printerStore.status?.is_online || !printerStore.status?.is_ready) {
-        break;
+
+      const targetPrinter = printerStore.resolvePrinter(job.useSecondary);
+      if (!targetPrinter) {
+        continue;
+      }
+
+      const check = printerStore.canPrint(job.copies, job.useSecondary);
+      if (!check.ok) {
+        console.warn(`[printQueue] Skipping job #${job.id}: ${check.reason}`);
+        continue;
       }
 
       try {
         await invoke('print_photo', {
-          printerName: printerStore.selectedPrinter,
+          printerName: targetPrinter,
           imagePath: job.imagePath,
           copies: job.copies,
           paperSize: job.paperSize,
@@ -36,17 +43,19 @@ export async function flushPrintQueue(): Promise<{ processed: number; errors: nu
 
         await markPrintJobDone(job.id);
         processed++;
-        // Update software paper counter lokal
-        if (printerStore.status?.paper_remaining) {
-          printerStore.status.paper_remaining = Math.max(0, printerStore.status.paper_remaining - job.copies);
+
+        // Update software paper counter jika ada
+        const st =
+          job.useSecondary && printerStore.secondaryPrinter === targetPrinter
+            ? printerStore.secondaryStatus
+            : printerStore.status;
+        if (st?.paper_remaining !== undefined) {
+          st.paper_remaining = Math.max(0, st.paper_remaining - job.copies);
         }
       } catch (err) {
         console.error(`[printQueue] Gagal mencetak job #${job.id}:`, err);
         await markPrintJobFailedAttempt(job.id, String(err));
         errors++;
-        
-        await printerStore.refreshStatus();
-        if (!printerStore.status?.is_online) break;
       }
     }
   } catch (err) {

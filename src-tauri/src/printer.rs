@@ -66,14 +66,15 @@ mod platform {
 
     pub fn get_installed_printers() -> Result<Vec<String>, PrinterError> {
         let flags = PRINTER_ENUM_LOCAL | PRINTER_ENUM_CONNECTIONS;
+
+        // Stage 1: Level 4 (PRINTER_INFO_4W) — Sangat cepat & tidak butuh hak akses khusus
         let mut needed: DWORD = 0;
         let mut returned: DWORD = 0;
-
         unsafe {
             EnumPrintersW(
                 flags,
                 ptr::null_mut(),
-                2, // PRINTER_INFO_2W
+                4,
                 ptr::null_mut(),
                 0,
                 &mut needed,
@@ -81,48 +82,132 @@ mod platform {
             );
         }
 
-        if needed == 0 {
-            return Ok(Vec::new());
+        if needed > 0 {
+            let mut buffer: Vec<u8> = vec![0; needed as usize];
+            let res = unsafe {
+                EnumPrintersW(
+                    flags,
+                    ptr::null_mut(),
+                    4,
+                    buffer.as_mut_ptr(),
+                    needed,
+                    &mut needed,
+                    &mut returned,
+                )
+            };
+
+            if res != 0 && returned > 0 {
+                let info_slice = unsafe {
+                    std::slice::from_raw_parts(
+                        buffer.as_ptr() as *const PRINTER_INFO_4W,
+                        returned as usize,
+                    )
+                };
+
+                let mut printers = Vec::new();
+                for info in info_slice {
+                    if !info.pPrinterName.is_null() {
+                        let len = unsafe {
+                            (0..)
+                                .take_while(|&i| *info.pPrinterName.offset(i) != 0)
+                                .count()
+                        };
+                        let name_slice =
+                            unsafe { std::slice::from_raw_parts(info.pPrinterName, len) };
+                        let name = String::from_utf16_lossy(name_slice);
+                        let trimmed = name.trim().to_string();
+                        if !trimmed.is_empty() {
+                            printers.push(trimmed);
+                        }
+                    }
+                }
+
+                if !printers.is_empty() {
+                    return Ok(printers);
+                }
+            }
         }
 
-        let mut buffer: Vec<u8> = vec![0; needed as usize];
-        let res = unsafe {
+        // Stage 2: Level 2 (PRINTER_INFO_2W)
+        needed = 0;
+        returned = 0;
+        unsafe {
             EnumPrintersW(
                 flags,
                 ptr::null_mut(),
                 2,
-                buffer.as_mut_ptr(),
-                needed,
+                ptr::null_mut(),
+                0,
                 &mut needed,
                 &mut returned,
-            )
-        };
-
-        if res == 0 {
-            return Err(PrinterError::StatusFailed(
-                "Gagal enumerate printers dari Windows Spooler".into(),
-            ));
+            );
         }
 
-        let mut printers = Vec::new();
-        let info_slice = unsafe {
-            std::slice::from_raw_parts(buffer.as_ptr() as *const PRINTER_INFO_2W, returned as usize)
-        };
+        if needed > 0 {
+            let mut buffer: Vec<u8> = vec![0; needed as usize];
+            let res = unsafe {
+                EnumPrintersW(
+                    flags,
+                    ptr::null_mut(),
+                    2,
+                    buffer.as_mut_ptr(),
+                    needed,
+                    &mut needed,
+                    &mut returned,
+                )
+            };
 
-        for info in info_slice {
-            if !info.pPrinterName.is_null() {
-                let len = unsafe {
-                    (0..)
-                        .take_while(|&i| *info.pPrinterName.offset(i) != 0)
-                        .count()
+            if res != 0 && returned > 0 {
+                let info_slice = unsafe {
+                    std::slice::from_raw_parts(
+                        buffer.as_ptr() as *const PRINTER_INFO_2W,
+                        returned as usize,
+                    )
                 };
-                let name_slice = unsafe { std::slice::from_raw_parts(info.pPrinterName, len) };
-                let name = String::from_utf16_lossy(name_slice);
-                printers.push(name);
+
+                let mut printers = Vec::new();
+                for info in info_slice {
+                    if !info.pPrinterName.is_null() {
+                        let len = unsafe {
+                            (0..)
+                                .take_while(|&i| *info.pPrinterName.offset(i) != 0)
+                                .count()
+                        };
+                        let name_slice =
+                            unsafe { std::slice::from_raw_parts(info.pPrinterName, len) };
+                        let name = String::from_utf16_lossy(name_slice);
+                        let trimmed = name.trim().to_string();
+                        if !trimmed.is_empty() {
+                            printers.push(trimmed);
+                        }
+                    }
+                }
+
+                if !printers.is_empty() {
+                    return Ok(printers);
+                }
             }
         }
 
-        Ok(printers)
+        // Stage 3: PowerShell Fallback (Get-Printer)
+        if let Ok(output) = std::process::Command::new("powershell")
+            .args(["-NoProfile", "-Command", "Get-Printer | Select-Object -ExpandProperty Name"])
+            .output()
+        {
+            if output.status.success() {
+                let text = String::from_utf8_lossy(&output.stdout);
+                let list: Vec<String> = text
+                    .lines()
+                    .map(|l| l.trim().to_string())
+                    .filter(|l| !l.is_empty())
+                    .collect();
+                if !list.is_empty() {
+                    return Ok(list);
+                }
+            }
+        }
+
+        Ok(Vec::new())
     }
 
     pub fn get_printer_status(printer_name: &str) -> Result<PrinterStatus, PrinterError> {
@@ -135,45 +220,83 @@ mod platform {
             return Err(PrinterError::PrinterNotFound(printer_name.to_string()));
         }
 
+        let mut status_code: DWORD = 0;
+        let mut is_attr_offline = false;
+        let mut got_status = false;
+
+        // Stage 1: Try Level 2 (PRINTER_INFO_2W)
         let mut needed: DWORD = 0;
         unsafe {
             GetPrinterW(handle, 2, ptr::null_mut(), 0, &mut needed);
         }
 
-        if needed == 0 {
-            unsafe { ClosePrinter(handle) };
-            return Err(PrinterError::StatusFailed(
-                "Gagal membaca ukuran status printer".into(),
-            ));
+        if needed > 0 {
+            let mut buffer: Vec<u8> = vec![0; needed as usize];
+            let get_res =
+                unsafe { GetPrinterW(handle, 2, buffer.as_mut_ptr(), needed, &mut needed) };
+            if get_res != 0 {
+                let info = unsafe { &*(buffer.as_ptr() as *const PRINTER_INFO_2W) };
+                status_code = info.Status;
+                is_attr_offline = (info.Attributes & PRINTER_ATTRIBUTE_WORK_OFFLINE) != 0;
+                got_status = true;
+            }
         }
 
-        let mut buffer: Vec<u8> = vec![0; needed as usize];
-        let get_res = unsafe { GetPrinterW(handle, 2, buffer.as_mut_ptr(), needed, &mut needed) };
+        // Stage 2: Fallback to Level 6 (PRINTER_INFO_6)
+        if !got_status {
+            let mut info6 = PRINTER_INFO_6 { dwStatus: 0 };
+            let mut needed6: DWORD = 0;
+            let get_res6 = unsafe {
+                GetPrinterW(
+                    handle,
+                    6,
+                    &mut info6 as *mut _ as *mut u8,
+                    std::mem::size_of::<PRINTER_INFO_6>() as DWORD,
+                    &mut needed6,
+                )
+            };
+            if get_res6 != 0 {
+                status_code = info6.dwStatus;
+                got_status = true;
+            }
+        }
+
         unsafe { ClosePrinter(handle) };
 
-        if get_res == 0 {
-            return Err(PrinterError::StatusFailed(
-                "Gagal mengambil info status printer".into(),
-            ));
+        // Stage 3: PowerShell status fallback if WinSpool query was denied
+        if !got_status {
+            let escaped = printer_name.replace('\'', "''");
+            let cmd = format!("(Get-Printer -Name '{}').PrinterStatus", escaped);
+            if let Ok(output) = std::process::Command::new("powershell")
+                .args(["-NoProfile", "-Command", &cmd])
+                .output()
+            {
+                if output.status.success() {
+                    let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                    if let Ok(num) = text.parse::<u32>() {
+                        status_code = num;
+                    }
+                }
+            }
         }
-
-        let info = unsafe { &*(buffer.as_ptr() as *const PRINTER_INFO_2W) };
-        let status_code = info.Status;
 
         let has_error = (status_code
             & (PRINTER_STATUS_ERROR
                 | PRINTER_STATUS_PAPER_JAM
                 | PRINTER_STATUS_PAPER_OUT
+                | PRINTER_STATUS_DOOR_OPEN
                 | PRINTER_STATUS_OFFLINE))
             != 0;
-        let is_online = (status_code & PRINTER_STATUS_OFFLINE) == 0;
+        let is_online = (status_code & PRINTER_STATUS_OFFLINE) == 0 && !is_attr_offline;
         let is_ready = is_online && !has_error;
 
         let error_message = if (status_code & PRINTER_STATUS_PAPER_OUT) != 0 {
             Some("Kertas habis".to_string())
         } else if (status_code & PRINTER_STATUS_PAPER_JAM) != 0 {
             Some("Kertas tersangkut (Paper Jam)".to_string())
-        } else if (status_code & PRINTER_STATUS_OFFLINE) != 0 {
+        } else if (status_code & PRINTER_STATUS_DOOR_OPEN) != 0 {
+            Some("Pintu/Cover printer terbuka".to_string())
+        } else if (status_code & PRINTER_STATUS_OFFLINE) != 0 || is_attr_offline {
             Some("Printer Offline".to_string())
         } else if has_error {
             Some(format!("Printer error status code: {}", status_code))
@@ -181,11 +304,10 @@ mod platform {
             None
         };
 
-        // Note: DNP DS-RX1HS paper count is estimated or read from driver metadata
         Ok(PrinterStatus {
             is_ready,
             is_online,
-            paper_remaining: Some(200), // Default roll estimate if status unavailable
+            paper_remaining: Some(200),
             paper_limit_alert: Some(50),
             printer_name: printer_name.to_string(),
             has_error,

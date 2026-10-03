@@ -62,9 +62,16 @@ class PrinterStore {
       if (savedPrimary && this.printers.includes(savedPrimary)) {
         this.selectedPrinter = savedPrimary;
       } else {
-        const dnpPrinter = this.printers.find(
-          (p) => p.toUpperCase().includes("DNP") || p.toUpperCase().includes("DS-RX1")
-        );
+        const dnpPrinter = this.printers.find((p) => {
+          const u = p.toUpperCase();
+          return (
+            u.includes("DNP") ||
+            u.includes("DS-RX1") ||
+            u.includes("RX1") ||
+            u.includes("CITIZEN") ||
+            u.includes("PHOTO PRINTER")
+          );
+        });
         if (dnpPrinter) {
           this.selectedPrinter = dnpPrinter;
         } else if (this.printers.length > 0) {

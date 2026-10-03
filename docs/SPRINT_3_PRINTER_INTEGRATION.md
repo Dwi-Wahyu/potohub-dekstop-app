@@ -172,8 +172,8 @@ Peningkatan UX pada halaman pengaturan booth:
 ### Sub-Langkah 2.6: Editor Template Frame Admin Dashboard (`TemplateFramePage.svelte`)
 
 Pembaruan pada antarmuka admin pengelola template:
-1. **Pilihan Ukuran Kertas Lengkap (`paper-sizes.json`)**:
-   - Menyediakan pilihan: `2R`, `3R`, `4R`, `5R`, `6R`, `8R`, `10R`, `A7`, `A6`, `A5`, `A4`, `A3`, `6x8`, `2x6`, `6x6`, `custom`.
+1. **Pilihan Ukuran Kertas Lengkap Sesuai `paper-sizes.json`**:
+   - Menyediakan pilihan nama bersih langsung tanpa teks dimensi/embel-embel tambahan (misal: `4R`, `2R`, `3R`, `5R`, `6R`, `8R`, `10R`, `A7`, `A6`, `A5`, `A4`, `A3`, `6x8`, `2x6`, `6x6`, `Custom`).
    - Otomatis mengisi lebar (*width*) dan tinggi (*height*) canvas template saat ukuran kertas dipilih.
 2. **Toggle "Print Secondary"**:
    - Tombol toggle mini pada bilah konfigurasi template terikat ke state `printSecondaryGlobal`.

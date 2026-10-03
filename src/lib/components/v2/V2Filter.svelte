@@ -3,10 +3,12 @@
   import { boothFlow } from '$lib/stores/booth.svelte';
   import { boothConfig } from '$lib/stores/boothConfig.svelte';
   import { cameraStore } from '$lib/camera.svelte';
-  import { getLiveviewTransformStyle } from '$lib/utils/shared';
+  import { getLiveviewTransformStyle, getPhotoSlotTransformStyle } from '$lib/utils/shared';
   import { uiConfig } from '$lib/stores/uiConfig.svelte';
   import StickerPicker from '$lib/components/shared/StickerPicker.svelte';
   import StickerCanvas from '$lib/components/shared/StickerCanvas.svelte';
+  import PhotoCropModal from '$lib/components/shared/PhotoCropModal.svelte';
+  import PhotoCropButton from '$lib/components/shared/PhotoCropButton.svelte';
   import { fetchEmots, fetchTemplates, requireActiveBoothId, type BoothEmot, type BoothTemplate } from '$lib/api/boothClient';
   import { cachedFetch } from '$lib/utils/offlineCache';
   import { getSortedPhotoSlots, getTemplateLayers, getLayerZIndex } from '$lib/utils/templateComposite';
@@ -32,6 +34,7 @@
 
   let stickers = $state<Sticker[]>(boothFlow.stickers);
   let stickerCounter = $state(0);
+  let cropOpen = $state(false);
 
   const V2_FILTERS = [
     { id: 'Original', name: 'Original', style: '' },
@@ -237,7 +240,7 @@
                                   src={capturedPhoto}
                                   alt={`Photo ${targetIdx + 1}`}
                                   class={`w-full h-full object-cover block ${f.style}`}
-                                  style="transform: {getLiveviewTransformStyle(boothConfig.config, cameraStore.cameraMode)};"
+                                  style="transform: {getPhotoSlotTransformStyle(boothFlow.getPhotoTransform(capturedPhoto), getLiveviewTransformStyle(boothConfig.config, cameraStore.cameraMode))};"
                                 />
                               {/if}
                             </div>
@@ -301,7 +304,7 @@
                                   src={capturedPhoto}
                                   alt={`Photo ${targetIdx + 1}`}
                                   class={`w-full h-full object-cover block ${f.style}`}
-                                  style="transform: {getLiveviewTransformStyle(boothConfig.config, cameraStore.cameraMode)};"
+                                  style="transform: {getPhotoSlotTransformStyle(boothFlow.getPhotoTransform(capturedPhoto), getLiveviewTransformStyle(boothConfig.config, cameraStore.cameraMode))};"
                                 />
                               {/if}
                             </div>
@@ -341,7 +344,10 @@
     </div>
 
     <div class="flex items-center justify-between shrink-0 font-['Nunito',sans-serif]">
-      <h3 class="text-lg font-bold tracking-widest uppercase font-['Playfair_Display',serif] m-0">{activeFilter.name}</h3>
+      <div class="flex items-center gap-5">
+        <h3 class="text-lg font-bold tracking-widest uppercase font-['Playfair_Display',serif] m-0">{activeFilter.name}</h3>
+        <PhotoCropButton variant="v2" accent="#f97316" onclick={() => (cropOpen = true)} disabled={!selectedTemplate} />
+      </div>
       <button
         onclick={onNext}
         class="px-12 py-4 bg-[#f97316] text-white rounded-full text-lg font-bold tracking-widest uppercase shadow-[4px_4px_0_0_rgba(200,200,200,1)] hover:translate-x-[2px] hover:translate-y-[2px] active:translate-x-[4px] active:translate-y-[4px] active:shadow-none transition-all flex items-center gap-3 cursor-pointer border-none"
@@ -350,4 +356,19 @@
       </button>
     </div>
   </div>
+
+  {#if cropOpen && selectedTemplate}
+    <PhotoCropModal
+      template={selectedTemplate}
+      layers={templateLayers}
+      {photoSlots}
+      photos={boothFlow.photosTaken}
+      {bgUrl}
+      {stickers}
+      variant="v2"
+      accent="#f97316"
+      filterClass={activeFilter.style}
+      onClose={() => (cropOpen = false)}
+    />
+  {/if}
 </div>

@@ -19,6 +19,17 @@ export type StickersChoosen = {
   y: number;
 };
 
+// Crop per foto (pan & zoom) dari modal Crop di step filter.
+// x/y: pergeseran relatif terhadap ukuran slot (0.1 = 10% lebar/tinggi slot),
+// zoom: 1 (cover) s/d 3. Dipakai identik oleh preview CSS dan templateComposite.
+export type PhotoTransform = {
+  x: number;
+  y: number;
+  zoom: number;
+};
+
+export const IDENTITY_TRANSFORM: PhotoTransform = { x: 0, y: 0, zoom: 1 };
+
 class BoothFlowStore {
   step = $state<BoothStep>("welcome");
   countdown = $state<number | null>(null);
@@ -37,9 +48,20 @@ class BoothFlowStore {
   sessionVideoUrl = $state<string | null>(null);
   isGeneratingGif = $state<boolean>(false);
   isGeneratingVideo = $state<boolean>(false);
+  // Dikunci per URL foto (bukan index slot) supaya retake otomatis membuang crop lama
+  photoTransforms = $state<Record<string, PhotoTransform>>({});
 
   goTo(step: BoothStep) {
     this.step = step;
+  }
+
+  getPhotoTransform(photoSrc: string | null | undefined): PhotoTransform {
+    if (!photoSrc) return IDENTITY_TRANSFORM;
+    return this.photoTransforms[photoSrc] ?? IDENTITY_TRANSFORM;
+  }
+
+  setPhotoTransform(photoSrc: string, transform: PhotoTransform) {
+    this.photoTransforms = { ...this.photoTransforms, [photoSrc]: transform };
   }
 
   reset() {
@@ -66,6 +88,7 @@ class BoothFlowStore {
     this.sessionVideoUrl = null;
     this.isGeneratingGif = false;
     this.isGeneratingVideo = false;
+    this.photoTransforms = {};
   }
 }
 

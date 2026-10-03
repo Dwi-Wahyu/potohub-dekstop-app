@@ -3,10 +3,12 @@
   import { boothFlow } from '$lib/stores/booth.svelte';
   import { boothConfig } from '$lib/stores/boothConfig.svelte';
   import { cameraStore } from '$lib/camera.svelte';
-  import { getLiveviewTransformStyle } from '$lib/utils/shared';
+  import { getLiveviewTransformStyle, getPhotoSlotTransformStyle } from '$lib/utils/shared';
   import { FILTERS } from '$lib/utils/filters';
   import StickerPicker from '$lib/components/shared/StickerPicker.svelte';
   import StickerCanvas from '$lib/components/shared/StickerCanvas.svelte';
+  import PhotoCropModal from '$lib/components/shared/PhotoCropModal.svelte';
+  import PhotoCropButton from '$lib/components/shared/PhotoCropButton.svelte';
   import { fetchEmots, fetchTemplates, requireActiveBoothId, type BoothEmot, type BoothTemplate } from '$lib/api/boothClient';
   import { cachedFetch } from '$lib/utils/offlineCache';
   import { getSortedPhotoSlots, getTemplateLayers, getLayerZIndex } from '$lib/utils/templateComposite';
@@ -34,6 +36,7 @@
 
   let stickers = $state<Sticker[]>(boothFlow.stickers);
   let stickerCounter = $state(0);
+  let cropOpen = $state(false);
 
   let currentFilterCss = $derived(FILTERS.find((f) => f.id === selectedFilter)?.css ?? 'none');
 
@@ -205,7 +208,7 @@
                             src={capturedPhoto}
                             alt={`Photo ${targetIdx + 1}`}
                             class="w-full h-full object-cover block"
-                            style="filter: {currentFilterCss === 'none' ? 'none' : currentFilterCss}; transform: {getLiveviewTransformStyle(boothConfig.config, cameraStore.cameraMode)};"
+                            style="filter: {currentFilterCss === 'none' ? 'none' : currentFilterCss}; transform: {getPhotoSlotTransformStyle(boothFlow.getPhotoTransform(capturedPhoto), getLiveviewTransformStyle(boothConfig.config, cameraStore.cameraMode))};"
                           />
                         {/if}
                       </div>
@@ -240,11 +243,14 @@
         {/if}
       </div>
 
-      <div class="flex items-center gap-2 bg-black/20 rounded-full px-4 py-1.5 relative z-10">
-        <div class="w-2 h-2 rounded-full bg-[#FFC107]"></div>
-        <span class="text-white/80 text-[10px] font-bold tracking-widest uppercase">
-          {V3_FILTERS_LIST.find((f) => f.id === selectedFilter)?.name || 'Original'}
-        </span>
+      <div class="flex items-center gap-3 relative z-10">
+        <div class="flex items-center gap-2 bg-black/20 rounded-full px-4 py-1.5">
+          <div class="w-2 h-2 rounded-full bg-[#FFC107]"></div>
+          <span class="text-white/80 text-[10px] font-bold tracking-widest uppercase">
+            {V3_FILTERS_LIST.find((f) => f.id === selectedFilter)?.name || 'Original'}
+          </span>
+        </div>
+        <PhotoCropButton variant="v3" accent="#CD1C33" onclick={() => (cropOpen = true)} disabled={!selectedTemplate} />
       </div>
     </div>
 
@@ -293,4 +299,19 @@
       </button>
     </div>
   </div>
+
+  {#if cropOpen && selectedTemplate}
+    <PhotoCropModal
+      template={selectedTemplate}
+      layers={templateLayers}
+      {photoSlots}
+      photos={boothFlow.photosTaken}
+      {bgUrl}
+      {stickers}
+      variant="v3"
+      accent="#CD1C33"
+      filterCss={currentFilterCss}
+      onClose={() => (cropOpen = false)}
+    />
+  {/if}
 </div>

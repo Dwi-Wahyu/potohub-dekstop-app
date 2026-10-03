@@ -5,10 +5,12 @@
   import { boothFlow } from '$lib/stores/booth.svelte';
   import StickerPicker from '$lib/components/shared/StickerPicker.svelte';
   import StickerCanvas from '$lib/components/shared/StickerCanvas.svelte';
+  import PhotoCropModal from '$lib/components/shared/PhotoCropModal.svelte';
+  import PhotoCropButton from '$lib/components/shared/PhotoCropButton.svelte';
   import type { Sticker, StickerType } from '$lib/utils/stickers';
   import { cameraStore } from '$lib/camera.svelte';
   import { boothConfig } from '$lib/stores/boothConfig.svelte';
-  import { formatTime, getLiveviewTransformStyle } from '$lib/utils/shared';
+  import { formatTime, getLiveviewTransformStyle, getPhotoSlotTransformStyle } from '$lib/utils/shared';
   import { fetchTemplates, fetchEmots, requireActiveBoothId, type BoothTemplate, type BoothEmot } from '$lib/api/boothClient';
   import { cachedFetch } from '$lib/utils/offlineCache';
   import { getSortedPhotoSlots, getTemplateLayers, getLayerZIndex } from '$lib/utils/templateComposite';
@@ -32,6 +34,7 @@
 
   let stickers = $state<Sticker[]>(boothFlow.stickers);
   let stickerCounter = $state(0);
+  let cropOpen = $state(false);
   let secs = $state(5 * 60);
   let timer: any = null;
 
@@ -127,7 +130,7 @@
         <p class="m-0 mt-2 text-[15px] text-[#999]">Buat fotomu lebih sempurna</p>
       </div>
 
-      <div class="flex-1 min-h-0 grid grid-cols-4 grid-rows-2 gap-4">
+      <div class="flex-1 min-h-0 grid grid-cols-5 grid-rows-2 gap-4">
         {#each FILTERS as f}
           {@const selected = boothFlow.selectedFilterId === f.id}
           <div class="flex flex-col gap-2 min-h-0">
@@ -176,11 +179,14 @@
 
     <!-- Film strip preview card -->
     <div class="flex-[0_0_25%] h-full flex flex-col items-stretch gap-3.5">
-      <div class="self-center shrink-0 flex items-center gap-2 bg-white/95 text-[#0f0e14] px-6 py-3 rounded-full font-bold text-[17px] shadow-[0_8px_32px_rgba(0,0,0,0.45)]">
-        <svg width="15" height="15" fill="none" stroke={uiConfig.config.primaryColor} stroke-width="2.5" viewBox="0 0 24 24">
-          <path d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" stroke-linecap="round" stroke-linejoin="round" />
-        </svg>
-        <span class="tabular-nums">{formatTime(secs)}</span>
+      <div class="self-center shrink-0 flex items-center gap-3">
+        <div class="flex items-center gap-2 bg-white/95 text-[#0f0e14] px-6 py-3 rounded-full font-bold text-[17px] shadow-[0_8px_32px_rgba(0,0,0,0.45)]">
+          <svg width="15" height="15" fill="none" stroke={uiConfig.config.primaryColor} stroke-width="2.5" viewBox="0 0 24 24">
+            <path d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+          <span class="tabular-nums">{formatTime(secs)}</span>
+        </div>
+        <PhotoCropButton variant="v1" accent={uiConfig.config.primaryColor} onclick={() => (cropOpen = true)} disabled={!selectedTemplate} />
       </div>
 
       <div class="flex-1 min-h-0 bg-white rounded-[22px] p-5 pb-[18px] flex flex-col gap-3.5 shadow-[0_40px_100px_rgba(0,0,0,0.7)] overflow-hidden">
@@ -237,7 +243,7 @@
                               src={capturedPhoto}
                               alt={`Photo ${targetIdx + 1}`}
                               class="w-full h-full object-cover block"
-                              style="filter: {currentFilterCss === 'none' ? 'none' : currentFilterCss}; transform: {getLiveviewTransformStyle(boothConfig.config, cameraStore.cameraMode)};"
+                              style="filter: {currentFilterCss === 'none' ? 'none' : currentFilterCss}; transform: {getPhotoSlotTransformStyle(boothFlow.getPhotoTransform(capturedPhoto), getLiveviewTransformStyle(boothConfig.config, cameraStore.cameraMode))};"
                             />
                           {:else}
                             <div class="w-full h-full flex items-center justify-center text-white/40 text-[9px]">
@@ -268,4 +274,19 @@
       </div>
     </div>
   </div>
+
+  {#if cropOpen && selectedTemplate}
+    <PhotoCropModal
+      template={selectedTemplate}
+      layers={templateLayers}
+      {photoSlots}
+      {photos}
+      {bgUrl}
+      {stickers}
+      variant="v1"
+      accent={uiConfig.config.primaryColor}
+      filterCss={currentFilterCss || 'none'}
+      onClose={() => (cropOpen = false)}
+    />
+  {/if}
 </div>

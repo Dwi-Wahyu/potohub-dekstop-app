@@ -93,6 +93,16 @@
     await update('cameraMode', 'usb');
   }
 
+  async function handleUseWebcam() {
+    fallbackMode = null;
+    await update('cameraMode', 'webcam');
+  }
+
+  async function handleUseUsb() {
+    fallbackMode = null;
+    await update('cameraMode', 'usb');
+  }
+
   async function handleUseFallback(mode: 'demo') {
     fallbackMode = mode;
     await update('cameraMode', mode);
@@ -110,6 +120,7 @@
     boothName = uiConfig.config.boothName || boothName;
     pendingJobs = await countPendingOutboxJobs().catch(() => 0);
     void handleSync();
+    await cameraStore.checkDevMode();
     void cameraStore.detect();
     void printerStore.loadPrinters();
   });
@@ -550,10 +561,56 @@
               {:else}
                 <!-- Tidak ada DSLR terdeteksi via USB -->
                 <p style="font-size: 11px" class="text-gray-400">
-                  {cameraStore.isDetecting ? 'Mencari kamera via USB…' : 'Tidak ada kamera terdeteksi.'}
+                  {cameraStore.isDetecting ? 'Mencari kamera via USB…' : 'Tidak ada kamera USB terdeteksi.'}
                 </p>
                 {#if cameraStore.detectError}
                   <p style="font-size: 10px; color: #dc2626; margin: 0;">{cameraStore.detectError}</p>
+                {/if}
+
+                {#if cameraStore.isDevMode || boothConfig.config.cameraMode === 'webcam'}
+                  <div style="background: rgba(59, 130, 246, 0.08); border: 1px dashed rgba(59, 130, 246, 0.4); border-radius: 12px; padding: 12px; display: flex; flex-direction: column; gap: 8px;">
+                    <div style="display: flex; align-items: center; justify-content: space-between;">
+                      <span style="font-size: 11px; font-weight: 700; color: #2563eb;">
+                        🛠 Mode Pengembang (Webcam)
+                      </span>
+                      {#if boothConfig.config.cameraMode === 'webcam' && cameraStore.status === 'connected'}
+                        <span style="font-size: 10px; font-weight: 600; color: #16a34a; background: #dcfce7; padding: 2px 6px; border-radius: 6px;">
+                          Webcam Aktif
+                        </span>
+                      {/if}
+                    </div>
+                    <p style="font-size: 10px; color: #64748b; margin: 0; line-height: 1.4;">
+                      Kamera laptop siap digunakan untuk capture foto, liveframe, animasi GIF, dan pengujian cetak photo strip.
+                    </p>
+                    <div style="display: flex; gap: 8px;">
+                      {#if boothConfig.config.cameraMode === 'webcam' && cameraStore.status === 'connected'}
+                        <button
+                          type="button"
+                          onclick={handleUseUsb}
+                          style="
+                            font-size: 11px; font-weight: 600; color: #475569;
+                            background: white; border: 1px solid #cbd5e1; border-radius: 8px;
+                            padding: 6px 12px; cursor: pointer;
+                          "
+                        >
+                          Beralih ke DSLR (USB)
+                        </button>
+                      {:else}
+                        <button
+                          type="button"
+                          onclick={handleUseWebcam}
+                          disabled={cameraStore.status === 'connecting'}
+                          style="
+                            font-size: 11px; font-weight: 700; color: white;
+                            background: linear-gradient(135deg, #2563eb, #1d4ed8);
+                            border: none; border-radius: 8px; padding: 6px 12px; cursor: pointer;
+                          "
+                        >
+                          {cameraStore.status === 'connecting' ? 'Menghubungkan...' : 'Aktifkan Webcam Laptop'}
+                        </button>
+                      {/if}
+                    </div>
+                  </div>
                 {/if}
               {/if}
             </div>

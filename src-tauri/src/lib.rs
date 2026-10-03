@@ -41,6 +41,22 @@ async fn is_camera_connected(state: State<'_, AppState>) -> Result<bool, GphotoE
 }
 
 #[tauri::command]
+fn is_development_mode() -> bool {
+    let args: Vec<String> = std::env::args().collect();
+    let has_dev_flag = args.iter().any(|arg| {
+        arg == "--development" || arg == "-d" || arg == "--dev"
+    });
+    let env_dev = std::env::var("DEVELOPMENT")
+        .map(|v| v.eq_ignore_ascii_case("true") || v == "1")
+        .unwrap_or(false);
+    let env_webcam = std::env::var("VITE_ENABLE_DEV_WEBCAM")
+        .map(|v| v.eq_ignore_ascii_case("true") || v == "1")
+        .unwrap_or(false);
+
+    has_dev_flag || env_dev || env_webcam
+}
+
+#[tauri::command]
 async fn get_camera_setting(
     state: State<'_, AppState>,
     key: String,
@@ -545,6 +561,7 @@ pub fn run() {
             print_photo,
             print_photo_from_buffer,
             save_qr_result,
+            is_development_mode,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

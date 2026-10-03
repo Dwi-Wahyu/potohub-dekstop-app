@@ -39,7 +39,13 @@ lpr -P DNP_DSRX1 -o PageSize=w288h432 ~/Downloads/test.jpg
 
 ### 3.1 Backend Rust (`src-tauri/src/printer.rs` & `src-tauri/src/lib.rs`)
 * **Dukungan Dual-Platform OS-Aware**:
-  - **Windows Production (`#[cfg(target_os = "windows")]`)**: Menggunakan Windows API `winspool` (`EnumPrintersW`, `OpenPrinterW`, `StartDocPrinterW`, `WritePrinter`, `EndDocPrinter`, `ClosePrinter`) untuk pengiriman buffer RAW ke driver Windows DNP.
+  - **Windows Production (`#[cfg(target_os = "windows")]`)**:
+    - **Multi-Stage Printer Enumeration**:
+      1. Level 4 (`PRINTER_INFO_4W`): Standar user-mode Win32 tercepat tanpa butuh izin admin khusus.
+      2. Level 2 (`PRINTER_INFO_2W`): Fallback jika Level 4 tidak tersedia.
+      3. PowerShell Fallback: Eksekusi `Get-Printer` jika WinSpool dibatasi.
+    - **Resilient Status Query**: Mengambil status via Level 2, dengan fallback ke Level 6 (`PRINTER_INFO_6` khusus kode status) dan PowerShell, serta mendeteksi atribut `PRINTER_ATTRIBUTE_WORK_OFFLINE`.
+    - Menggunakan WinAPI `winspool` (`StartDocPrinterW`, `WritePrinter`, `EndDocPrinter`, `ClosePrinter`) untuk pengiriman buffer RAW ke driver Windows DNP.
   - **Linux Development (`#[cfg(not(target_os = "windows"))]`)**: Menggunakan `lpr` dan `lpinfo` dengan parsing dynamic device URI serta injeksi opsi `-o PageSize=...`.
 * **Database SQLite Migration 11 (`src-tauri/src/lib.rs`)**:
   ```sql
@@ -58,6 +64,8 @@ lpr -P DNP_DSRX1 -o PageSize=w288h432 ~/Downloads/test.jpg
 * `flushPrintQueue`: Mengecek status printer target yang relevan (`printerStore.resolvePrinter(job.useSecondary)`) sebelum memproses antrean, memastikan job diteruskan ke printer yang tepat (Primary atau Secondary).
 
 ### 3.3 Svelte 5 Reactive Store (`src/lib/printer.svelte.ts`)
+* **Booting Instant Detection (`src/routes/+layout.svelte`)**: Memanggil `printerStore.loadPrinters()` langsung pada `onMount` root layout, memastikan printer langsung terdeteksi saat aplikasi pertama kali dibuka.
+* **Pencocokan Nama Hardware Fleksibel**: Mendeteksi variasi nama `DS-RX1`, `RX1`, `DNP`, `CITIZEN`, dan `PHOTO PRINTER`.
 * Mendukung multi-printer: `selectedPrinter` (Primary) dan `secondaryPrinter` (Secondary) dengan pelacakan status masing-masing (`status` & `secondaryStatus`).
 * Fungsi `resolvePrinter(useSecondary?: boolean)` untuk menentukan target printer berdasarkan template.
 * Fungsi `canPrint(copies, useSecondary)` untuk mengecek ketersediaan printer tujuan secara akurat.
@@ -76,6 +84,8 @@ lpr -P DNP_DSRX1 -o PageSize=w288h432 ~/Downloads/test.jpg
 ---
 
 ## 4. Hasil Verifikasi & Validasi
+* **Pengujian Fisik Linux CUPS**: Berhasil mencetak foto fisik dengan opsi `PageSize=w288h432`.
+* **Pengujian Hardware Windows 11**: Terverifikasi langsung pada perangkat fisik (`DS-RX1` terhubung di port `USB002`) dan terdeteksi seketika di aplikasi Kiosk dengan status `(Ready)`.
 * **Cargo Tests**: `cargo test --lib printer` -> **4 passed; 0 failed (100% OK)**.
-* **Cargo Check**: `cargo check` -> **Finished dev profile in 2.50s (0 errors)**.
+* **Cargo Check**: `cargo check` -> **Finished dev profile (0 errors)**.
 * **Svelte Diagnostics**: `pnpm check` -> **0 errors, 0 warnings (100% OK)**.

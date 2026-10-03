@@ -9,6 +9,8 @@
     "preview": "vite preview",
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
     "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
+    "dev:webcam": "vite dev --development",
+    "tauri:webcam": "tauri dev -- -- --development",
     "tauri": "tauri"
   },
   "license": "MIT",

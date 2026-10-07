@@ -5,10 +5,11 @@
   import { boothConfig } from '$lib/stores/boothConfig.svelte';
   import { boothFlow } from '$lib/stores/booth.svelte';
   import { Check, Clock, ChevronLeft } from '@lucide/svelte';
-  import { fetchCategories, requireActiveBoothId, type BoothCategory } from '$lib/api/boothClient';
+  import { fetchCategories, requireActiveBoothId, createTransactionSession, type BoothCategory } from '$lib/api/boothClient';
   import { cachedFetch } from '$lib/utils/offlineCache';
   import { networkStatus } from '$lib/stores/networkStatus.svelte';
   import OfflineBanner from '$lib/components/shared/OfflineBanner.svelte';
+  import { buildDynamicQrisString } from '$lib/utils/qrisBuilder';
 
   interface Props {
     selectedPackage: StoreCategory | null;
@@ -21,6 +22,8 @@
 
   let paid = $state(false);
   let qrUrl = $state('');
+  let orderId = $state('');
+  let loadingQr = $state(true);
   let categoriesData = $state<BoothCategory[]>([]);
   let deadlineStr = $state('');
 
@@ -35,6 +38,7 @@
   onMount(async () => {
     const expireDate = new Date(Date.now() + (boothConfig.config.paymentTimeSecs || 120) * 1000);
     deadlineStr = `${String(expireDate.getHours()).padStart(2, '0')}:${String(expireDate.getMinutes()).padStart(2, '0')}`;
+    loadingQr = true;
     try {
       const boothId = await requireActiveBoothId();
       await cachedFetch(
@@ -42,12 +46,52 @@
         () => fetchCategories(boothId),
         (d) => { categoriesData = d; }
       );
-      qrUrl = await QRCode.toDataURL(
-        `potohub://pay?booth=${encodeURIComponent(uiConfig.config.boothName)}&amount=${total}&ref=${Date.now()}`,
-        { margin: 1, width: 200 }
-      );
+
+      // Generate dynamic QRIS with DOKU Sandbox mode
+      try {
+        const sess = await createTransactionSession(
+          boothId,
+          null,
+          qty,
+          'Cashless',
+          boothFlow.selectedFrameId
+        );
+        if (sess) {
+          boothFlow.sessionId = sess.session_id || sess.id || null;
+          boothFlow.sessionCode = sess.order_id || null;
+          orderId = sess.order_id || '';
+
+          let qrPayload = sess.qr_content;
+          if (!qrPayload || qrPayload.startsWith('http')) {
+            qrPayload = buildDynamicQrisString({
+              amount: total,
+              orderId: orderId,
+              merchantName: uiConfig.config.boothName || 'POTOHUB',
+            });
+          }
+          qrUrl = await QRCode.toDataURL(qrPayload, { margin: 1, width: 200 });
+        }
+      } catch (err) {
+        console.warn('[V3Payment] Backend session fallback to dynamic QRIS string:', err);
+        orderId = `FT-SBX-${Date.now().toString().slice(-6)}`;
+        const qrPayload = buildDynamicQrisString({
+          amount: total,
+          orderId: orderId,
+          merchantName: uiConfig.config.boothName || 'POTOHUB',
+        });
+        qrUrl = await QRCode.toDataURL(qrPayload, { margin: 1, width: 200 });
+      }
     } catch (e) {
       console.error('Failed to generate QR in V3Payment:', e);
+      orderId = `FT-SBX-${Date.now().toString().slice(-6)}`;
+      const qrPayload = buildDynamicQrisString({
+        amount: total,
+        orderId: orderId,
+        merchantName: uiConfig.config.boothName || 'POTOHUB',
+      });
+      qrUrl = await QRCode.toDataURL(qrPayload, { margin: 1, width: 200 });
+    } finally {
+      loadingQr = false;
     }
   });
 

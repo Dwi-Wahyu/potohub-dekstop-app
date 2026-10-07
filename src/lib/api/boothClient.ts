@@ -647,6 +647,7 @@ export interface CreateSessionResponse {
   total_price: number | string;
   status: string;
   qris_url?: string | null;
+  qr_content?: string | null;
 }
 
 export async function createTransactionSession(

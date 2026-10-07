@@ -5,7 +5,7 @@
   import { boothConfig } from '$lib/stores/boothConfig.svelte';
   import { boothFlow } from '$lib/stores/booth.svelte';
   import { QrCode, ChevronLeft } from '@lucide/svelte';
-  import { fetchCategories, requireActiveBoothId, type BoothCategory } from '$lib/api/boothClient';
+  import { fetchCategories, requireActiveBoothId, createTransactionSession, type BoothCategory } from '$lib/api/boothClient';
   import { cachedFetch } from '$lib/utils/offlineCache';
 
   interface Props {
@@ -18,6 +18,7 @@
 
   let paid = $state(false);
   let qrUrl = $state('');
+  let orderId = $state('');
   let categoriesData = $state<BoothCategory[]>([]);
 
   let priceBase = $derived(
@@ -28,6 +29,8 @@
   let qty = $derived(boothFlow.printQty || 1);
   let total = $derived(priceBase * qty);
 
+  import { buildDynamicQrisString } from '$lib/utils/qrisBuilder';
+
   onMount(async () => {
     try {
       const boothId = await requireActiveBoothId();
@@ -36,10 +39,38 @@
         () => fetchCategories(boothId),
         (d) => { categoriesData = d; }
       );
-      qrUrl = await QRCode.toDataURL(
-        `potohub://pay?booth=${encodeURIComponent(uiConfig.config.boothName)}&amount=${total}&ref=${Date.now()}`,
-        { margin: 1, width: 200 }
-      );
+
+      let qrPayload = '';
+      try {
+        const sess = await createTransactionSession(
+          boothId,
+          categoriesData[0]?.id || null,
+          qty,
+          'Cashless',
+          boothFlow.selectedFrameId
+        );
+        if (sess) {
+          boothFlow.sessionId = sess.session_id || sess.id || null;
+          boothFlow.sessionCode = sess.order_id || null;
+          orderId = sess.order_id || '';
+          if (sess.qr_content && !sess.qr_content.startsWith('http')) {
+            qrPayload = sess.qr_content;
+          }
+        }
+      } catch (sessErr) {
+        console.warn('[V2Qris] Backend session fallback to dynamic QRIS string:', sessErr);
+      }
+
+      if (!qrPayload) {
+        orderId = orderId || `FT-V2-${Date.now().toString().slice(-6)}`;
+        qrPayload = buildDynamicQrisString({
+          amount: total,
+          orderId: orderId,
+          merchantName: uiConfig.config.boothName || 'POTOHUB',
+        });
+      }
+
+      qrUrl = await QRCode.toDataURL(qrPayload, { margin: 1, width: 220 });
     } catch (e) {
       console.error('Failed to generate QR or fetch categories:', e);
     }
@@ -141,8 +172,14 @@
         <p class="text-xs text-black/35 mt-1 m-0">{qty} print × Rp {priceBase.toLocaleString('id-ID')}</p>
       </div>
 
+      <!-- Sandbox Badge -->
+      <div class="flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-100 border border-amber-400 text-amber-900 text-[10px] font-black tracking-wider uppercase font-['Nunito',sans-serif]">
+        <span class="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span>
+        SANDBOX MODE (DOKU QRIS)
+      </div>
+
       <!-- QR Code -->
-      <div class="p-3 border-[2px] border-black/10 rounded-2xl bg-white flex justify-center items-center">
+      <div class="p-3 border-[2px] border-black/10 rounded-2xl bg-white flex justify-center items-center shadow-inner">
         {#if qrUrl}
           <img src={qrUrl} alt="QRIS Code" class="w-[200px] h-[200px] object-contain" />
         {:else}
@@ -151,6 +188,12 @@
           </div>
         {/if}
       </div>
+
+      {#if orderId}
+        <div class="text-[10px] text-black/40 font-mono -mt-2">
+          Invoice: {orderId}
+        </div>
+      {/if}
 
       <!-- accepted logos -->
       <div class="flex items-center gap-3 font-['Nunito',sans-serif]">

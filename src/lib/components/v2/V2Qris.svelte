@@ -47,7 +47,8 @@
           categoriesData[0]?.id || null,
           qty,
           'Cashless',
-          boothFlow.selectedFrameId
+          boothFlow.selectedFrameId,
+          total
         );
         if (sess) {
           boothFlow.sessionId = sess.session_id || sess.id || null;

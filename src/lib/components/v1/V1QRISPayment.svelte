@@ -36,7 +36,7 @@
       if (qrSecs > 0) qrSecs--;
     }, 1000);
 
-    // Generate dynamic QRIS with DOKU Sandbox mode
+    // Generate dynamic QRIS
     try {
       const boothId = await requireActiveBoothId();
       const sess = await createTransactionSession(
@@ -44,31 +44,32 @@
         null,
         boothFlow.printQty || 1,
         'Cashless',
-        boothFlow.selectedFrameId
+        boothFlow.selectedFrameId,
+        totalPrice
       );
       if (sess) {
         boothFlow.sessionId = sess.session_id || sess.id || null;
         boothFlow.sessionCode = sess.order_id || null;
         orderId = sess.order_id || '';
         
-        // Buat EMVCo QRIS string yang valid discan oleh app perbankan / DOKU simulator
+        // Buat EMVCo QRIS string yang valid discan oleh app perbankan / DOKU
         let qrPayload = sess.qr_content;
         if (!qrPayload || qrPayload.startsWith('http')) {
           qrPayload = buildDynamicQrisString({
             amount: totalPrice,
             orderId: orderId,
-            merchantName: uiConfig.config.boothName || 'POTOHUB',
+            merchantName: uiConfig.config.boothName || 'PHOTOGENIC',
           });
         }
         qrDataUrl = await QRCode.toDataURL(qrPayload, { margin: 1, width: 220 });
       }
     } catch (e) {
       console.warn('[V1QRISPayment] Backend session fallback to dynamic QRIS string:', e);
-      orderId = `FT-SBX-${Date.now().toString().slice(-6)}`;
+      orderId = `FT-${Date.now().toString().slice(-6)}`;
       const qrPayload = buildDynamicQrisString({
         amount: totalPrice,
         orderId: orderId,
-        merchantName: uiConfig.config.boothName || 'POTOHUB',
+        merchantName: uiConfig.config.boothName || 'PHOTOGENIC',
       });
       qrDataUrl = await QRCode.toDataURL(qrPayload, { margin: 1, width: 220 });
     } finally {
@@ -179,10 +180,10 @@
           {#if loadingQr}
             <div class="flex flex-col items-center justify-center gap-2 p-6 text-gray-400 text-xs">
               <div class="w-6 h-6 border-2 border-gray-300 border-t-[#e53935] rounded-full animate-spin"></div>
-              <span>Membuat QRIS Sandbox...</span>
+              <span>Membuat QRIS...</span>
             </div>
           {:else if qrDataUrl}
-            <img src={qrDataUrl} alt="QRIS DOKU Sandbox" class="w-[190px] h-[190px] object-contain rounded-lg" />
+            <img src={qrDataUrl} alt="QRIS" class="w-[190px] h-[190px] object-contain rounded-lg" />
           {:else}
             <div class="text-xs text-red-500 p-4 text-center">Gagal memuat QRIS</div>
           {/if}

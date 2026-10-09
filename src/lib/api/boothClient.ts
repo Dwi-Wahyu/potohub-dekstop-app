@@ -656,6 +656,7 @@ export async function createTransactionSession(
   totalPrint: number = 1,
   paymentMethod: string = "Cashless",
   frameId?: string | null,
+  amount?: number | null,
 ): Promise<CreateSessionResponse> {
   let method = "Cashless";
   const pm = (paymentMethod || "").toLowerCase();
@@ -677,6 +678,7 @@ export async function createTransactionSession(
       frame_id: frameId || null,
       total_print: totalPrint,
       payment_method: method,
+      amount: amount != null ? amount : null,
     }),
   });
   if (!res.ok) {

@@ -43,18 +43,18 @@ export function buildDynamicQrisString(options: QrisPayloadOptions): string {
   const {
     amount,
     orderId,
-    merchantName = 'POTOHUB PHOTOBOOTH',
+    merchantName = 'PHOTOGENIC',
     city = 'JAKARTA',
     postalCode = '12345',
-    dokuAcquirerId = '936008990000013735',
-    dokuMerchantId = '13735',
+    dokuAcquirerId = '936008990000092843',
+    dokuMerchantId = '92843',
     mpan,
     nmid,
-    terminalId = 'A01',
+    terminalId = 'TERMINAL01',
   } = options;
 
   const effectiveMpan = mpan || dokuAcquirerId;
-  const effectiveNmid = nmid || 'ID2025072859992';
+  const effectiveNmid = nmid || 'ID1026515796146';
 
   const amtStr = Number(amount || 0).toFixed(2);
 

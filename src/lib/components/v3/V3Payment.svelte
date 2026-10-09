@@ -47,14 +47,15 @@
         (d) => { categoriesData = d; }
       );
 
-      // Generate dynamic QRIS with DOKU Sandbox mode
+      // Generate dynamic QRIS
       try {
         const sess = await createTransactionSession(
           boothId,
           null,
           qty,
           'Cashless',
-          boothFlow.selectedFrameId
+          boothFlow.selectedFrameId,
+          total
         );
         if (sess) {
           boothFlow.sessionId = sess.session_id || sess.id || null;

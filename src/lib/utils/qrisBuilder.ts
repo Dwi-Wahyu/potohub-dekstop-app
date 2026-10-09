@@ -34,6 +34,8 @@ export interface QrisPayloadOptions {
   postalCode?: string;
   dokuAcquirerId?: string;
   dokuMerchantId?: string;
+  mpan?: string;
+  nmid?: string;
   terminalId?: string;
 }
 
@@ -46,22 +48,27 @@ export function buildDynamicQrisString(options: QrisPayloadOptions): string {
     postalCode = '12345',
     dokuAcquirerId = '936008990000013735',
     dokuMerchantId = '13735',
+    mpan,
+    nmid,
     terminalId = 'A01',
   } = options;
+
+  const effectiveMpan = mpan || dokuAcquirerId;
+  const effectiveNmid = nmid || 'ID2025072859992';
 
   const amtStr = Number(amount || 0).toFixed(2);
 
   // Sub-tag 26: DOKU QR MPM Identifier
   const m26 =
     formatTlv('00', 'COM.DOKU.WWW') +
-    formatTlv('01', dokuAcquirerId) +
+    formatTlv('01', effectiveMpan) +
     formatTlv('02', dokuMerchantId) +
     formatTlv('03', 'UKE');
 
   // Sub-tag 51: National QRIS Identifier (ASPI)
   const m51 =
     formatTlv('00', 'ID.CO.QRIS.WWW') +
-    formatTlv('02', 'ID2025072859992') +
+    formatTlv('02', effectiveNmid) +
     formatTlv('03', 'UKE');
 
   // Sub-tag 62: Additional Data Field (Terminal ID + Invoice Reference)

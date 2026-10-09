@@ -172,11 +172,6 @@
         <p class="text-xs text-black/35 mt-1 m-0">{qty} print × Rp {priceBase.toLocaleString('id-ID')}</p>
       </div>
 
-      <!-- Sandbox Badge -->
-      <div class="flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-100 border border-amber-400 text-amber-900 text-[10px] font-black tracking-wider uppercase font-['Nunito',sans-serif]">
-        <span class="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span>
-        SANDBOX MODE (DOKU QRIS)
-      </div>
 
       <!-- QR Code -->
       <div class="p-3 border-[2px] border-black/10 rounded-2xl bg-white flex justify-center items-center shadow-inner">

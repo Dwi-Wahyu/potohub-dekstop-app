@@ -173,11 +173,6 @@
           {/if} -->
         </div>
 
-        <!-- Sandbox Badge -->
-        <div class="flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-700 text-[10px] font-bold tracking-wider uppercase">
-          <span class="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span>
-          SANDBOX MODE (DOKU QRIS)
-        </div>
 
         <!-- Dynamic QR Container -->
         <div class="p-3 border-2 border-gray-100 rounded-2xl bg-white shadow-sm flex items-center justify-center min-w-[200px] min-h-[200px]">

@@ -5,7 +5,7 @@
   import { boothConfig } from '$lib/stores/boothConfig.svelte';
   import { boothFlow } from '$lib/stores/booth.svelte';
   import { formatTime } from '$lib/utils/shared';
-  import { createTransactionSession, requireActiveBoothId } from '$lib/api/boothClient';
+  import { createTransactionSession, requireActiveBoothId, checkPaymentStatus } from '$lib/api/boothClient';
 
   interface Props {
     totalPrice: number;
@@ -23,6 +23,7 @@
   let orderId = $state('');
   let loadingQr = $state(true);
   let timer: any = null;
+  let pollTimer: any = null;
 
   import { buildDynamicQrisString } from '$lib/utils/qrisBuilder';
 
@@ -62,6 +63,23 @@
           });
         }
         qrDataUrl = await QRCode.toDataURL(qrPayload, { margin: 1, width: 220 });
+
+        // Mulai polling status pembayaran otomatis
+        if (orderId) {
+          pollTimer = setInterval(async () => {
+            if (paid) return;
+            try {
+              const st = await checkPaymentStatus(boothId, orderId);
+              if (st.is_paid || st.status === 'paid') {
+                paid = true;
+                if (pollTimer) clearInterval(pollTimer);
+                setTimeout(() => onSuccess(), 1000);
+              }
+            } catch {
+              // Non-blocking
+            }
+          }, 3000);
+        }
       }
     } catch (e) {
       console.warn('[V1QRISPayment] Backend session fallback to dynamic QRIS string:', e);
@@ -79,6 +97,7 @@
 
   onDestroy(() => {
     if (timer) clearInterval(timer);
+    if (pollTimer) clearInterval(pollTimer);
   });
 
   // Local state stub simulation - see §0 item 5

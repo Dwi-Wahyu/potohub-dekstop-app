@@ -1,11 +1,17 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
   import QRCode from 'qrcode';
   import { uiConfig } from '$lib/stores/uiConfig.svelte';
   import { boothConfig } from '$lib/stores/boothConfig.svelte';
   import { boothFlow } from '$lib/stores/booth.svelte';
   import { QrCode, ChevronLeft } from '@lucide/svelte';
-  import { fetchCategories, requireActiveBoothId, createTransactionSession, type BoothCategory } from '$lib/api/boothClient';
+  import {
+    fetchCategories,
+    requireActiveBoothId,
+    createTransactionSession,
+    checkPaymentStatus,
+    type BoothCategory,
+  } from '$lib/api/boothClient';
   import { cachedFetch } from '$lib/utils/offlineCache';
 
   interface Props {
@@ -20,6 +26,7 @@
   let qrUrl = $state('');
   let orderId = $state('');
   let categoriesData = $state<BoothCategory[]>([]);
+  let pollInterval: any = null;
 
   let priceBase = $derived(
     boothConfig.config.earlyPaymentPage && boothConfig.config.basePrice > 0
@@ -30,6 +37,10 @@
   let total = $derived(priceBase * qty);
 
   import { buildDynamicQrisString } from '$lib/utils/qrisBuilder';
+
+  onDestroy(() => {
+    if (pollInterval) clearInterval(pollInterval);
+  });
 
   onMount(async () => {
     try {
@@ -72,6 +83,23 @@
       }
 
       qrUrl = await QRCode.toDataURL(qrPayload, { margin: 1, width: 220 });
+
+      // Start polling transaction status automatically
+      if (orderId) {
+        pollInterval = setInterval(async () => {
+          if (paid) return;
+          try {
+            const st = await checkPaymentStatus(boothId, orderId);
+            if (st.is_paid || st.status === 'paid') {
+              paid = true;
+              if (pollInterval) clearInterval(pollInterval);
+              setTimeout(() => onSuccess(), 1000);
+            }
+          } catch {
+            // Polling non-blocking
+          }
+        }, 3000);
+      }
     } catch (e) {
       console.error('Failed to generate QR or fetch categories:', e);
     }

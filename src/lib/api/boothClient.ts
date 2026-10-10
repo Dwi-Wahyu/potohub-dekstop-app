@@ -696,6 +696,27 @@ export async function createTransactionSession(
   };
 }
 
+export interface PaymentStatusResponse {
+  order_id: string;
+  session_id?: string;
+  status: 'pending' | 'paid' | 'failed' | 'cancelled';
+  is_paid: boolean;
+  reconciled?: boolean;
+}
+
+export async function checkPaymentStatus(
+  boothId: string,
+  orderId: string,
+): Promise<PaymentStatusResponse> {
+  const res = await fetch(`${API_BASE}/booths/${boothId}/transactions/${orderId}/status`, {
+    headers: await getAuthHeaders(),
+  });
+  if (!res.ok) {
+    throw new Error(`Failed to check payment status: ${res.statusText}`);
+  }
+  return res.json();
+}
+
 export type GalleryFileType = "photo" | "thumbnail" | "video" | "gif";
 
 export function toPascalCaseMediaType(

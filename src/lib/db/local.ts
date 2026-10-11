@@ -495,6 +495,7 @@ export interface PrintJob {
   imagePath: string;
   copies: number;
   paperSize: string;
+  useSecondary?: boolean;
   status: 'pending' | 'printing' | 'done' | 'failed';
   attempts: number;
   lastError: string | null;
@@ -506,13 +507,14 @@ export async function enqueuePrintJob(params: {
   imagePath: string;
   copies: number;
   paperSize: string;
+  useSecondary?: boolean;
 }): Promise<number> {
   const conn = await db();
   const now = Date.now();
   const res = await conn.execute(
-    `INSERT INTO print_queue (session_code, image_path, copies, paper_size, status, attempts, created_at, updated_at)
-     VALUES ($1, $2, $3, $4, 'pending', 0, $5, $5)`,
-    [params.sessionCode, params.imagePath, params.copies, params.paperSize, now]
+    `INSERT INTO print_queue (session_code, image_path, copies, paper_size, use_secondary, status, attempts, created_at, updated_at)
+     VALUES ($1, $2, $3, $4, $5, 'pending', 0, $6, $6)`,
+    [params.sessionCode, params.imagePath, params.copies, params.paperSize, params.useSecondary ? 1 : 0, now]
   );
   return Number(res.lastInsertId ?? 0);
 }
@@ -528,6 +530,7 @@ export async function listPendingPrintJobs(): Promise<PrintJob[]> {
     imagePath: r.image_path,
     copies: r.copies,
     paperSize: r.paper_size,
+    useSecondary: Boolean(r.use_secondary),
     status: r.status,
     attempts: r.attempts,
     lastError: r.last_error,

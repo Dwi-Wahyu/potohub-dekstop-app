@@ -1,11 +1,17 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
   import QRCode from 'qrcode';
   import { uiConfig } from '$lib/stores/uiConfig.svelte';
   import { boothConfig } from '$lib/stores/boothConfig.svelte';
   import { boothFlow } from '$lib/stores/booth.svelte';
   import { QrCode, ChevronLeft } from '@lucide/svelte';
-  import { fetchCategories, requireActiveBoothId, type BoothCategory } from '$lib/api/boothClient';
+  import {
+    fetchCategories,
+    requireActiveBoothId,
+    createTransactionSession,
+    checkPaymentStatus,
+    type BoothCategory,
+  } from '$lib/api/boothClient';
   import { cachedFetch } from '$lib/utils/offlineCache';
 
   interface Props {
@@ -18,7 +24,9 @@
 
   let paid = $state(false);
   let qrUrl = $state('');
+  let orderId = $state('');
   let categoriesData = $state<BoothCategory[]>([]);
+  let pollInterval: any = null;
 
   let priceBase = $derived(
     boothConfig.config.earlyPaymentPage && boothConfig.config.basePrice > 0
@@ -28,21 +36,74 @@
   let qty = $derived(boothFlow.printQty || 1);
   let total = $derived(priceBase * qty);
 
-  onMount(async () => {
+  import { buildDynamicQrisString } from '$lib/utils/qrisBuilder';
+
+  onDestroy(() => {
+    if (pollInterval) clearInterval(pollInterval);
+  });
+
+  let errorMessage = $state('');
+  let loadingQr = $state(true);
+
+  async function generateQr() {
+    errorMessage = '';
+    loadingQr = true;
+    qrUrl = '';
     try {
       const boothId = await requireActiveBoothId();
-      await cachedFetch(
-        `categories:${boothId}`,
-        () => fetchCategories(boothId),
-        (d) => { categoriesData = d; }
+      if (!categoriesData.length) {
+        await cachedFetch(
+          `categories:${boothId}`,
+          () => fetchCategories(boothId),
+          (d) => { categoriesData = d; }
+        );
+      }
+
+      const sess = await createTransactionSession(
+        boothId,
+        categoriesData[0]?.id || null,
+        qty,
+        'Cashless',
+        boothFlow.selectedFrameId,
+        total
       );
-      qrUrl = await QRCode.toDataURL(
-        `potohub://pay?booth=${encodeURIComponent(uiConfig.config.boothName)}&amount=${total}&ref=${Date.now()}`,
-        { margin: 1, width: 200 }
-      );
-    } catch (e) {
-      console.error('Failed to generate QR or fetch categories:', e);
+
+      if (sess && sess.qr_content) {
+        boothFlow.sessionId = sess.session_id || sess.id || null;
+        boothFlow.sessionCode = sess.order_id || null;
+        orderId = sess.order_id || '';
+        qrUrl = await QRCode.toDataURL(sess.qr_content, { margin: 1, width: 220 });
+
+        // Start polling transaction status automatically
+        if (orderId) {
+          if (pollInterval) clearInterval(pollInterval);
+          pollInterval = setInterval(async () => {
+            if (paid) return;
+            try {
+              const st = await checkPaymentStatus(boothId, orderId);
+              if (st.is_paid || st.status === 'paid') {
+                paid = true;
+                if (pollInterval) clearInterval(pollInterval);
+                setTimeout(() => onSuccess(), 1000);
+              }
+            } catch {
+              // Polling non-blocking
+            }
+          }, 3000);
+        }
+      } else {
+        throw new Error('Backend tidak mengembalikan data QR DOKU SNAP');
+      }
+    } catch (e: any) {
+      console.error('[V2Qris] Gagal membuat sesi QRIS resmi:', e);
+      errorMessage = e?.message || 'Gagal memuat QRIS DOKU';
+    } finally {
+      loadingQr = false;
     }
+  }
+
+  onMount(async () => {
+    await generateQr();
   });
 
   function simulatePayment() {
@@ -141,16 +202,35 @@
         <p class="text-xs text-black/35 mt-1 m-0">{qty} print × Rp {priceBase.toLocaleString('id-ID')}</p>
       </div>
 
+
       <!-- QR Code -->
-      <div class="p-3 border-[2px] border-black/10 rounded-2xl bg-white flex justify-center items-center">
-        {#if qrUrl}
+      <div class="p-3 border-[2px] border-black/10 rounded-2xl bg-white flex justify-center items-center shadow-inner min-h-[224px]">
+        {#if errorMessage}
+          <div class="w-[200px] h-[200px] p-2 flex flex-col items-center justify-center text-center">
+            <span class="text-xs font-bold text-red-600 mb-1">Gagal Memuat QRIS</span>
+            <span class="text-[10px] text-gray-500 mb-3 break-words max-h-16 overflow-hidden">{errorMessage}</span>
+            <button
+              type="button"
+              onclick={generateQr}
+              class="px-3 py-1 bg-black text-white text-[10px] font-bold rounded-lg hover:bg-gray-800 transition cursor-pointer border-none"
+            >
+              Coba Lagi
+            </button>
+          </div>
+        {:else if qrUrl}
           <img src={qrUrl} alt="QRIS Code" class="w-[200px] h-[200px] object-contain" />
         {:else}
           <div class="w-[200px] h-[200px] flex items-center justify-center text-xs text-black/30 font-mono">
-            Loading QR...
+            Membuat QRIS DOKU...
           </div>
         {/if}
       </div>
+
+      {#if orderId}
+        <div class="text-[10px] text-black/40 font-mono -mt-2">
+          Invoice: {orderId}
+        </div>
+      {/if}
 
       <!-- accepted logos -->
       <div class="flex items-center gap-3 font-['Nunito',sans-serif]">

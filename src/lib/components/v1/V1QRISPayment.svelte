@@ -1,8 +1,11 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
+  import QRCode from 'qrcode';
   import { uiConfig } from '$lib/stores/uiConfig.svelte';
   import { boothConfig } from '$lib/stores/boothConfig.svelte';
+  import { boothFlow } from '$lib/stores/booth.svelte';
   import { formatTime } from '$lib/utils/shared';
+  import { createTransactionSession, requireActiveBoothId, checkPaymentStatus } from '$lib/api/boothClient';
 
   interface Props {
     totalPrice: number;
@@ -16,9 +19,16 @@
   let secs = $state(boothConfig.config.paymentTimeSecs || 120);
   let qrSecs = $state(5 * 60);
   let paid = $state(false);
+  let qrDataUrl = $state('');
+  let orderId = $state('');
+  let loadingQr = $state(true);
+  let errorMessage = $state('');
   let timer: any = null;
+  let pollTimer: any = null;
 
-  onMount(() => {
+  import { buildDynamicQrisString } from '$lib/utils/qrisBuilder';
+
+  onMount(async () => {
     timer = setInterval(() => {
       if (secs > 0) secs--;
       else {
@@ -27,10 +37,55 @@
       }
       if (qrSecs > 0) qrSecs--;
     }, 1000);
+
+    // Generate dynamic QRIS
+    try {
+      const boothId = await requireActiveBoothId();
+      const sess = await createTransactionSession(
+        boothId,
+        null,
+        boothFlow.printQty || 1,
+        'Cashless',
+        boothFlow.selectedFrameId,
+        totalPrice
+      );
+      if (sess && sess.qr_content) {
+        boothFlow.sessionId = sess.session_id || sess.id || null;
+        boothFlow.sessionCode = sess.order_id || null;
+        orderId = sess.order_id || '';
+        
+        qrDataUrl = await QRCode.toDataURL(sess.qr_content, { margin: 1, width: 220 });
+
+        // Mulai polling status pembayaran otomatis
+        if (orderId) {
+          pollTimer = setInterval(async () => {
+            if (paid) return;
+            try {
+              const st = await checkPaymentStatus(boothId, orderId);
+              if (st.is_paid || st.status === 'paid') {
+                paid = true;
+                if (pollTimer) clearInterval(pollTimer);
+                setTimeout(() => onSuccess(), 1000);
+              }
+            } catch {
+              // Non-blocking
+            }
+          }, 3000);
+        }
+      } else {
+        throw new Error('Backend tidak mengembalikan data QR DOKU SNAP');
+      }
+    } catch (e: any) {
+      console.error('[V1QRISPayment] Gagal memuat QRIS resmi:', e);
+      errorMessage = e?.message || 'Gagal memuat QRIS';
+    } finally {
+      loadingQr = false;
+    }
   });
 
   onDestroy(() => {
     if (timer) clearInterval(timer);
+    if (pollTimer) clearInterval(pollTimer);
   });
 
   // Local state stub simulation - see §0 item 5
@@ -126,33 +181,29 @@
           {/if} -->
         </div>
 
-        <!-- Static QR SVG placeholder -->
-        <div class="p-3 border-2 border-gray-100 rounded-xl bg-gray-50 flex items-center justify-center">
-          <svg width="180" height="180" viewBox="0 0 100 100" fill="none" class="text-gray-900">
-            <rect width="100" height="100" fill="white" />
-            <!-- Top Left Finder -->
-            <rect x="5" y="5" width="25" height="25" fill="black" />
-            <rect x="8" y="8" width="19" height="19" fill="white" />
-            <rect x="12" y="12" width="11" height="11" fill="black" />
-            <!-- Top Right Finder -->
-            <rect x="70" y="5" width="25" height="25" fill="black" />
-            <rect x="73" y="8" width="19" height="19" fill="white" />
-            <rect x="77" y="12" width="11" height="11" fill="black" />
-            <!-- Bottom Left Finder -->
-            <rect x="5" y="70" width="25" height="25" fill="black" />
-            <rect x="8" y="73" width="19" height="19" fill="white" />
-            <rect x="12" y="77" width="11" height="11" fill="black" />
-            <!-- Dummy data modules -->
-            <rect x="35" y="10" width="8" height="8" fill="black" />
-            <rect x="45" y="20" width="15" height="8" fill="black" />
-            <rect x="35" y="35" width="30" height="30" fill="black" />
-            <rect x="40" y="40" width="20" height="20" fill="white" />
-            <rect x="45" y="45" width="10" height="10" fill="black" />
-            <rect x="70" y="40" width="20" height="10" fill="black" />
-            <rect x="75" y="60" width="15" height="25" fill="black" />
-            <rect x="40" y="75" width="25" height="15" fill="black" />
-          </svg>
+
+        <!-- Dynamic QR Container -->
+        <div class="p-3 border-2 border-gray-100 rounded-2xl bg-white shadow-sm flex items-center justify-center min-w-[200px] min-h-[200px]">
+          {#if loadingQr}
+            <div class="flex flex-col items-center justify-center gap-2 p-6 text-gray-400 text-xs">
+              <div class="w-6 h-6 border-2 border-gray-300 border-t-[#e53935] rounded-full animate-spin"></div>
+              <span>Membuat QRIS...</span>
+            </div>
+          {:else if qrDataUrl}
+            <img src={qrDataUrl} alt="QRIS" class="w-[190px] h-[190px] object-contain rounded-lg" />
+          {:else}
+            <div class="text-xs text-red-500 p-4 text-center">
+              <span class="font-bold block mb-1">Gagal Memuat QRIS</span>
+              <span class="text-[10px] text-gray-500">{errorMessage || 'Koneksi ke gateway gagal'}</span>
+            </div>
+          {/if}
         </div>
+
+        {#if orderId}
+          <div class="text-[10px] text-gray-400 font-mono tracking-tight">
+            Ref: {orderId}
+          </div>
+        {/if}
 
         <div class="flex items-center gap-1.5 text-[11px] text-gray-400">
           <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">

@@ -18,10 +18,23 @@ function svelteEmptyStyleFallbackPlugin() {
 
 // @ts-ignore process is a nodejs global
 const host = process.env.TAURI_DEV_HOST;
+const isDevArg = process.argv.some(
+  (arg) => arg === '--development' || arg === '-d' || arg === '--dev'
+);
+const isEnvDev =
+  process.env.DEVELOPMENT === 'true' ||
+  process.env.VITE_ENABLE_DEV_WEBCAM === 'true';
+const isDevWebcam = isDevArg || isEnvDev;
+if (isDevWebcam) {
+  process.env.VITE_ENABLE_DEV_WEBCAM = 'true';
+}
 
 // https://vite.dev/config/
 export default defineConfig(async () => ({
   envPrefix: ['VITE_', 'PUBLIC_', 'ADMIN_', 'R2_'],
+  define: {
+    __DEV_WEBCAM__: JSON.stringify(isDevWebcam),
+  },
   plugins: [tailwindcss(), sveltekit(), svelteEmptyStyleFallbackPlugin()],
 
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`

@@ -1,75 +1,91 @@
-# DNP Printer Integration Implementation Report
+# Laporan Implementasi Integrasi Printer & Dukungan Secondary Printer (Desktop App)
 
-**Target System:** Photobooth Desktop App (Tauri v2 + SvelteKit 2 + Svelte 5 + Tailwind CSS v4)  
-**Source Plan:** `instruction/PRINTER_INTEGRATION_IMPLEMENTATION_PLAN.md` (Option 2 — Cross-Platform & Windows Native Print Architecture)  
-**Execution Date:** 2026-07-25  
-**Overall Status:** ✅ **100% COMPLETED & VERIFIED**
-
----
-
-## 1. Executive Summary
-
-This report documents the implementation of the **DNP DS-RX1HS Printer Integration** into the `potohub-dekstop-app`. Following **Option 2** of the implementation plan, the system now features a robust modular print architecture in the Rust backend (`src-tauri/src/printer.rs`), exposed via Tauri commands to a Svelte 5 reactive printer store (`src/lib/printer.svelte.ts`) and integrated UI pages.
-
-### Key Objectives Implemented
-1. **Option 2 Dual-Platform Printing Engine**:
-   - **Windows Production**: Native WinAPI `winspool` bindings (`EnumPrintersW`, `OpenPrinterW`, `StartDocPrinterW`, `StartPagePrinter`, `WritePrinter`, `EndPagePrinter`, `EndDocPrinter`, `ClosePrinter`) for direct RAW spooling to DNP DS-RX1HS printers without third-party dialogs.
-   - **Cross-Platform/Unix Development**: System `lpr` integration and development fallbacks ensuring clean `cargo check` and `pnpm check` execution on Linux/macOS.
-2. **Svelte 5 Reactive Printer Store**:
-   - Single source of truth (`src/lib/printer.svelte.ts`) built with `$state` runes for `printers`, `selectedPrinter`, `status`, `isPrinting`, `paperLimitAlert`, and `paperReminder`.
-3. **UI Integration**:
-   - **`/camera-config`**: Dedicated **🖨️ Printer (DNP DS-RX1HS)** management card supporting printer selection, real-time readiness/online status monitoring, paper remaining estimate, low paper warning badge, paper reminder toggle, and alert limit input.
-   - **`/session`**: Live print controls with `autoPrint` toggle, print copies selector (1-5), paper size options (`4x6"`, `6x8"`, `2x6"` strip, `6x6"` square), automatic post-capture printing, and manual re-print button.
+**Target Sistem:** Photobooth Desktop App (Tauri v2 + Rust Backend + SvelteKit 2 + Svelte 5)  
+**Tanggal Pembaruan:** 2026-10-03  
+**Status Implementasi:** ✅ **100% SELESAI & TERVERIFIKASI**
 
 ---
 
-## 2. Implementation Audit by Phase
+## 1. Ringkasan Eksekutif
 
-| Phase | Description | Status | Code & Artifacts |
-| :--- | :--- | :--- | :--- |
-| **Phase 0** | Driver & Environment Prep | ✅ Completed | Setup guidelines for DNP DS-RX1HS Windows driver & USB connection. |
-| **Phase 1** | Dependencies & Permissions | ✅ Completed | Added `image = "0.25"` & `[target.'cfg(windows)'.dependencies] winapi` to `Cargo.toml`. Added `core:path:default` to `capabilities/default.json`. |
-| **Phase 2** | Rust Backend Printer Module | ✅ Completed | Created `src-tauri/src/printer.rs` & registered 4 Tauri commands in `src-tauri/src/lib.rs`. |
-| **Phase 3** | Svelte 5 Printer Store | ✅ Completed | Created `src/lib/printer.svelte.ts` with `$state` runes. |
-| **Phase 4** | UI Settings & Session Integration | ✅ Completed | Updated `src/routes/camera-config/+page.svelte` & `src/routes/session/+page.svelte`. |
-| **Phase 5** | Verification & Validation | ✅ Completed | Verified via `cargo check` and `pnpm check` (0 errors) & `pnpm build`. |
+Laporan ini mendokumentasikan integrasi penuh perangkat keras printer foto dye-sublimation **DNP DS-RX1 / DS-RX1HS** pada aplikasi Photobooth Desktop Client (`potohub-dekstop-app`). Integrasi ini mencakup:
+1. Verifikasi pencetakan fisik langsung ke perangkat keras DNP.
+2. Arsitektur cetak **OS-Aware** yang mendukung lingkungan **Windows (WinSpool API)** untuk mesin produksi booth asli, dan **Linux (CUPS & Gutenprint)** untuk pengujian/development.
+3. Fitur **"Print Secondary"**: kemampuan konfigurasi dua printer (Primary & Secondary) untuk template dengan kebutuhan potong kertas khusus (misal: 4R utuh vs 4R potong split 2 strip 2x6).
+4. Pembaruan UI Dasbor Konfigurasi: tombol refresh interaktif dengan animasi loading spinner, serta proteksi plain-text ketika printer offline agar pengguna tidak melakukan spam-klik pada dropdown kosong.
 
 ---
 
-## 3. Detailed Technical Architecture
+## 2. Pengujian Fisik Terminal & Parameter Cetak DNP
 
-### 3.1 Rust Backend (`src-tauri/src/printer.rs`)
-- **Data Structures**:
-  - `PrinterError`: Strongly-typed enum for `PrinterNotFound`, `PrintFailed`, `StatusFailed`, `PrinterNotReady`, and `OutOfPaper`.
-  - `PrinterStatus`: Real-time state (`is_ready`, `is_online`, `paper_remaining`, `paper_limit_alert`, `printer_name`, `has_error`, `error_message`).
-  - `PrintOptions`: Paper size (`4x6`, `6x8`, `2x6`, `6x6`), copies count, quality.
-
-- **Platform Implementation (Option 2)**:
-  - `#[cfg(target_os = "windows")]`: Direct WinSpool RAW printing & status inspection.
-  - `#[cfg(not(target_os = "windows"))]`: System `lpr` command printing & virtual DNP test printer enumeration for development environments.
-
-### 3.2 Tauri Commands (`src-tauri/src/lib.rs`)
-Exposes 4 async commands to frontend:
-1. `get_printer_list()` -> `Result<Vec<String>, PrinterError>`
-2. `get_printer_status(printer_name)` -> `Result<PrinterStatus, PrinterError>`
-3. `print_photo(printer_name, image_path, copies, paper_size)` -> `Result<(), PrinterError>`
-4. `print_photo_from_buffer(printer_name, image_data, copies, paper_size)` -> `Result<(), PrinterError>`
-
-### 3.3 Svelte 5 Store (`src/lib/printer.svelte.ts`)
-- Manages printer selection, automatic DNP printer filtering, status refresh, and async print invocations.
-
-### 3.4 User Interface Integration
-- **`src/routes/camera-config/+page.svelte`**: Full device configuration screen managing both camera & printer setup.
-- **`src/routes/session/+page.svelte`**: Photo booth live session screen with real-time live preview, camera shutter, and automated DNP printing.
+Pengujian cetak fisik langsung dari terminal Linux menuju printer DNP DS-RX1 terverifikasi berhasil menggunakan CUPS backend Gutenprint dengan perintah:
+```bash
+lpr -P DNP_DSRX1 -o PageSize=w288h432 ~/Downloads/test.jpg
+```
+* **Indikator LED Hardware DNP**:
+  - Lampu LED *Ribbon* dan *Paper* mati menandakan ribbon & kertas terpasang dengan baik (normal).
+  - Lampu LED *Power* menyala hijau solid menandakan printer siap mencetak (*Ready*).
+* **Pemetaan PageSize CUPS (`map_paper_size_to_cups`)**:
+  Printer dye-sub DNP memerlukan opsi ukuran eksplisit agar job tidak tertolak oleh print spooler:
+  - `4R` / `4x6`: `-o PageSize=w288h432`
+  - `2R` / `2x6`: `-o PageSize=w288h432 -o DNP2x6Cut=True`
+  - `6R` / `6x8`: `-o PageSize=w288h576`
+  - `6x6`: `-o PageSize=w288h288`
+  - `A4`: `-o PageSize=A4`
 
 ---
 
-## 4. Verification Results
+## 3. Rincian Modifikasi Arsitektur & Kode
 
-- `cargo check`: **PASSED (0 compilation errors)**
-- `pnpm check`: **PASSED (0 TypeScript errors, 0 warnings)**
-- `pnpm build`: **PASSED (Static bundle compiled cleanly in `build/`)**
+### 3.1 Backend Rust (`src-tauri/src/printer.rs` & `src-tauri/src/lib.rs`)
+* **Dukungan Dual-Platform OS-Aware**:
+  - **Windows Production (`#[cfg(target_os = "windows")]`)**:
+    - **Multi-Stage Printer Enumeration**:
+      1. Level 4 (`PRINTER_INFO_4W`): Standar user-mode Win32 tercepat tanpa butuh izin admin khusus.
+      2. Level 2 (`PRINTER_INFO_2W`): Fallback jika Level 4 tidak tersedia.
+      3. PowerShell Fallback: Eksekusi `Get-Printer` jika WinSpool dibatasi.
+    - **Resilient Status Query**: Mengambil status via Level 2, dengan fallback ke Level 6 (`PRINTER_INFO_6` khusus kode status) dan PowerShell, serta mendeteksi atribut `PRINTER_ATTRIBUTE_WORK_OFFLINE`.
+    - Menggunakan WinAPI `winspool` (`StartDocPrinterW`, `WritePrinter`, `EndDocPrinter`, `ClosePrinter`) untuk pengiriman buffer RAW ke driver Windows DNP.
+  - **Linux Development (`#[cfg(not(target_os = "windows"))]`)**: Menggunakan `lpr` dan `lpinfo` dengan parsing dynamic device URI serta injeksi opsi `-o PageSize=...`.
+* **Database SQLite Migration 11 (`src-tauri/src/lib.rs`)**:
+  ```sql
+  ALTER TABLE print_queue ADD COLUMN use_secondary INTEGER NOT NULL DEFAULT 0;
+  ```
+* **Unit Testing (`src-tauri/src/printer.rs`)**:
+  Menyediakan 4 test case OS-aware:
+  - `test_print_options_default`: Memastikan default cetak 1 copy dan paper size `4x6`.
+  - `test_printer_status_empty_name`: Memastikan error handling saat nama printer kosong.
+  - `test_cups_paper_size_mapping`: Memastikan mapping nama ukuran kertas ke format page size CUPS.
+  - `test_print_empty_buffer_fails`: Memastikan buffer kosong ditolak secara aman.
+
+### 3.2 Antrean Cetak & Database Lokal (`src/lib/db/local.ts` & `src/lib/utils/printQueue.ts`)
+* `PrintJob`: Menambahkan properti `useSecondary?: boolean`.
+* `enqueuePrintJob`: Menyimpan flag `use_secondary` ke dalam tabel antrean lokal `print_queue`.
+* `flushPrintQueue`: Mengecek status printer target yang relevan (`printerStore.resolvePrinter(job.useSecondary)`) sebelum memproses antrean, memastikan job diteruskan ke printer yang tepat (Primary atau Secondary).
+
+### 3.3 Svelte 5 Reactive Store (`src/lib/printer.svelte.ts`)
+* **Booting Instant Detection (`src/routes/+layout.svelte`)**: Memanggil `printerStore.loadPrinters()` langsung pada `onMount` root layout, memastikan printer langsung terdeteksi saat aplikasi pertama kali dibuka.
+* **Pencocokan Nama Hardware Fleksibel**: Mendeteksi variasi nama `DS-RX1`, `RX1`, `DNP`, `CITIZEN`, dan `PHOTO PRINTER`.
+* Mendukung multi-printer: `selectedPrinter` (Primary) dan `secondaryPrinter` (Secondary) dengan pelacakan status masing-masing (`status` & `secondaryStatus`).
+* Fungsi `resolvePrinter(useSecondary?: boolean)` untuk menentukan target printer berdasarkan template.
+* Fungsi `canPrint(copies, useSecondary)` untuk mengecek ketersediaan printer tujuan secara akurat.
+* Non-blocking queue flushing otomatis saat koneksi printer pulih dari offline ke online.
+
+### 3.4 Dasbor Konfigurasi Kiosk (`src/lib/components/shared/ConfigDashboard.svelte`)
+* **Primary Printer Dropdown**: Memilih printer utama (default: DNP DS-RX1).
+* **Secondary Printer Dropdown**: Memilih printer sekunder opsional atau nonaktif (`-- Nonaktif (Gunakan Primary) --`).
+* **Proteksi Anti-Spam (Plain Text)**: Jika tidak ada printer terdeteksi, dropdown disembunyikan dan diganti dengan teks status ramah seperti deteksi kamera (`Tidak ada printer terdeteksi`), mencegah pengguna spam-klik pada select box kosong.
+* **Tombol Refresh Interaktif**: Menampilkan icon putar `RotateCw` dengan animasi `animate-spin` dan teks `Mendeteksi...` saat proses query hardware USB berjalan.
+
+### 3.5 Alur Otomatis Cetak Sesi Selesai (`V1Complete.svelte`, `V2Download.svelte`, `V3Download.svelte`)
+* Membaca flag `selectedTemplate?.use_secondary_printer`.
+* Mengirimkan `useSecondary` ke `printerStore.canPrint`, `printerStore.printFromBuffer`, dan `enqueuePrintJob`.
 
 ---
 
-*Report written to `instruction-reports/PRINTER_INTEGRATION_REPORT.md`.*
+## 4. Hasil Verifikasi & Validasi
+* **Pengujian Fisik Linux CUPS**: Berhasil mencetak foto fisik dengan opsi `PageSize=w288h432`.
+* **Pengujian Hardware Windows 11**: Terverifikasi langsung pada perangkat fisik (`DS-RX1` terhubung di port `USB002`) dan terdeteksi seketika di aplikasi Kiosk dengan status `(Ready)`.
+* **Cargo Tests**: `cargo test --lib printer` -> **4 passed; 0 failed (100% OK)**.
+* **Cargo Check**: `cargo check` -> **Finished dev profile (0 errors)**.
+* **Svelte Diagnostics**: `pnpm check` -> **0 errors, 0 warnings (100% OK)**.

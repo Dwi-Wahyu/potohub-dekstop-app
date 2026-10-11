@@ -447,6 +447,7 @@ export interface BoothTemplate {
     isQr?: boolean;
   }>;
   is_active: boolean;
+  use_secondary_printer?: boolean;
 }
 
 export async function fetchCategories(
@@ -646,6 +647,7 @@ export interface CreateSessionResponse {
   total_price: number | string;
   status: string;
   qris_url?: string | null;
+  qr_content?: string | null;
 }
 
 export async function createTransactionSession(
@@ -654,6 +656,7 @@ export async function createTransactionSession(
   totalPrint: number = 1,
   paymentMethod: string = "Cashless",
   frameId?: string | null,
+  amount?: number | null,
 ): Promise<CreateSessionResponse> {
   let method = "Cashless";
   const pm = (paymentMethod || "").toLowerCase();
@@ -675,6 +678,7 @@ export async function createTransactionSession(
       frame_id: frameId || null,
       total_print: totalPrint,
       payment_method: method,
+      amount: amount != null ? amount : null,
     }),
   });
   if (!res.ok) {
@@ -690,6 +694,27 @@ export async function createTransactionSession(
     ...data,
     session_id: data.session_id || data.id,
   };
+}
+
+export interface PaymentStatusResponse {
+  order_id: string;
+  session_id?: string;
+  status: 'pending' | 'paid' | 'failed' | 'cancelled';
+  is_paid: boolean;
+  reconciled?: boolean;
+}
+
+export async function checkPaymentStatus(
+  boothId: string,
+  orderId: string,
+): Promise<PaymentStatusResponse> {
+  const res = await fetch(`${API_BASE}/booths/${boothId}/transactions/${orderId}/status`, {
+    headers: await getAuthHeaders(),
+  });
+  if (!res.ok) {
+    throw new Error(`Failed to check payment status: ${res.statusText}`);
+  }
+  return res.json();
 }
 
 export type GalleryFileType = "photo" | "thumbnail" | "video" | "gif";

@@ -41,6 +41,22 @@ async fn is_camera_connected(state: State<'_, AppState>) -> Result<bool, GphotoE
 }
 
 #[tauri::command]
+fn is_development_mode() -> bool {
+    let args: Vec<String> = std::env::args().collect();
+    let has_dev_flag = args.iter().any(|arg| {
+        arg == "--development" || arg == "-d" || arg == "--dev"
+    });
+    let env_dev = std::env::var("DEVELOPMENT")
+        .map(|v| v.eq_ignore_ascii_case("true") || v == "1")
+        .unwrap_or(false);
+    let env_webcam = std::env::var("VITE_ENABLE_DEV_WEBCAM")
+        .map(|v| v.eq_ignore_ascii_case("true") || v == "1")
+        .unwrap_or(false);
+
+    has_dev_flag || env_dev || env_webcam
+}
+
+#[tauri::command]
 async fn get_camera_setting(
     state: State<'_, AppState>,
     key: String,
@@ -464,6 +480,12 @@ pub fn run() {
             CREATE INDEX IF NOT EXISTS idx_print_queue_status ON print_queue(status);",
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 11,
+            description: "add use_secondary column to print_queue",
+            sql: "ALTER TABLE print_queue ADD COLUMN use_secondary INTEGER NOT NULL DEFAULT 0;",
+            kind: MigrationKind::Up,
+        },
     ];
 
     tauri::Builder::default()
@@ -539,6 +561,7 @@ pub fn run() {
             print_photo,
             print_photo_from_buffer,
             save_qr_result,
+            is_development_mode,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

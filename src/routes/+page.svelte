@@ -32,6 +32,7 @@
       void prefetchBoothAssets(activation.boothId).catch((e) =>
         console.warn('Prefetch aset booth gagal:', e)
       );
+      await cameraStore.checkDevMode();
       if (boothConfig.config.cameraMode) {
         await cameraStore.connect(boothConfig.config.cameraMode);
       }

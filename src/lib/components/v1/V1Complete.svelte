@@ -162,6 +162,7 @@
       // Programmatic Auto-Print Flow
       const copies = boothFlow.printQty || 1;
       const paperSize = selectedTemplate?.paper_size || '4x6';
+      const useSecondary = Boolean(selectedTemplate?.use_secondary_printer);
       const dateStr = new Date().toISOString().slice(0, 10);
       const boothSanitized = (uiConfig.config.boothName || 'booth')
         .toLowerCase()
@@ -170,7 +171,7 @@
       const diskPath = `${dateStr}/${localSessionCode}_${boothSanitized}/composite/print_strip.jpg`;
 
       if (copies > 0 && compositeUrl) {
-        const check = printerStore.canPrint(copies);
+        const check = printerStore.canPrint(copies, useSecondary);
         if (check.ok) {
           printStatus = 'PRINTING';
           try {
@@ -178,8 +179,9 @@
             const buf = new Uint8Array(await res.arrayBuffer());
             await printerStore.printFromBuffer(buf, {
               copies,
-              paper_size: paperSize as any,
+              paper_size: paperSize,
               quality: 'standard',
+              useSecondary,
             });
             printStatus = 'SUCCESS';
           } catch (err) {
@@ -189,6 +191,7 @@
               imagePath: diskPath,
               copies,
               paperSize,
+              useSecondary,
             });
             printStatus = 'QUEUED';
           }
@@ -199,6 +202,7 @@
             imagePath: diskPath,
             copies,
             paperSize,
+            useSecondary,
           });
           printStatus = 'QUEUED';
         }
@@ -504,22 +508,6 @@
             <div class="text-xs text-amber-600 font-semibold mt-1">Menunggu koneksi pulih untuk mengirim softfile…</div>
           {/if}
 
-          {#if printStatus === 'SUCCESS'}
-            <div class="p-2.5 bg-green-50 border border-green-200 rounded-xl text-green-800 text-[11px] font-medium flex items-center gap-2">
-              <span>✅ Foto strip Anda sedang dicetak. Silakan ambil di tray printer.</span>
-            </div>
-          {:else if printStatus === 'QUEUED'}
-            <div class="p-2.5 bg-amber-50 border border-amber-200 rounded-xl text-amber-800 text-[11px] font-medium flex flex-col gap-0.5">
-              <span class="font-bold">⏳ Antrean Cetak Otomatis</span>
-              <span>Printer terputus. Foto Anda tersimpan di antrean cetak dan akan langsung dicetak saat printer terhubung kembali.</span>
-            </div>
-          {:else if printStatus === 'PRINTING'}
-            <div class="p-2.5 bg-blue-50 border border-blue-200 rounded-xl text-blue-800 text-[11px] font-medium flex items-center gap-2">
-              <div class="w-3 h-3 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
-              <span>Mengirim perintah cetak ke printer...</span>
-            </div>
-          {/if}
-
           {#if qrDataUrl}
             <div class="p-2 rounded-xl border border-gray-100 bg-gray-50 flex flex-col items-center justify-center">
               <img src={qrDataUrl} alt="Softfile QR Code" class="w-[130px] h-[130px] object-contain" />
@@ -609,12 +597,24 @@
 
       <!-- Print status card -->
       <div class="rounded-2xl px-5 py-4 flex items-center gap-4 bg-[#1c1c1e] border border-[#2a2a2a]">
-        <div class="w-11 h-11 rounded-full bg-[#2a2a2a] flex items-center justify-center text-white/80 shrink-0">
-          <Printer size={20} />
+        <div class="w-11 h-11 rounded-full {printStatus === 'SUCCESS' ? 'bg-green-500/20 text-green-400' : printStatus === 'QUEUED' ? 'bg-amber-500/20 text-amber-400' : 'bg-[#2a2a2a] text-white/80'} flex items-center justify-center shrink-0">
+          {#if printStatus === 'SUCCESS'}
+            <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          {:else}
+            <Printer size={20} />
+          {/if}
         </div>
         <div>
-          <p class="text-white font-bold text-sm leading-tight m-0">Fotomu sedang dicetak</p>
-          <p class="text-white/40 text-[12px] mt-0.5 m-0">Harap tunggu beberapa saat lagi...</p>
+          {#if printStatus === 'SUCCESS'}
+            <p class="text-white font-bold text-sm leading-tight m-0">Fotomu berhasil dicetak!</p>
+            <p class="text-green-400 text-[12px] mt-0.5 m-0">Silakan ambil fotomu di tray printer.</p>
+          {:else if printStatus === 'QUEUED'}
+            <p class="text-white font-bold text-sm leading-tight m-0">Foto masuk antrean cetak</p>
+            <p class="text-amber-400 text-[12px] mt-0.5 m-0">Akan otomatis dicetak saat printer terhubung.</p>
+          {:else}
+            <p class="text-white font-bold text-sm leading-tight m-0">Fotomu sedang dicetak</p>
+            <p class="text-white/40 text-[12px] mt-0.5 m-0">Harap tunggu beberapa saat lagi...</p>
+          {/if}
         </div>
       </div>
 

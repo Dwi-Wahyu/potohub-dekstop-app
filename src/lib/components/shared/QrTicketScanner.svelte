@@ -2,6 +2,7 @@
   import { onMount, onDestroy } from 'svelte';
   import jsQR from 'jsqr';
   import { invoke } from '@tauri-apps/api/core';
+  import { cameraStore } from '$lib/camera.svelte';
   import type { QrPoint, QrScanResult, QrScanStatus } from '$lib/types/qr';
 
   interface Props {
@@ -77,21 +78,56 @@
         });
       } catch (e) {
         console.warn('High resolution / facingMode constraints failed, falling back to default camera:', e);
-        stream = await navigator.mediaDevices.getUserMedia({
-          video: true,
-          audio: false
-        });
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: true,
+            audio: false
+          });
+        } catch (e2) {
+          // Fallback: If camera is already held by cameraStore (e.g. Linux V4L2 single-consumer lock)
+          if (cameraStore.stream && cameraStore.stream.active) {
+            const tracks = cameraStore.stream.getVideoTracks().filter((t) => t.readyState === 'live');
+            if (tracks.length > 0) {
+              console.log('[QrTicketScanner] Reusing active cameraStore webcam stream');
+              stream = new MediaStream(tracks);
+            } else {
+              throw e2;
+            }
+          } else {
+            throw e2;
+          }
+        }
       }
 
-      if (videoEl) {
+      if (videoEl && stream) {
         videoEl.srcObject = stream;
-        videoEl.onloadedmetadata = () => {
+
+        let initialized = false;
+        const handleVideoReady = () => {
+          if (initialized) return;
+          initialized = true;
           syncCanvasDimensions();
           videoEl?.play().catch((err) => console.warn('Video play error:', err));
           isStreaming = true;
           onReady?.();
-          scanAnimationId = requestAnimationFrame(scanLoop);
+          if (!scanAnimationId) {
+            scanAnimationId = requestAnimationFrame(scanLoop);
+          }
         };
+
+        videoEl.onloadedmetadata = handleVideoReady;
+        videoEl.addEventListener('loadedmetadata', handleVideoReady, { once: true });
+        videoEl.addEventListener('canplay', handleVideoReady, { once: true });
+        videoEl.addEventListener('playing', handleVideoReady, { once: true });
+
+        // Crucial for WebKit / Tauri webview: start video pipeline directly
+        videoEl.play().catch((err) => {
+          console.warn('Initial video play kickstart failed:', err);
+        });
+
+        if (videoEl.readyState >= 1 || videoEl.videoWidth > 0) {
+          handleVideoReady();
+        }
       }
     } catch (err) {
       console.error('Camera stream access failed:', err);
@@ -106,7 +142,12 @@
       scanAnimationId = null;
     }
     if (stream) {
-      stream.getTracks().forEach((track) => track.stop());
+      const isSharedFromStore =
+        cameraStore.stream &&
+        cameraStore.stream.getVideoTracks().some((st) => stream?.getVideoTracks().some((t) => t.id === st.id));
+      if (!isSharedFromStore) {
+        stream.getTracks().forEach((track) => track.stop());
+      }
       stream = null;
     }
     isStreaming = false;
@@ -131,6 +172,10 @@
   async function detectFrame(): Promise<QrScanResult | null> {
     if (!videoEl || !hiddenCanvas || videoEl.readyState < videoEl.HAVE_CURRENT_DATA) {
       return null;
+    }
+
+    if (videoEl.videoWidth > 0 && hiddenCanvas.width !== videoEl.videoWidth) {
+      syncCanvasDimensions();
     }
 
     const w = hiddenCanvas.width;
@@ -167,7 +212,7 @@
     try {
       const imageData = ctx.getImageData(0, 0, w, h);
       const code = jsQR(imageData.data, imageData.width, imageData.height, {
-        inversionAttempts: 'dontInvert'
+        inversionAttempts: 'attemptBoth'
       });
 
       if (code && code.data && code.data.trim()) {

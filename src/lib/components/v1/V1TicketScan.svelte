@@ -1,6 +1,7 @@
 <script lang="ts">
   import { redeemTicket } from '$lib/api/boothClient';
   import { uiConfig } from '$lib/stores/uiConfig.svelte';
+  import { boothConfig } from '$lib/stores/boothConfig.svelte';
   import QrTicketScanner from '$lib/components/shared/QrTicketScanner.svelte';
   import OfflineBanner from '$lib/components/shared/OfflineBanner.svelte';
   import type { QrScanResult, QrScanStatus } from '$lib/types/qr';
@@ -13,6 +14,8 @@
   }
 
   let { boothId = '', onSuccess, onBack, background }: Props = $props();
+
+  let effectiveBoothId = $derived(boothId || boothConfig.boothId || '');
 
   let manualInput = $state('');
   let isVerifying = $state(false);
@@ -30,7 +33,7 @@
     successMessage = 'QR Code Terdeteksi! Memverifikasi tiket…';
 
     try {
-      const res = await redeemTicket(result.content, boothId);
+      const res = await redeemTicket(result.content, effectiveBoothId);
       if (!res.valid) {
         throw new Error(res.message);
       }
@@ -67,7 +70,7 @@
     successMessage = 'Memverifikasi kode tiket…';
 
     try {
-      const res = await redeemTicket(manualInput.trim(), boothId);
+      const res = await redeemTicket(manualInput.trim(), effectiveBoothId);
       if (!res.valid) {
         throw new Error(res.message);
       }

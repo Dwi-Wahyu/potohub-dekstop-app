@@ -1,11 +1,11 @@
 <script lang="ts">
   import { redeemTicket } from '$lib/api/boothClient';
+  import { uiConfig } from '$lib/stores/uiConfig.svelte';
+  import { boothConfig } from '$lib/stores/boothConfig.svelte';
   import QrTicketScanner from '$lib/components/shared/QrTicketScanner.svelte';
   import OfflineBanner from '$lib/components/shared/OfflineBanner.svelte';
   import { Check, Ticket as TicketIcon, Delete } from '@lucide/svelte';
   import type { QrScanResult, QrScanStatus } from '$lib/types/qr';
-
-  import { uiConfig } from '$lib/stores/uiConfig.svelte';
 
   interface Props {
     boothId?: string;
@@ -15,6 +15,8 @@
   }
 
   let { boothId = '', onConfirm, onBack, background }: Props = $props();
+
+  let effectiveBoothId = $derived(boothId || boothConfig.boothId || '');
 
   let code = $state('');
   let errorMsg = $state('');
@@ -32,7 +34,7 @@
   ];
 
   function pressKey(key: string) {
-    if (errorMsg === 'Kode tiket tidak boleh kosong') {
+    if (errorMsg === 'Kode tiket tidak boleh kosong' || errorMsg === 'Kode tiket tidak valid') {
       errorMsg = '';
     }
     if (key === '⌫') {
@@ -51,7 +53,7 @@
     successMsg = 'QR Code Terdeteksi! Memverifikasi...';
 
     try {
-      const res = await redeemTicket(result.content, boothId);
+      const res = await redeemTicket(result.content, effectiveBoothId);
       if (!res.valid) {
         throw new Error(res.message);
       }
@@ -93,7 +95,7 @@
     successMsg = 'Memverifikasi tiket...';
 
     try {
-      const res = await redeemTicket(code.trim(), boothId);
+      const res = await redeemTicket(code.trim(), effectiveBoothId);
       if (!res.valid) {
         throw new Error(res.message);
       }
@@ -188,93 +190,93 @@
     <div class="flex items-center justify-center gap-10">
       <!-- Scanner Box -->
       <div class="flex flex-col items-center gap-6">
-      <div class="relative w-56 h-56 rounded-2xl overflow-hidden bg-black border-2 border-white/20 flex items-center justify-center">
-        <!-- Gold corner brackets -->
-        {#each [['top-3 left-3', 'border-t-4 border-l-4'], ['top-3 right-3', 'border-t-4 border-r-4'], ['bottom-3 left-3', 'border-b-4 border-l-4'], ['bottom-3 right-3', 'border-b-4 border-r-4']] as [pos, bdr]}
-          <div class={`absolute ${pos} w-7 h-7 border-[#FFC107] ${bdr}`}></div>
-        {/each}
-        <div class="absolute inset-x-3 h-0.5 bg-[#FFC107]/80 animate-bounce rounded z-10 pointer-events-none" style="top: 48%;"></div>
-        <QrTicketScanner
-          boxColor="#FFC107"
-          boxFill="rgba(255, 193, 7, 0.18)"
-          boxGlow="rgba(255, 193, 7, 0.6)"
-          dotColor="#ffffff"
-          status={scanStatus}
-          statusMessage={scanStatusMessage}
-          class="w-full h-full"
-          onScan={handleScanDetected}
-          onError={handleScanError}
-        />
+        <div class="relative w-56 h-56 rounded-2xl overflow-hidden bg-black border-2 border-white/20 flex items-center justify-center shadow-2xl">
+          <QrTicketScanner
+            boxColor="#FFC107"
+            boxFill="rgba(255, 193, 7, 0.18)"
+            boxGlow="rgba(255, 193, 7, 0.6)"
+            dotColor="#ffffff"
+            status={scanStatus}
+            statusMessage={scanStatusMessage}
+            class="w-full h-full"
+            onScan={handleScanDetected}
+            onError={handleScanError}
+          />
+          <!-- Gold corner brackets -->
+          {#each [['top-3 left-3', 'border-t-4 border-l-4'], ['top-3 right-3', 'border-t-4 border-r-4'], ['bottom-3 left-3', 'border-b-4 border-l-4'], ['bottom-3 right-3', 'border-b-4 border-r-4']] as [pos, bdr]}
+            <div class={`absolute ${pos} w-7 h-7 border-[#FFC107] ${bdr} z-20 pointer-events-none`}></div>
+          {/each}
+          <div class="absolute inset-x-3 h-0.5 bg-[#FFC107]/80 animate-bounce rounded z-20 pointer-events-none" style="top: 48%;"></div>
+        </div>
+        <p class="text-white/40 text-xs tracking-[0.3em] uppercase m-0">Arahkan tiket ke kamera</p>
       </div>
-      <p class="text-white/40 text-xs tracking-[0.3em] uppercase m-0">Arahkan tiket ke kamera</p>
-    </div>
 
-    <!-- Divider -->
-    <div class="flex flex-col items-center gap-3 text-white/20">
-      <div class="w-px h-16 bg-white/15"></div>
-      <span class="text-xs tracking-widest font-mono">atau</span>
-      <div class="w-px h-16 bg-white/15"></div>
-    </div>
+      <!-- Divider -->
+      <div class="flex flex-col items-center gap-3 text-white/20">
+        <div class="w-px h-16 bg-white/15"></div>
+        <span class="text-xs tracking-widest font-mono">atau</span>
+        <div class="w-px h-16 bg-white/15"></div>
+      </div>
 
-    <!-- Manual input -->
-    <div class="flex flex-col gap-4 w-72">
-      <div class="flex items-center justify-between w-full">
-        <p class="text-white/60 text-xs tracking-[0.25em] uppercase font-bold m-0">Kode Tiket</p>
+      <!-- Manual input -->
+      <div class="flex flex-col gap-4 w-72">
+        <div class="flex items-center justify-between w-full">
+          <p class="text-white/60 text-xs tracking-[0.25em] uppercase font-bold m-0 text-center flex-1">Masukkan Kode Tiket</p>
+          <button
+            type="button"
+            onclick={() => (kbOpen = !kbOpen)}
+            class="text-[10px] font-mono tracking-wider text-white/60 hover:text-white bg-white/10 hover:bg-white/20 border border-white/10 rounded-lg px-2 py-0.5 cursor-pointer transition-colors shrink-0"
+          >
+            {kbOpen ? '✕ Tutup' : '⌨ Keyboard'}
+          </button>
+        </div>
+
+        <!-- Status Alerts -->
+        {#if successMsg}
+          <div class="w-full px-4 py-2 rounded-xl bg-emerald-500/20 border border-emerald-500/50 text-emerald-300 text-xs font-bold text-center animate-pulse">
+            ✓ {successMsg}
+          </div>
+        {:else if errorMsg}
+          <div class="w-full px-4 py-2 rounded-xl bg-red-500/20 border border-red-500/50 text-red-300 text-xs font-bold text-center">
+            ⚠️ {errorMsg}
+          </div>
+        {/if}
+
+        <div class="flex flex-col gap-3">
+          <input
+            type="text"
+            value={code}
+            onfocus={() => (kbOpen = true)}
+            onclick={() => (kbOpen = true)}
+            oninput={(e) => {
+              code = (e.target as HTMLInputElement).value.toUpperCase();
+              if (errorMsg === 'Kode tiket tidak boleh kosong' || errorMsg === 'Kode tiket tidak valid') errorMsg = '';
+            }}
+            onkeydown={(e) => e.key === 'Enter' && verifyManual()}
+            placeholder="XXXX-XXXX-XXXX"
+            class={`w-full text-center text-lg font-black tracking-[0.2em] rounded-xl px-4 py-3 outline-none border-2 transition-colors bg-white/10 text-white placeholder-white/20 uppercase ${
+              errorMsg ? 'border-red-400 bg-red-500/10' : 'border-white/20 focus:border-[#FFC107]'
+            }`}
+            style="font-family: 'Space Mono', monospace;"
+          />
+          <button
+            type="button"
+            onclick={verifyManual}
+            disabled={verifying}
+            class="w-full py-3.5 bg-[#FFC107] text-black font-black tracking-[0.2em] uppercase rounded-full hover:bg-yellow-300 transition-colors shadow-lg text-sm active:scale-95 cursor-pointer border-none disabled:opacity-40"
+          >
+            {verifying ? 'Memverifikasi...' : 'Verifikasi Tiket ✓'}
+          </button>
+        </div>
+
         <button
-          type="button"
-          onclick={() => (kbOpen = !kbOpen)}
-          class="text-[10px] font-mono tracking-wider text-white/60 hover:text-white bg-white/10 hover:bg-white/20 border border-white/10 rounded-lg px-2 py-0.5 cursor-pointer transition-colors"
+          onclick={onBack}
+          class="text-white/30 text-xs tracking-wider hover:text-white/60 transition-colors text-center bg-transparent border-none cursor-pointer mt-1"
         >
-          {kbOpen ? 'Tutup Keyboard' : '⌨ Buka Keyboard'}
+          ← Ganti Metode Pembayaran
         </button>
       </div>
-
-      <!-- Status Alerts -->
-      {#if successMsg}
-        <div class="w-full px-4 py-2 rounded-xl bg-emerald-500/20 border border-emerald-500/50 text-emerald-300 text-xs font-bold text-center animate-pulse">
-          ✓ {successMsg}
-        </div>
-      {:else if errorMsg}
-        <div class="w-full px-4 py-2 rounded-xl bg-red-500/20 border border-red-500/50 text-red-300 text-xs font-bold text-center">
-          ⚠️ {errorMsg}
-        </div>
-      {/if}
-
-      <div class="flex flex-col gap-2">
-        <input
-          type="text"
-          value={code}
-          onfocus={() => (kbOpen = true)}
-          onclick={() => (kbOpen = true)}
-          oninput={(e) => {
-            code = (e.target as HTMLInputElement).value.toUpperCase();
-            if (errorMsg === 'Kode tiket tidak boleh kosong') errorMsg = '';
-          }}
-          onkeydown={(e) => e.key === 'Enter' && verifyManual()}
-          placeholder="XXXX-XXXX-XXXX"
-          class={`w-full text-center text-sm font-black tracking-widest rounded-xl px-4 py-3 outline-none border transition-colors bg-white/10 text-white placeholder-white/20 uppercase ${
-            errorMsg ? 'border-red-500 bg-red-500/10' : 'border-white/20 focus:border-[#FFC107]'
-          }`}
-          style="font-family: 'Space Mono', monospace;"
-        />
-        <button
-          type="button"
-          onclick={verifyManual}
-          disabled={verifying}
-          class="w-full py-3 bg-[#FFC107] text-black font-black tracking-wider uppercase rounded-xl hover:bg-yellow-300 disabled:opacity-40 transition-colors shadow-lg text-xs cursor-pointer border-none"
-        >
-          {verifying ? 'Memverifikasi...' : 'Verifikasi Tiket'}
-        </button>
-      </div>
-
-      <button
-        onclick={onBack}
-        class="text-white/30 text-xs tracking-wider hover:text-white/60 transition-colors text-center bg-transparent border-none cursor-pointer mt-1"
-      >
-        ← Ganti Metode Pembayaran
-      </button>
     </div>
-  </div>
   </div>
 
   <!-- On-screen keyboard -->

@@ -1,5 +1,6 @@
 <script lang="ts">
   import { uiConfig } from '$lib/stores/uiConfig.svelte';
+  import { boothConfig } from '$lib/stores/boothConfig.svelte';
   import { redeemTicket } from '$lib/api/boothClient';
   import QrTicketScanner from '$lib/components/shared/QrTicketScanner.svelte';
   import OfflineBanner from '$lib/components/shared/OfflineBanner.svelte';
@@ -14,6 +15,8 @@
   }
 
   let { boothId = '', onConfirm, onBack, background }: Props = $props();
+
+  let effectiveBoothId = $derived(boothId || boothConfig.boothId || '');
 
   let code = $state('');
   let errorMsg = $state('');
@@ -31,7 +34,7 @@
   ];
 
   function pressKey(key: string) {
-    if (errorMsg === 'Kode tiket tidak boleh kosong') {
+    if (errorMsg === 'Kode tiket tidak boleh kosong' || errorMsg === 'Kode tidak valid') {
       errorMsg = '';
     }
     if (key === '⌫') {
@@ -50,7 +53,7 @@
     successMsg = 'QR Code Terdeteksi! Memverifikasi...';
 
     try {
-      const res = await redeemTicket(result.content, boothId);
+      const res = await redeemTicket(result.content, effectiveBoothId);
       if (!res.valid) {
         throw new Error(res.message);
       }
@@ -92,7 +95,7 @@
     successMsg = 'Memverifikasi tiket...';
 
     try {
-      const res = await redeemTicket(code.trim(), boothId);
+      const res = await redeemTicket(code.trim(), effectiveBoothId);
       if (!res.valid) {
         throw new Error(res.message);
       }
@@ -205,6 +208,7 @@
     class="relative z-10 flex flex-col items-center flex-1 justify-center gap-0 transition-transform duration-300"
     style={kbOpen ? 'transform: translateY(-90px);' : ''}
   >
+    <p class="text-xs tracking-[0.35em] uppercase text-black/40 mb-3 font-['Nunito',sans-serif] font-black">Scan or Enter Code</p>
     <h2 class="text-3xl font-bold mb-1">Scan Tiket</h2>
     <div class="mb-3">
       <OfflineBanner message="Offline — tiket akan diverifikasi dari data lokal booth." />
@@ -216,32 +220,32 @@
     >
       <!-- scanner viewfinder box -->
       <div
-        class="relative w-52 h-52 border-[3px] border-black rounded-2xl overflow-hidden bg-black/5 flex items-center justify-center"
+        class="relative w-52 h-52 border-[3px] border-black rounded-2xl overflow-hidden bg-black shadow-inner flex items-center justify-center"
       >
-        <!-- corner brackets -->
-        {#each [['top-2 left-2', 'border-t-4 border-l-4'], ['top-2 right-2', 'border-t-4 border-r-4'], ['bottom-2 left-2', 'border-b-4 border-l-4'], ['bottom-2 right-2', 'border-b-4 border-r-4']] as [pos, bdr]}
-          <div class={`absolute ${pos} w-6 h-6 border-black ${bdr}`}></div>
-        {/each}
-        <!-- scan line animation -->
-        <div
-          class="absolute inset-x-2 h-0.5 bg-black/70 rounded animate-bounce z-10 pointer-events-none"
-          style="top: 45%;"
-        ></div>
         <QrTicketScanner
-          boxColor="#000000"
-          boxFill="rgba(0,0,0,0.1)"
-          boxGlow="rgba(0,0,0,0.3)"
-          dotColor="#000000"
+          boxColor="#10b981"
+          boxFill="rgba(16, 185, 129, 0.2)"
+          boxGlow="rgba(16, 185, 129, 0.6)"
+          dotColor="#ffffff"
           status={scanStatus}
           statusMessage={scanStatusMessage}
           class="w-full h-full"
           onScan={handleScanDetected}
           onError={handleScanError}
         />
+        <!-- corner brackets -->
+        {#each [['top-2 left-2', 'border-t-4 border-l-4'], ['top-2 right-2', 'border-t-4 border-r-4'], ['bottom-2 left-2', 'border-b-4 border-l-4'], ['bottom-2 right-2', 'border-b-4 border-r-4']] as [pos, bdr]}
+          <div class={`absolute ${pos} w-6 h-6 border-black ${bdr} z-20 pointer-events-none`}></div>
+        {/each}
+        <!-- scan line animation -->
+        <div
+          class="absolute inset-x-2 h-0.5 bg-black/70 rounded animate-bounce z-20 pointer-events-none"
+          style="top: 45%;"
+        ></div>
       </div>
 
       <div class="flex items-center justify-between w-full">
-        <p class="text-xs text-black/40 tracking-widest font-['Nunito',sans-serif] m-0">— atau kode manual —</p>
+        <p class="text-xs text-black/40 tracking-widest font-['Nunito',sans-serif] m-0">— atau masukkan kode manual —</p>
         <button
           type="button"
           onclick={() => (kbOpen = !kbOpen)}

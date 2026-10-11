@@ -138,9 +138,6 @@
         title={!networkStatus.isOnline ? 'Tidak tersedia saat offline' : undefined}
       >
         <QrCode size={72} strokeWidth={1.2} />
-        <span class="text-[9px] font-black uppercase tracking-wider px-2 py-0.5 bg-amber-400 text-black border border-black rounded-full -mt-3 shadow-sm">
-          SANDBOX
-        </span>
         <span
           class="text-xl font-black tracking-[0.2em] uppercase px-6 py-2 border-[2.5px] border-black rounded-full group-hover:border-white transition-colors"
         >

@@ -35,65 +35,51 @@
   );
   let total = $derived(priceBase * qty);
 
-  onMount(async () => {
-    const expireDate = new Date(Date.now() + (boothConfig.config.paymentTimeSecs || 120) * 1000);
-    deadlineStr = `${String(expireDate.getHours()).padStart(2, '0')}:${String(expireDate.getMinutes()).padStart(2, '0')}`;
+  let errorMessage = $state('');
+
+  // Generate dynamic QRIS
+  async function generateQr() {
+    errorMessage = '';
     loadingQr = true;
+    qrUrl = '';
     try {
       const boothId = await requireActiveBoothId();
-      await cachedFetch(
-        `categories:${boothId}`,
-        () => fetchCategories(boothId),
-        (d) => { categoriesData = d; }
-      );
-
-      // Generate dynamic QRIS
-      try {
-        const sess = await createTransactionSession(
-          boothId,
-          null,
-          qty,
-          'Cashless',
-          boothFlow.selectedFrameId,
-          total
+      if (!categoriesData.length) {
+        await cachedFetch(
+          `categories:${boothId}`,
+          () => fetchCategories(boothId),
+          (d) => { categoriesData = d; }
         );
-        if (sess) {
-          boothFlow.sessionId = sess.session_id || sess.id || null;
-          boothFlow.sessionCode = sess.order_id || null;
-          orderId = sess.order_id || '';
-
-          let qrPayload = sess.qr_content;
-          if (!qrPayload || qrPayload.startsWith('http')) {
-            qrPayload = buildDynamicQrisString({
-              amount: total,
-              orderId: orderId,
-              merchantName: uiConfig.config.boothName || 'POTOHUB',
-            });
-          }
-          qrUrl = await QRCode.toDataURL(qrPayload, { margin: 1, width: 200 });
-        }
-      } catch (err) {
-        console.warn('[V3Payment] Backend session fallback to dynamic QRIS string:', err);
-        orderId = `FT-SBX-${Date.now().toString().slice(-6)}`;
-        const qrPayload = buildDynamicQrisString({
-          amount: total,
-          orderId: orderId,
-          merchantName: uiConfig.config.boothName || 'POTOHUB',
-        });
-        qrUrl = await QRCode.toDataURL(qrPayload, { margin: 1, width: 200 });
       }
-    } catch (e) {
-      console.error('Failed to generate QR in V3Payment:', e);
-      orderId = `FT-SBX-${Date.now().toString().slice(-6)}`;
-      const qrPayload = buildDynamicQrisString({
-        amount: total,
-        orderId: orderId,
-        merchantName: uiConfig.config.boothName || 'POTOHUB',
-      });
-      qrUrl = await QRCode.toDataURL(qrPayload, { margin: 1, width: 200 });
+
+      const sess = await createTransactionSession(
+        boothId,
+        null,
+        qty,
+        'Cashless',
+        boothFlow.selectedFrameId,
+        total
+      );
+      if (sess && sess.qr_content) {
+        boothFlow.sessionId = sess.session_id || sess.id || null;
+        boothFlow.sessionCode = sess.order_id || null;
+        orderId = sess.order_id || '';
+        qrUrl = await QRCode.toDataURL(sess.qr_content, { margin: 1, width: 200 });
+      } else {
+        throw new Error('Backend tidak mengembalikan data QR DOKU SNAP');
+      }
+    } catch (e: any) {
+      console.error('[V3Payment] Gagal memuat QRIS resmi:', e);
+      errorMessage = e?.message || 'Gagal memuat QRIS DOKU';
     } finally {
       loadingQr = false;
     }
+  }
+
+  onMount(async () => {
+    const expireDate = new Date(Date.now() + (boothConfig.config.paymentTimeSecs || 120) * 1000);
+    deadlineStr = `${String(expireDate.getHours()).padStart(2, '0')}:${String(expireDate.getMinutes()).padStart(2, '0')}`;
+    await generateQr();
   });
 
   function handleCheckStatus() {
@@ -169,12 +155,24 @@
           </div>
         </div>
         <div class="p-6 flex flex-col items-center gap-4">
-          <div class="p-3 border-2 border-gray-100 rounded-xl bg-white shadow-inner flex justify-center items-center">
-            {#if qrUrl}
+          <div class="p-3 border-2 border-gray-100 rounded-xl bg-white shadow-inner flex justify-center items-center min-h-[214px]">
+            {#if errorMessage}
+              <div class="w-[190px] h-[190px] p-2 flex flex-col items-center justify-center text-center">
+                <span class="text-xs font-bold text-red-600 mb-1">Gagal Memuat QRIS</span>
+                <span class="text-[10px] text-gray-500 mb-3 break-words max-h-16 overflow-hidden">{errorMessage}</span>
+                <button
+                  type="button"
+                  onclick={generateQr}
+                  class="px-3 py-1 bg-black text-white text-[10px] font-bold rounded-lg hover:bg-gray-800 transition cursor-pointer border-none"
+                >
+                  Coba Lagi
+                </button>
+              </div>
+            {:else if qrUrl}
               <img src={qrUrl} alt="QRIS" class="w-[190px] h-[190px] object-contain" />
             {:else}
               <div class="w-[190px] h-[190px] flex items-center justify-center text-xs text-gray-400 font-mono">
-                Loading QR...
+                Membuat QRIS DOKU...
               </div>
             {/if}
           </div>

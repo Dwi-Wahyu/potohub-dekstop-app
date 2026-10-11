@@ -22,6 +22,7 @@
   let qrDataUrl = $state('');
   let orderId = $state('');
   let loadingQr = $state(true);
+  let errorMessage = $state('');
   let timer: any = null;
   let pollTimer: any = null;
 
@@ -48,21 +49,12 @@
         boothFlow.selectedFrameId,
         totalPrice
       );
-      if (sess) {
+      if (sess && sess.qr_content) {
         boothFlow.sessionId = sess.session_id || sess.id || null;
         boothFlow.sessionCode = sess.order_id || null;
         orderId = sess.order_id || '';
         
-        // Buat EMVCo QRIS string yang valid discan oleh app perbankan / DOKU
-        let qrPayload = sess.qr_content;
-        if (!qrPayload || qrPayload.startsWith('http')) {
-          qrPayload = buildDynamicQrisString({
-            amount: totalPrice,
-            orderId: orderId,
-            merchantName: uiConfig.config.boothName || 'PHOTOGENIC',
-          });
-        }
-        qrDataUrl = await QRCode.toDataURL(qrPayload, { margin: 1, width: 220 });
+        qrDataUrl = await QRCode.toDataURL(sess.qr_content, { margin: 1, width: 220 });
 
         // Mulai polling status pembayaran otomatis
         if (orderId) {
@@ -80,16 +72,12 @@
             }
           }, 3000);
         }
+      } else {
+        throw new Error('Backend tidak mengembalikan data QR DOKU SNAP');
       }
-    } catch (e) {
-      console.warn('[V1QRISPayment] Backend session fallback to dynamic QRIS string:', e);
-      orderId = `FT-${Date.now().toString().slice(-6)}`;
-      const qrPayload = buildDynamicQrisString({
-        amount: totalPrice,
-        orderId: orderId,
-        merchantName: uiConfig.config.boothName || 'PHOTOGENIC',
-      });
-      qrDataUrl = await QRCode.toDataURL(qrPayload, { margin: 1, width: 220 });
+    } catch (e: any) {
+      console.error('[V1QRISPayment] Gagal memuat QRIS resmi:', e);
+      errorMessage = e?.message || 'Gagal memuat QRIS';
     } finally {
       loadingQr = false;
     }
@@ -204,7 +192,10 @@
           {:else if qrDataUrl}
             <img src={qrDataUrl} alt="QRIS" class="w-[190px] h-[190px] object-contain rounded-lg" />
           {:else}
-            <div class="text-xs text-red-500 p-4 text-center">Gagal memuat QRIS</div>
+            <div class="text-xs text-red-500 p-4 text-center">
+              <span class="font-bold block mb-1">Gagal Memuat QRIS</span>
+              <span class="text-[10px] text-gray-500">{errorMessage || 'Koneksi ke gateway gagal'}</span>
+            </div>
           {/if}
         </div>
 

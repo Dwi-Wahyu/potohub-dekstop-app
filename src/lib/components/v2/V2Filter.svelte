@@ -96,6 +96,16 @@
     boothFlow.stickers = stickers;
   }
 
+  function removeLastSticker() {
+    stickers = stickers.slice(0, -1);
+    boothFlow.stickers = stickers;
+  }
+
+  function clearStickers() {
+    stickers = [];
+    boothFlow.stickers = stickers;
+  }
+
   function handleSwipe(dir: 'left' | 'right') {
     const total = V2_FILTERS.length;
     activeFilterIndex = dir === 'left' ? (activeFilterIndex + 1) % total : (activeFilterIndex - 1 + total) % total;
@@ -166,7 +176,7 @@
   <div class="flex flex-col flex-1 min-h-0 pt-5 pb-4 px-10 gap-4 relative z-10">
     <!-- StickerPicker sits above carousel -->
     <div class="shrink-0">
-      <StickerPicker onPick={addSticker} emots={emotsData} />
+      <StickerPicker onPick={addSticker} emots={emotsData} onUndo={removeLastSticker} onClear={clearStickers} count={stickers.length} />
     </div>
 
     <h2 class="text-3xl font-bold border-b-2 border-black pb-2 shrink-0 m-0">Choose filter!</h2>

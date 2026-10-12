@@ -101,6 +101,16 @@
     boothFlow.stickers = stickers;
   }
 
+  function removeLastSticker() {
+    stickers = stickers.slice(0, -1);
+    boothFlow.stickers = stickers;
+  }
+
+  function clearStickers() {
+    stickers = [];
+    boothFlow.stickers = stickers;
+  }
+
   let currentFilterCss = $derived(
     FILTERS.find((f) => f.id === boothFlow.selectedFilterId)?.css ?? ''
   );
@@ -163,7 +173,7 @@
       </div>
 
       <div class="shrink-0 border-t border-gray-100 pt-4">
-        <StickerPicker onPick={addSticker} emots={emotsData} />
+        <StickerPicker onPick={addSticker} emots={emotsData} onUndo={removeLastSticker} onClear={clearStickers} count={stickers.length} />
       </div>
 
       <button

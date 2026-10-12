@@ -64,6 +64,11 @@ export function saveBoothEmojis(boothId: string, list: string[]) {
 
 export type StickerType = "emoji" | "image";
 
+// Ukuran stiker di preview (px). templateComposite memetakan nilai yang sama
+// ke kanvas cetak (relatif lebar 400px), jadi ubah di sini saja agar tetap WYSIWYG.
+export const STICKER_EMOJI_PX = 44;
+export const STICKER_IMAGE_PX = 80;
+
 export interface Sticker {
   id: number;
   type: StickerType;

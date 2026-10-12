@@ -90,6 +90,16 @@
     boothFlow.stickers = stickers;
   }
 
+  function removeLastSticker() {
+    stickers = stickers.slice(0, -1);
+    boothFlow.stickers = stickers;
+  }
+
+  function clearStickers() {
+    stickers = [];
+    boothFlow.stickers = stickers;
+  }
+
   const V3_FILTERS_LIST = [
     { id: 'none', name: 'Original', swatch: 'bg-gradient-to-br from-gray-100 to-gray-200', desc: 'Warna asli, tanpa edit' },
     { id: 'bw', name: 'B&W', swatch: 'bg-gradient-to-br from-gray-400 to-gray-700', desc: 'Hitam putih elegan' },
@@ -256,7 +266,7 @@
 
     <!-- Right: emoji picker + filter selection -->
     <div class="flex-1 bg-[#fdfdfd] flex flex-col px-10 py-8 gap-4 relative overflow-hidden">
-      <StickerPicker onPick={addSticker} emots={emotsData} />
+      <StickerPicker onPick={addSticker} emots={emotsData} onUndo={removeLastSticker} onClear={clearStickers} count={stickers.length} />
 
       <div class="h-px bg-gray-100"></div>
 

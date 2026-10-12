@@ -2,6 +2,7 @@
   import { EMOJI_LIST, loadBoothEmojis, type StickerType } from '$lib/utils/stickers';
   import type { BoothEmot } from '$lib/api/boothClient';
   import { ensureAsset } from '$lib/utils/offlineCache';
+  import { Trash2, Undo2 } from '@lucide/svelte';
 
   interface Props {
     onPick: (emoji: string, imageUrl?: string, type?: StickerType) => void;
@@ -9,6 +10,10 @@
     dark?: boolean;
     boothId?: string;
     emots?: BoothEmot[];
+    // Tombol hapus muncul hanya jika onClear diberikan dan sudah ada stiker
+    onUndo?: () => void;
+    onClear?: () => void;
+    count?: number;
   }
 
   let {
@@ -16,7 +21,10 @@
     accentColor = '#CD1C33',
     dark = false,
     boothId,
-    emots = []
+    emots = [],
+    onUndo,
+    onClear,
+    count = 0
   }: Props = $props();
 
   let fallbackList = $derived(boothId ? loadBoothEmojis(boothId) : EMOJI_LIST);
@@ -38,6 +46,29 @@
 </script>
 
 <div>
+  {#if onClear && count > 0}
+    <div class="flex gap-2 mb-2">
+      {#if onUndo}
+        <button
+          onclick={onUndo}
+          class={`flex-1 h-12 flex items-center justify-center gap-2 text-sm font-bold rounded-2xl cursor-pointer transition-all active:scale-95 border-none ${
+            dark ? 'bg-white/10 text-white hover:bg-white/20' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+          }`}
+        >
+          <Undo2 size={18} /> Hapus terakhir
+        </button>
+      {/if}
+      <button
+        onclick={onClear}
+        class={`flex-1 h-12 flex items-center justify-center gap-2 text-sm font-bold rounded-2xl cursor-pointer transition-all active:scale-95 border-none ${
+          dark ? 'bg-red-500/25 text-red-200 hover:bg-red-500/35' : 'bg-red-50 text-red-600 hover:bg-red-100'
+        }`}
+      >
+        <Trash2 size={18} /> Hapus semua ({count})
+      </button>
+    </div>
+  {/if}
+
   <p class={`text-[9px] font-bold uppercase tracking-[0.3em] mb-2 ${dark ? 'text-white/40' : 'text-gray-400'}`}>
     Tambah Stiker
   </p>

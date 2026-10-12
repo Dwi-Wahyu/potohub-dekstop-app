@@ -11,7 +11,7 @@
   import { getLiveviewTransformStyle, getPhotoSlotTransformStyle } from '$lib/utils/shared';
   import { getLayerZIndex, type TemplateDesignLayer } from '$lib/utils/templateComposite';
   import type { BoothTemplate } from '$lib/api/boothClient';
-  import type { Sticker } from '$lib/utils/stickers';
+  import { STICKER_EMOJI_PX, STICKER_IMAGE_PX, type Sticker } from '$lib/utils/stickers';
 
   interface Props {
     template: BoothTemplate;
@@ -246,14 +246,14 @@
       {#each stickers as s (s.id)}
         <div
           class="absolute pointer-events-none"
-          style="left: {s.x}%; top: {s.y}%; transform: translate(-50%, -50%); font-size: 32px; line-height: 1; z-index: 950; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.3));"
+          style="left: {s.x}%; top: {s.y}%; transform: translate(-50%, -50%); font-size: {STICKER_EMOJI_PX}px; line-height: 1; z-index: 950; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.3));"
         >
           {#if s.type === 'image' && s.imageUrl}
             <img
               src={s.imageUrl}
               alt="Sticker"
               class="block"
-              style="width: {s.width ? `${s.width}px` : '64px'}; height: {s.height ? `${s.height}px` : 'auto'};"
+              style="width: {s.width ? `${s.width}px` : `${STICKER_IMAGE_PX}px`}; height: {s.height ? `${s.height}px` : 'auto'};"
             />
           {:else}
             {s.emoji}

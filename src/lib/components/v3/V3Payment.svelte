@@ -9,7 +9,6 @@
   import { cachedFetch } from '$lib/utils/offlineCache';
   import { networkStatus } from '$lib/stores/networkStatus.svelte';
   import OfflineBanner from '$lib/components/shared/OfflineBanner.svelte';
-  import { buildDynamicQrisString } from '$lib/utils/qrisBuilder';
 
   interface Props {
     selectedPackage: StoreCategory | null;

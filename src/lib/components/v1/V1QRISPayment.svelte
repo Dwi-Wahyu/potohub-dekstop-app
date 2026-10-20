@@ -223,17 +223,5 @@
         </div>
       </div>
     </main>
-
-    <!-- Footer -->
-    <footer class="shrink-0 flex flex-col items-center gap-4 px-12 pb-8">
-      <!-- TODO: integrasikan ke API pembayaran setelah gap backend selesai -->
-      <button
-        onclick={simulatePayment}
-        disabled={paid}
-        class="bg-transparent border border-white/15 text-white/40 px-6 py-2 rounded-full text-xs font-medium cursor-pointer hover:border-white/35 hover:text-white/70 disabled:cursor-default"
-      >
-        Simulasi Pembayaran Berhasil
-      </button>
-    </footer>
   </div>
 </div>

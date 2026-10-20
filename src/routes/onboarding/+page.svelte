@@ -4,8 +4,9 @@
   import { activateBooth, loginUser, isTokenValid } from '$lib/api/boothClient';
   import { prefetchBoothAssets } from '$lib/api/prefetch';
   import { getActivation, saveActivation } from '$lib/db/local';
-  import { Eye, EyeOff, Lock, ArrowRight } from '@lucide/svelte';
+  import { Eye, EyeOff, Lock, ArrowRight, Keyboard, KeyboardOff } from '@lucide/svelte';
   import { setWindowDecorations } from '$lib/utils/windowControl';
+  import OnScreenKeyboard from '$lib/components/shared/OnScreenKeyboard.svelte';
 
   let step = $state<'welcome' | 'login' | 'activation'>('welcome');
   let loginPurpose = $state<'journey' | 'settings'>('journey');
@@ -16,6 +17,12 @@
   let error = $state('');
   let loading = $state(false);
   let isActivated = $state(false);
+
+  let kbOpen = $state(false);
+  let activeField = $state<'email' | 'password' | 'code'>('email');
+  let emailInputEl = $state<HTMLInputElement | null>(null);
+  let passwordInputEl = $state<HTMLInputElement | null>(null);
+  let codeInputEl = $state<HTMLInputElement | null>(null);
 
   const BG = '#ebf0f7';
   const NAVY = '#2a2873';
@@ -45,10 +52,14 @@
       }
       loginPurpose = 'journey';
       step = 'login';
+      activeField = 'email';
+      kbOpen = true;
     } catch (e) {
       console.error(e);
       loginPurpose = 'journey';
       step = 'login';
+      activeField = 'email';
+      kbOpen = true;
     } finally {
       loading = false;
     }
@@ -66,10 +77,14 @@
       }
       loginPurpose = 'settings';
       step = 'login';
+      activeField = 'email';
+      kbOpen = true;
     } catch (e) {
       console.error(e);
       loginPurpose = 'settings';
       step = 'login';
+      activeField = 'email';
+      kbOpen = true;
     } finally {
       loading = false;
     }
@@ -93,6 +108,8 @@
         }
       } else {
         step = 'activation';
+        activeField = 'code';
+        kbOpen = true;
       }
     } catch (e) {
       console.error(e);
@@ -123,6 +140,92 @@
     }
   }
 
+  function handleKeyboardPress(charOrAction: string) {
+    let targetInput: HTMLInputElement | null = null;
+    let currentVal = '';
+
+    if (activeField === 'email') {
+      targetInput = emailInputEl;
+      currentVal = email;
+    } else if (activeField === 'password') {
+      targetInput = passwordInputEl;
+      currentVal = password;
+    } else if (activeField === 'code') {
+      targetInput = codeInputEl;
+      currentVal = code;
+    }
+
+    if (charOrAction === 'BACKSPACE') {
+      if (targetInput && targetInput.selectionStart !== null && targetInput.selectionEnd !== null) {
+        const start = targetInput.selectionStart;
+        const end = targetInput.selectionEnd;
+        if (start === end && start > 0) {
+          const newVal = currentVal.slice(0, start - 1) + currentVal.slice(end);
+          updateCurrentFieldValue(newVal);
+          requestAnimationFrame(() => {
+            targetInput?.setSelectionRange(start - 1, start - 1);
+          });
+        } else if (start !== end) {
+          const newVal = currentVal.slice(0, start) + currentVal.slice(end);
+          updateCurrentFieldValue(newVal);
+          requestAnimationFrame(() => {
+            targetInput?.setSelectionRange(start, start);
+          });
+        }
+      } else {
+        updateCurrentFieldValue(currentVal.slice(0, -1));
+      }
+    } else if (charOrAction === 'CLEAR') {
+      updateCurrentFieldValue('');
+      if (targetInput) {
+        requestAnimationFrame(() => targetInput?.focus());
+      }
+    } else {
+      if (targetInput && targetInput.selectionStart !== null && targetInput.selectionEnd !== null) {
+        const start = targetInput.selectionStart;
+        const end = targetInput.selectionEnd;
+        const newVal = currentVal.slice(0, start) + charOrAction + currentVal.slice(end);
+        updateCurrentFieldValue(newVal);
+        const newCursor = start + charOrAction.length;
+        requestAnimationFrame(() => {
+          targetInput?.setSelectionRange(newCursor, newCursor);
+        });
+      } else {
+        updateCurrentFieldValue(currentVal + charOrAction);
+      }
+    }
+  }
+
+  function updateCurrentFieldValue(val: string) {
+    if (activeField === 'email') {
+      email = val;
+    } else if (activeField === 'password') {
+      password = val;
+    } else if (activeField === 'code') {
+      code = val;
+    }
+  }
+
+  function handleKeyboardSubmit() {
+    if (step === 'login') {
+      if (activeField === 'email') {
+        activeField = 'password';
+        requestAnimationFrame(() => passwordInputEl?.focus());
+      } else {
+        handleLogin();
+      }
+    } else if (step === 'activation') {
+      handleActivate();
+    }
+  }
+
+  function handleSelectField(field: 'email' | 'password' | 'code') {
+    activeField = field;
+    if (field === 'email') emailInputEl?.focus();
+    else if (field === 'password') passwordInputEl?.focus();
+    else if (field === 'code') codeInputEl?.focus();
+  }
+
   function handleKeydown(e: KeyboardEvent) {
     if (e.key === 'Enter' && !loading) {
       if (step === 'login') {
@@ -147,6 +250,9 @@
     justify-content: center;
     font-family: 'Poppins', sans-serif;
     position: relative;
+    padding-bottom: {kbOpen && (step === 'login' || step === 'activation') ? '290px' : '0'};
+    transition: padding-bottom 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+    box-sizing: border-box;
   "
 >
   <!-- Decorative neumorphic circles background -->
@@ -176,17 +282,54 @@
     ></div>
   {/each}
 
-  {#if step === 'welcome'}
-    <!-- Lock button on top right of screen (ujung kanan) -->
+  <!-- Top-right controls: Toggle Keyboard (kiri) & Logo Gembok (kanan) -->
+  <div
+    style="
+      position: absolute;
+      top: 32px;
+      right: 32px;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      z-index: 60;
+    "
+  >
+    <!-- Toggle keyboard di kiri logo gembok: muncul di halaman login & aktivasi -->
+    {#if step === 'login' || step === 'activation'}
+      <button
+        type="button"
+        onclick={() => (kbOpen = !kbOpen)}
+        title={kbOpen ? 'Sembunyikan Keyboard' : 'Tampilkan Keyboard'}
+        style="
+          width: 52px;
+          height: 52px;
+          border-radius: 16px;
+          background: {kbOpen ? 'linear-gradient(135deg, #3d3aa0, ' + NAVY + ')' : BG};
+          box-shadow: {kbOpen ? '4px 4px 12px rgba(42,40,115,0.35)' : neu.raisedSm};
+          border: none;
+          cursor: pointer;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          color: {kbOpen ? '#ffffff' : NAVY};
+          transition: transform 0.15s, box-shadow 0.15s, background 0.15s;
+        "
+      >
+        {#if kbOpen}
+          <KeyboardOff size={22} />
+        {:else}
+          <Keyboard size={22} />
+        {/if}
+      </button>
+    {/if}
+
+    <!-- Logo gembok (Pengaturan Booth) -->
     <button
       type="button"
       onclick={handleLockClick}
       disabled={loading}
       title="Pengaturan Booth"
       style="
-        position: absolute;
-        top: 32px;
-        right: 32px;
         width: 52px;
         height: 52px;
         border-radius: 16px;
@@ -199,12 +342,11 @@
         justify-content: center;
         color: {NAVY};
         transition: transform 0.15s, box-shadow 0.15s;
-        z-index: 10;
       "
     >
       <Lock size={22} />
     </button>
-  {/if}
+  </div>
 
   <!-- Center card panel -->
   <div
@@ -214,12 +356,15 @@
       display: flex;
       flex-direction: column;
       align-items: center;
-      padding: 48px 64px;
+      padding: {kbOpen && (step === 'login' || step === 'activation') ? '28px 48px' : '48px 64px'};
       border-radius: 40px;
       background: {BG};
       box-shadow: {neu.raised};
       max-width: 680px;
       width: 90%;
+      max-height: {kbOpen && (step === 'login' || step === 'activation') ? 'calc(100vh - 310px)' : 'none'};
+      overflow-y: auto;
+      transition: padding 0.25s ease;
     "
   >
     {#if step === 'welcome'}
@@ -336,7 +481,7 @@
           display: flex;
           align-items: center;
           justify-content: center;
-          margin-bottom: 24px;
+          margin-bottom: {kbOpen ? '14px' : '24px'};
         "
       >
         <div
@@ -374,7 +519,7 @@
         style="
           padding: 6px 20px;
           border-radius: 999px;
-          margin-bottom: 28px;
+          margin-bottom: {kbOpen ? '16px' : '28px'};
           background: {BG};
           box-shadow: {neu.insetPill};
         "
@@ -386,14 +531,23 @@
 
       <div style="width: 100%; display: flex; flex-direction: column; gap: 16px; margin-bottom: 24px;">
         <input
+          bind:this={emailInputEl}
           type="email"
           bind:value={email}
+          onfocus={() => {
+            activeField = 'email';
+            kbOpen = true;
+          }}
+          onclick={() => {
+            activeField = 'email';
+            kbOpen = true;
+          }}
           placeholder="Email"
           disabled={loading}
           style="
             width: 100%;
             background: {BG};
-            box-shadow: {neu.inset};
+            box-shadow: {activeField === 'email' && kbOpen && step === 'login' ? 'inset 4px 4px 10px rgba(42,40,115,0.2), inset -4px -4px 10px rgba(255,255,255,0.9), 0 0 0 2px #3d3aa0' : neu.inset};
             border-radius: 16px;
             padding: 16px 20px;
             border: none;
@@ -403,19 +557,29 @@
             color: #2a2873;
             font-family: 'Poppins', sans-serif;
             box-sizing: border-box;
+            transition: box-shadow 0.2s ease;
           "
         />
 
         <div style="position: relative; width: 100%;">
           <input
+            bind:this={passwordInputEl}
             type={showPassword ? 'text' : 'password'}
             bind:value={password}
+            onfocus={() => {
+              activeField = 'password';
+              kbOpen = true;
+            }}
+            onclick={() => {
+              activeField = 'password';
+              kbOpen = true;
+            }}
             placeholder="Password"
             disabled={loading}
             style="
               width: 100%;
               background: {BG};
-              box-shadow: {neu.inset};
+              box-shadow: {activeField === 'password' && kbOpen && step === 'login' ? 'inset 4px 4px 10px rgba(42,40,115,0.2), inset -4px -4px 10px rgba(255,255,255,0.9), 0 0 0 2px #3d3aa0' : neu.inset};
               border-radius: 16px;
               padding: 16px 50px 16px 20px;
               border: none;
@@ -425,6 +589,7 @@
               color: #2a2873;
               font-family: 'Poppins', sans-serif;
               box-sizing: border-box;
+              transition: box-shadow 0.2s ease;
             "
           />
           <button
@@ -480,6 +645,7 @@
           onclick={() => {
             step = 'welcome';
             error = '';
+            kbOpen = false;
           }}
           disabled={loading}
           style="
@@ -535,7 +701,7 @@
           display: flex;
           align-items: center;
           justify-content: center;
-          margin-bottom: 24px;
+          margin-bottom: {kbOpen ? '14px' : '24px'};
         "
       >
         <div
@@ -573,7 +739,7 @@
         style="
           padding: 6px 20px;
           border-radius: 999px;
-          margin-bottom: 28px;
+          margin-bottom: {kbOpen ? '16px' : '28px'};
           background: {BG};
           box-shadow: {neu.insetPill};
         "
@@ -585,14 +751,23 @@
 
       <div style="width: 100%; display: flex; flex-direction: column; gap: 16px; margin-bottom: 24px;">
         <input
+          bind:this={codeInputEl}
           type="text"
           bind:value={code}
+          onfocus={() => {
+            activeField = 'code';
+            kbOpen = true;
+          }}
+          onclick={() => {
+            activeField = 'code';
+            kbOpen = true;
+          }}
           placeholder="Masukkan Kode Aktivasi"
           disabled={loading}
           style="
             width: 100%;
             background: {BG};
-            box-shadow: {neu.inset};
+            box-shadow: {activeField === 'code' && kbOpen && step === 'activation' ? 'inset 4px 4px 10px rgba(42,40,115,0.2), inset -4px -4px 10px rgba(255,255,255,0.9), 0 0 0 2px #3d3aa0' : neu.inset};
             border-radius: 16px;
             padding: 16px 20px;
             border: none;
@@ -604,6 +779,7 @@
             text-align: center;
             letter-spacing: 0.05em;
             box-sizing: border-box;
+            transition: box-shadow 0.2s ease;
           "
         />
 
@@ -631,6 +807,7 @@
           onclick={() => {
             step = 'login';
             error = '';
+            activeField = 'email';
           }}
           disabled={loading}
           style="
@@ -675,4 +852,22 @@
       </div>
     {/if}
   </div>
+
+  <!-- On-Screen Virtual Keyboard Drawer -->
+  {#if step === 'login' || step === 'activation'}
+    <OnScreenKeyboard
+      open={kbOpen}
+      {activeField}
+      availableFields={step === 'login'
+        ? [
+            { id: 'email', label: 'Email' },
+            { id: 'password', label: 'Password' }
+          ]
+        : [{ id: 'code', label: 'Kode Aktivasi' }]}
+      onKeyPress={handleKeyboardPress}
+      onSubmit={handleKeyboardSubmit}
+      onClose={() => (kbOpen = false)}
+      onSelectField={handleSelectField}
+    />
+  {/if}
 </div>

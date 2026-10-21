@@ -77,9 +77,26 @@
   let frameSrc = $state('');
   let videoEl = $state<HTMLVideoElement | null>(null);
 
+  function preloadTemplateAssets(templates: BoothTemplate[]) {
+    const urls = new Set<string>();
+    for (const t of templates) {
+      if (t.preview_image_url) urls.add(t.preview_image_url);
+      if (t.frame_image_url) urls.add(t.frame_image_url);
+      if (Array.isArray(t.design_data)) {
+        for (const l of t.design_data) {
+          if (l.imageUrl) urls.add(l.imageUrl);
+        }
+      }
+    }
+    for (const url of urls) {
+      const img = new Image();
+      img.src = url;
+    }
+  }
+
   function playStream(node: HTMLVideoElement, stream: MediaStream | null) {
     cameraStore.setVideoElement(node);
-    if (stream) {
+    if (stream && node.srcObject !== stream) {
       node.srcObject = stream;
       node.muted = true;
       node.playsInline = true;
@@ -89,10 +106,12 @@
       update(newStream: MediaStream | null) {
         cameraStore.setVideoElement(node);
         if (newStream) {
-          node.srcObject = newStream;
-          node.muted = true;
-          node.playsInline = true;
-          node.play().catch(() => {});
+          if (node.srcObject !== newStream) {
+            node.srcObject = newStream;
+            node.muted = true;
+            node.playsInline = true;
+            node.play().catch(() => {});
+          }
         } else {
           node.srcObject = null;
         }
@@ -118,7 +137,10 @@
       await cachedFetch(
         `templates:${boothId}`,
         () => fetchTemplates(boothId),
-        (d) => { templatesData = d; }
+        (d) => {
+          templatesData = d;
+          preloadTemplateAssets(d);
+        }
       );
       if (categoriesData[0]) {
         categoryId = categoriesData[0].id;
@@ -385,11 +407,11 @@
 
             <div class="w-full flex-1 min-h-0 flex items-center justify-center p-1">
               <div
-                class="relative h-full max-w-full overflow-hidden rounded-xl bg-black/40 shadow-xl"
-                style="aspect-ratio: {tWidth} / {tHeight};"
+                class="relative max-h-full max-w-full overflow-hidden rounded-xl bg-black/40 shadow-xl"
+                style="aspect-ratio: {tWidth} / {tHeight}; width: auto; height: auto;"
               >
                 {#if templateLayers.length > 0}
-                  {#each templateLayers.filter((l) => !l.isQr) as layer, idx (layer.id ?? idx)}
+                  {#each templateLayers.filter((l) => !l.isQr) as layer, idx (layer.isBackground ? 'bg-frame-layer' : `slot-${idx}`)}
                     {@const layerZIndex = getLayerZIndex(layer, templateLayers)}
                     <div
                       class={`absolute overflow-hidden ${layer.isBackground ? 'pointer-events-none' : ''}`}
@@ -401,6 +423,7 @@
                         transform: rotate({layer.rot || 0}deg);
                         z-index: {layerZIndex};
                         pointer-events: {layer.isBackground ? 'none' : 'auto'};
+                        transition: left 0.15s ease-out, top 0.15s ease-out, width 0.15s ease-out, height 0.15s ease-out;
                       "
                     >
                       {#if layer.isBackground}
@@ -409,6 +432,8 @@
                           <img
                             src={layerBgUrl}
                             alt="Frame Overlay"
+                            loading="eager"
+                            decoding="async"
                             class="w-full h-full object-fill pointer-events-none block"
                           />
                         {/if}

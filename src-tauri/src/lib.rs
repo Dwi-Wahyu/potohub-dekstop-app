@@ -249,6 +249,11 @@ async fn get_printer_status(printer_name: String) -> Result<PrinterStatus, Print
 }
 
 #[tauri::command]
+async fn open_printer_properties(printer_name: String) -> Result<(), PrinterError> {
+    printer::open_printer_properties(&printer_name)
+}
+
+#[tauri::command]
 async fn print_photo(
     printer_name: String,
     image_path: String,
@@ -658,6 +663,7 @@ pub fn run() {
             storage::read_session_file,
             get_printer_list,
             get_printer_status,
+            open_printer_properties,
             print_photo,
             print_photo_from_buffer,
             save_qr_result,

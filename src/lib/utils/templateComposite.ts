@@ -42,6 +42,27 @@ export function getSortedPhotoSlots<T extends TemplateDesignLayer>(
 }
 
 /**
+ * Mencari index foto untuk slot tertentu secara konsisten di semua komponen (V1, V2, V3, CropModal, Composite).
+ * Menggunakan pencocokan referensi objek, id angka, order, atau koordinat x & y.
+ */
+export function findPhotoSlotIndex<T extends TemplateDesignLayer>(
+  layer: T,
+  photoSlots: T[]
+): number {
+  const idx = photoSlots.findIndex((s) => {
+    if (s === layer) return true;
+    if (typeof s.id === 'number' && typeof layer.id === 'number' && s.id === layer.id) {
+      return true;
+    }
+    if (typeof s.order === 'number' && typeof layer.order === 'number' && s.order === layer.order) {
+      return true;
+    }
+    return Math.round(s.x ?? 0) === Math.round(layer.x ?? 0) && Math.round(s.y ?? 0) === Math.round(layer.y ?? 0);
+  });
+  return idx >= 0 ? idx : 0;
+}
+
+/**
  * Normalizes layers for a template:
  * 1. Clones design_data array or empty array.
  * 2. Synthesizes background layer covering full canvas if frame_image_url exists and no isBackground layer is present
@@ -284,8 +305,7 @@ export async function compositeTemplateImage(
       }
     } else {
       // Photo slot - accurately mapped to corresponding camera photo
-      const slotIdx = photoSlots.findIndex((s) => s.id === layer.id || (s.x === layer.x && s.y === layer.y));
-      const targetIdx = slotIdx >= 0 ? slotIdx : 0;
+      const targetIdx = findPhotoSlotIndex(layer, photoSlots);
       const photoSrc = photos[targetIdx] || photos[0];
 
       if (photoSrc) {
@@ -298,6 +318,8 @@ export async function compositeTemplateImage(
           slotCanvas.height = slotH;
           const slotCtx = slotCanvas.getContext('2d');
           if (slotCtx) {
+            slotCtx.clearRect(0, 0, slotW, slotH);
+
             // Crop dari modal Crop: diterapkan sebelum mirror agar urutannya sama
             // dengan transform CSS preview (getPhotoSlotTransformStyle)
             const crop = boothFlow.getPhotoTransform(photoSrc);
@@ -314,14 +336,25 @@ export async function compositeTemplateImage(
               slotCtx.translate(0, slotH);
               slotCtx.scale(1, -1);
             }
-            drawCoverImage(slotCtx, photoImg, 0, 0, slotW, slotH);
+
+            let filterApplied = false;
             if (effectiveFilter && effectiveFilter !== 'none') {
               try {
                 slotCtx.filter = effectiveFilter;
                 drawCoverImage(slotCtx, photoImg, 0, 0, slotW, slotH);
-              } catch {}
+                filterApplied = true;
+              } catch {
+                filterApplied = false;
+              }
             }
-            applyFilterToCanvas(slotCtx, slotW, slotH, filterCss);
+
+            if (!filterApplied) {
+              drawCoverImage(slotCtx, photoImg, 0, 0, slotW, slotH);
+              if (effectiveFilter && effectiveFilter !== 'none') {
+                applyFilterToCanvas(slotCtx, slotW, slotH, filterCss);
+              }
+            }
+
             ctx.drawImage(slotCanvas, drawX, drawY, layerW, layerH);
           } else {
             drawCoverImage(ctx, photoImg, drawX, drawY, layerW, layerH);

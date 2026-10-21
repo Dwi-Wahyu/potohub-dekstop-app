@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy, tick } from 'svelte';
   import {
     Monitor,
     ClockCheck,
@@ -9,7 +9,11 @@
     Save,
     FlipHorizontal2,
     Printer,
-    RotateCw
+    RotateCw,
+    Eye,
+    Camera,
+    X,
+    Settings
   } from '@lucide/svelte';
   import { goto } from '$app/navigation';
   import { boothConfig, type BoothCfg } from '$lib/stores/boothConfig.svelte';
@@ -19,6 +23,7 @@
   import { countPendingOutboxJobs } from '$lib/db/local';
   import { cameraStore } from '$lib/camera.svelte';
   import { printerStore } from '$lib/printer.svelte';
+  import { getLiveviewTransformStyle } from '$lib/utils/shared';
 
   interface Props {
     onBack: () => void;
@@ -112,7 +117,56 @@
     goto('/camera-manual-settings');
   }
 
+  // State & Handlers untuk Dialog Live Preview Kamera
+  let isPreviewOpen = $state(false);
+  let previewFrameSrc = $state<string | null>(null);
+  let previewInterval: ReturnType<typeof setInterval> | null = null;
+  let previewVideoEl = $state<HTMLVideoElement | null>(null);
+
+  async function openPreviewDialog() {
+    if (cameraStore.status !== 'connected') return;
+    isPreviewOpen = true;
+    previewFrameSrc = null;
+
+    await tick();
+
+    try {
+      if (cameraStore.cameraMode === 'webcam') {
+        await cameraStore.startLiveview(previewVideoEl);
+      } else {
+        await cameraStore.startLiveview();
+        const firstFrame = await cameraStore.getLiveviewFrame();
+        if (firstFrame) previewFrameSrc = firstFrame;
+
+        previewInterval = setInterval(async () => {
+          if (!isPreviewOpen) return;
+          const frame = await cameraStore.getLiveviewFrame();
+          if (frame) previewFrameSrc = frame;
+        }, 120);
+      }
+    } catch (err) {
+      console.error('Gagal membuka preview liveview kamera:', err);
+    }
+  }
+
+  async function closePreviewDialog() {
+    isPreviewOpen = false;
+    if (previewInterval) {
+      clearInterval(previewInterval);
+      previewInterval = null;
+    }
+    previewFrameSrc = null;
+    await cameraStore.stopLiveview();
+  }
+
+  function handleKeydown(e: KeyboardEvent) {
+    if (e.key === 'Escape' && isPreviewOpen) {
+      void closePreviewDialog();
+    }
+  }
+
   onMount(async () => {
+    window.addEventListener('keydown', handleKeydown);
     const boothId = await getActiveBoothId();
     if (boothId) {
       await boothConfig.init(boothId);
@@ -123,6 +177,17 @@
     await cameraStore.checkDevMode();
     void cameraStore.detect();
     void printerStore.loadPrinters();
+  });
+
+  onDestroy(() => {
+    window.removeEventListener('keydown', handleKeydown);
+    if (previewInterval) {
+      clearInterval(previewInterval);
+      previewInterval = null;
+    }
+    if (isPreviewOpen) {
+      void cameraStore.stopLiveview();
+    }
   });
 
   const ROTATE_OPTS = ['0° (Default)', '90° CW', '180°', '90° CCW'];
@@ -519,14 +584,45 @@
               </div>
 
               {#if cameraStore.detectedCameras.length > 0}
-                <!-- Kamera USB ketemu: tampilkan nama model langsung -->
-                <div style="background: {NEU_BG}; box-shadow: {neuCfg.inset}; border-radius: 12px; padding: 10px 14px; display: flex; flex-direction: column; gap: 4px;">
-                  <span style="font-size: 12px; font-weight: 700; color: #16a34a;">
-                    {cameraStore.detectedCameras[0].model}
-                  </span>
-                  <span style="font-size: 10px; color: #94a3b8; font-family: monospace;">
-                    {cameraStore.detectedCameras[0].port}
-                  </span>
+                <!-- Kamera USB ketemu: tampilkan nama model langsung dengan tombol preview di sampingnya -->
+                <div style="display: flex; align-items: stretch; gap: 8px;">
+                  <div style="flex: 1; background: {NEU_BG}; box-shadow: {neuCfg.inset}; border-radius: 12px; padding: 10px 14px; display: flex; flex-direction: column; justify-content: center; gap: 4px;">
+                    <span style="font-size: 12px; font-weight: 700; color: #16a34a;">
+                      {cameraStore.detectedCameras[0].model}
+                    </span>
+                    <span style="font-size: 10px; color: #94a3b8; font-family: monospace;">
+                      {cameraStore.detectedCameras[0].port}
+                    </span>
+                  </div>
+
+                  {#if cameraStore.status === 'connected'}
+                    <button
+                      type="button"
+                      onclick={openPreviewDialog}
+                      style="
+                        background: {NEU_BG};
+                        box-shadow: {neuCfg.btn};
+                        border: none;
+                        border-radius: 12px;
+                        padding: 0 14px;
+                        display: flex;
+                        align-items: center;
+                        gap: 6px;
+                        font-size: 11px;
+                        font-weight: 700;
+                        color: {NEU_PRIMARY};
+                        cursor: pointer;
+                        font-family: 'Poppins', sans-serif;
+                        white-space: nowrap;
+                        flex-shrink: 0;
+                        transition: transform 0.15s ease, box-shadow 0.15s ease;
+                      "
+                      title="Buka dialog preview kamera langsung"
+                    >
+                      <Eye size={15} />
+                      <span>Lihat Preview</span>
+                    </button>
+                  {/if}
                 </div>
 
                 {#if boothConfig.config.cameraMode === 'usb' && cameraStore.status === 'connected'}
@@ -584,6 +680,20 @@
                     </p>
                     <div style="display: flex; gap: 8px;">
                       {#if boothConfig.config.cameraMode === 'webcam' && cameraStore.status === 'connected'}
+                        <button
+                          type="button"
+                          onclick={openPreviewDialog}
+                          style="
+                            font-size: 11px; font-weight: 700; color: white;
+                            background: linear-gradient(135deg, #2563eb, #1d4ed8);
+                            border: none; border-radius: 8px;
+                            padding: 6px 14px; cursor: pointer;
+                            display: flex; align-items: center; gap: 6px;
+                          "
+                        >
+                          <Eye size={14} />
+                          <span>Lihat Preview</span>
+                        </button>
                         <button
                           type="button"
                           onclick={handleUseUsb}
@@ -653,79 +763,151 @@
                 <!-- Primary Printer Dropdown -->
                 <div style="display: flex; flex-direction: column; gap: 4px;">
                   <span style="font-size: 10px; font-weight: 600; color: #64748b;">Primary Printer (Default):</span>
-                  <div style="position: relative;">
-                    <select
-                      value={printerStore.selectedPrinter ?? ''}
-                      onchange={(e) => {
-                        const val = e.currentTarget.value || null;
-                        printerStore.selectedPrinter = val;
-                        boothConfig.save({ primaryPrinter: val || '' });
-                        printerStore.refreshStatus();
-                      }}
+                  <div style="display: flex; align-items: center; gap: 8px;">
+                    <div style="position: relative; flex: 1;">
+                      <select
+                        value={printerStore.selectedPrinter ?? ''}
+                        onchange={(e) => {
+                          const val = e.currentTarget.value || null;
+                          printerStore.selectedPrinter = val;
+                          boothConfig.save({ primaryPrinter: val || '' });
+                          printerStore.refreshStatus();
+                        }}
+                        style="
+                          width: 100%;
+                          appearance: none;
+                          background: {NEU_BG};
+                          box-shadow: {neuCfg.inset};
+                          border-radius: 12px;
+                          padding: 10px 36px 10px 14px;
+                          border: none;
+                          outline: none;
+                          font-size: 12px;
+                          font-weight: 600;
+                          color: {printerStore.status?.is_ready ? '#16a34a' : '#475569'};
+                          font-family: 'Poppins',sans-serif;
+                          cursor: pointer;
+                        "
+                      >
+                        {#each printerStore.printers as p}
+                          <option value={p}>
+                            {p} {printerStore.selectedPrinter === p && printerStore.status?.is_ready ? '(Ready)' : printerStore.selectedPrinter === p ? '(Offline)' : ''}
+                          </option>
+                        {/each}
+                      </select>
+                      <ChevronDown size={14} color="#94a3b8" style="position: absolute; right: 12px; top: 50%; transform: translateY(-50%); pointer-events: none;" />
+                    </div>
+
+                    <!-- Tombol Pengaturan Printer (Gear) -->
+                    <button
+                      type="button"
+                      title="Buka Pengaturan Printer Properties & Preferences (Aktifkan 2-Inch Cut)"
+                      disabled={!printerStore.selectedPrinter}
+                      onclick={() => printerStore.openPrinterProperties(printerStore.selectedPrinter)}
                       style="
-                        width: 100%;
-                        appearance: none;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        width: 38px;
+                        height: 38px;
+                        border-radius: 10px;
                         background: {NEU_BG};
-                        box-shadow: {neuCfg.inset};
-                        border-radius: 12px;
-                        padding: 10px 36px 10px 14px;
+                        box-shadow: {neuCfg.btnSm};
                         border: none;
-                        outline: none;
-                        font-size: 12px;
-                        font-weight: 600;
-                        color: {printerStore.status?.is_ready ? '#16a34a' : '#475569'};
-                        font-family: 'Poppins',sans-serif;
-                        cursor: pointer;
+                        cursor: {printerStore.selectedPrinter ? 'pointer' : 'not-allowed'};
+                        color: {printerStore.selectedPrinter ? '#334155' : '#94a3b8'};
+                        opacity: {printerStore.selectedPrinter ? 1 : 0.5};
+                        flex-shrink: 0;
+                        transition: all 0.15s ease;
                       "
+                      onmousedown={(e) => {
+                        if (printerStore.selectedPrinter) e.currentTarget.style.boxShadow = neuCfg.inset;
+                      }}
+                      onmouseup={(e) => {
+                        if (printerStore.selectedPrinter) e.currentTarget.style.boxShadow = neuCfg.btnSm;
+                      }}
                     >
-                      {#each printerStore.printers as p}
-                        <option value={p}>
-                          {p} {printerStore.selectedPrinter === p && printerStore.status?.is_ready ? '(Ready)' : printerStore.selectedPrinter === p ? '(Offline)' : ''}
-                        </option>
-                      {/each}
-                    </select>
-                    <ChevronDown size={14} color="#94a3b8" style="position: absolute; right: 12px; top: 50%; transform: translateY(-50%); pointer-events: none;" />
+                      <Settings size={16} />
+                    </button>
                   </div>
                 </div>
 
                 <!-- Secondary Printer Dropdown -->
                 <div style="display: flex; flex-direction: column; gap: 4px;">
                   <span style="font-size: 10px; font-weight: 600; color: #64748b;">Secondary Printer (Opsional):</span>
-                  <div style="position: relative;">
-                    <select
-                      value={printerStore.secondaryPrinter ?? ''}
-                      onchange={(e) => {
-                        const val = e.currentTarget.value || null;
-                        printerStore.secondaryPrinter = val;
-                        boothConfig.save({ secondaryPrinter: val || '' });
-                        printerStore.refreshStatus();
-                      }}
+                  <div style="display: flex; align-items: center; gap: 8px;">
+                    <div style="position: relative; flex: 1;">
+                      <select
+                        value={printerStore.secondaryPrinter ?? ''}
+                        onchange={(e) => {
+                          const val = e.currentTarget.value || null;
+                          printerStore.secondaryPrinter = val;
+                          boothConfig.save({ secondaryPrinter: val || '' });
+                          printerStore.refreshStatus();
+                        }}
+                        style="
+                          width: 100%;
+                          appearance: none;
+                          background: {NEU_BG};
+                          box-shadow: {neuCfg.inset};
+                          border-radius: 12px;
+                          padding: 10px 36px 10px 14px;
+                          border: none;
+                          outline: none;
+                          font-size: 12px;
+                          font-weight: 600;
+                          color: {printerStore.secondaryPrinter && printerStore.secondaryStatus?.is_ready ? '#16a34a' : '#475569'};
+                          font-family: 'Poppins',sans-serif;
+                          cursor: pointer;
+                        "
+                      >
+                        <option value="">-- Nonaktif (Gunakan Primary) --</option>
+                        {#each printerStore.printers as p}
+                          <option value={p}>
+                            {p} {printerStore.secondaryPrinter === p && printerStore.secondaryStatus?.is_ready ? '(Ready)' : printerStore.secondaryPrinter === p ? '(Offline)' : ''}
+                          </option>
+                        {/each}
+                      </select>
+                      <ChevronDown size={14} color="#94a3b8" style="position: absolute; right: 12px; top: 50%; transform: translateY(-50%); pointer-events: none;" />
+                    </div>
+
+                    <!-- Tombol Pengaturan Printer (Gear) -->
+                    <button
+                      type="button"
+                      title="Buka Pengaturan Printer Properties & Preferences (Aktifkan 2-Inch Cut)"
+                      disabled={!printerStore.secondaryPrinter}
+                      onclick={() => printerStore.openPrinterProperties(printerStore.secondaryPrinter)}
                       style="
-                        width: 100%;
-                        appearance: none;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        width: 38px;
+                        height: 38px;
+                        border-radius: 10px;
                         background: {NEU_BG};
-                        box-shadow: {neuCfg.inset};
-                        border-radius: 12px;
-                        padding: 10px 36px 10px 14px;
+                        box-shadow: {neuCfg.btnSm};
                         border: none;
-                        outline: none;
-                        font-size: 12px;
-                        font-weight: 600;
-                        color: {printerStore.secondaryPrinter && printerStore.secondaryStatus?.is_ready ? '#16a34a' : '#475569'};
-                        font-family: 'Poppins',sans-serif;
-                        cursor: pointer;
+                        cursor: {printerStore.secondaryPrinter ? 'pointer' : 'not-allowed'};
+                        color: {printerStore.secondaryPrinter ? '#334155' : '#94a3b8'};
+                        opacity: {printerStore.secondaryPrinter ? 1 : 0.5};
+                        flex-shrink: 0;
+                        transition: all 0.15s ease;
                       "
+                      onmousedown={(e) => {
+                        if (printerStore.secondaryPrinter) e.currentTarget.style.boxShadow = neuCfg.inset;
+                      }}
+                      onmouseup={(e) => {
+                        if (printerStore.secondaryPrinter) e.currentTarget.style.boxShadow = neuCfg.btnSm;
+                      }}
                     >
-                      <option value="">-- Nonaktif (Gunakan Primary) --</option>
-                      {#each printerStore.printers as p}
-                        <option value={p}>
-                          {p} {printerStore.secondaryPrinter === p && printerStore.secondaryStatus?.is_ready ? '(Ready)' : printerStore.secondaryPrinter === p ? '(Offline)' : ''}
-                        </option>
-                      {/each}
-                    </select>
-                    <ChevronDown size={14} color="#94a3b8" style="position: absolute; right: 12px; top: 50%; transform: translateY(-50%); pointer-events: none;" />
+                      <Settings size={16} />
+                    </button>
                   </div>
                 </div>
+
+                <p style="font-size: 10px; color: #64748b; margin: 2px 0 0 0; line-height: 1.4;">
+                  💡 <em>Klik tombol icon gear (⚙️) untuk membuka Printer Properties / Preferences Windows guna mengaktifkan fitur <strong>2 inch cut</strong> (photo strip).</em>
+                </p>
               {:else}
                 <p style="font-size: 11px; margin: 4px 0;" class="text-gray-400">
                   {printerStore.isDetecting ? 'Mencari printer via USB…' : 'Tidak ada printer terdeteksi.'}
@@ -1036,6 +1218,186 @@
       <span>Simpan Pengaturan</span>
     </button>
   </div>
+
+  <!-- Dialog Live Preview Kamera -->
+  {#if isPreviewOpen}
+    <div
+      class="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-6 animate-in fade-in duration-200"
+      onclick={(e) => {
+        if (e.target === e.currentTarget) closePreviewDialog();
+      }}
+      onkeydown={handleKeydown}
+      role="dialog"
+      tabindex="-1"
+      aria-modal="true"
+      aria-label="Dialog Live Preview Kamera"
+    >
+      <div
+        style="
+          width: 100%;
+          max-width: 680px;
+          background: {NEU_BG};
+          box-shadow: 0 25px 60px rgba(0,0,0,0.4), {neuCfg.card};
+          border-radius: 24px;
+          overflow: hidden;
+          display: flex;
+          flex-direction: column;
+          border: 1px solid rgba(255,255,255,0.4);
+        "
+      >
+        <!-- Dialog Header -->
+        <div
+          style="
+            background: linear-gradient(135deg, #3d3aa0, {NEU_PRIMARY});
+            padding: 16px 22px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            color: white;
+            box-shadow: 0 4px 16px rgba(42,40,115,0.25);
+          "
+        >
+          <div style="display: flex; align-items: center; gap: 12px;">
+            <div
+              style="
+                width: 36px;
+                height: 36px;
+                border-radius: 12px;
+                background: rgba(255,255,255,0.18);
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                color: white;
+              "
+            >
+              <Camera size={19} />
+            </div>
+            <div>
+              <h3 style="margin: 0; font-size: 14px; font-weight: 700; letter-spacing: 0.02em;">
+                Live Preview Kamera Langsung
+              </h3>
+              <p style="margin: 0; font-size: 11px; opacity: 0.85;">
+                {cameraStore.device?.manufacturer || cameraStore.device?.productname || cameraStore.detectedCameras[0]?.model || 'Kamera Terhubung'}
+              </p>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onclick={closePreviewDialog}
+            style="
+              width: 34px;
+              height: 34px;
+              border-radius: 10px;
+              background: rgba(255,255,255,0.15);
+              border: none;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              color: white;
+              cursor: pointer;
+              transition: background 0.15s ease;
+            "
+            title="Tutup Preview (Esc)"
+          >
+            <X size={18} />
+          </button>
+        </div>
+
+        <!-- Dialog Body: Screen Display -->
+        <div style="padding: 20px; display: flex; flex-direction: column; gap: 14px;">
+          <div
+            style="
+              width: 100%;
+              height: 400px;
+              background: #090d16;
+              box-shadow: {neuCfg.inset};
+              border-radius: 18px;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              position: relative;
+              overflow: hidden;
+              border: 1px solid rgba(0,0,0,0.1);
+            "
+          >
+            <!-- Live Indicator Badge -->
+            <div
+              style="
+                position: absolute;
+                top: 14px;
+                left: 14px;
+                background: rgba(15, 23, 42, 0.75);
+                backdrop-filter: blur(6px);
+                padding: 4px 10px;
+                border-radius: 9999px;
+                display: flex;
+                align-items: center;
+                gap: 6px;
+                z-index: 10;
+                border: 1px solid rgba(255,255,255,0.15);
+              "
+            >
+              <span style="width: 8px; height: 8px; border-radius: 9999px; background: #22c55e; box-shadow: 0 0 8px #22c55e;" class="animate-pulse"></span>
+              <span style="font-size: 10px; font-weight: 700; color: white; text-transform: uppercase; letter-spacing: 0.05em;">Live View</span>
+            </div>
+
+            <!-- Video / Image Preview Frame -->
+            {#if cameraStore.cameraMode === 'webcam'}
+              <video
+                bind:this={previewVideoEl}
+                autoplay
+                playsinline
+                muted
+                class="max-w-full max-h-full object-contain"
+                style="transform: {getLiveviewTransformStyle(boothConfig.config, cameraStore.cameraMode)};"
+              ></video>
+            {:else if previewFrameSrc}
+              <img
+                src={previewFrameSrc}
+                alt="Live preview kamera"
+                class="max-w-full max-h-full object-contain"
+                style="transform: {getLiveviewTransformStyle(boothConfig.config, cameraStore.cameraMode)};"
+              />
+            {:else}
+              <!-- Loading state -->
+              <div style="display: flex; flex-direction: column; align-items: center; gap: 12px; color: #94a3b8;">
+                <RotateCw size={32} class="animate-spin text-indigo-400" />
+                <span style="font-size: 12px; font-weight: 600;">Mengambil liveview dari kamera...</span>
+              </div>
+            {/if}
+          </div>
+
+          <!-- Info status bar -->
+          <div style="display: flex; align-items: center; justify-content: space-between; font-size: 11px; color: #64748b; padding: 0 4px;">
+            <div style="display: flex; align-items: center; gap: 14px;">
+              <span>Mode: <strong class="text-slate-800 uppercase">{cameraStore.cameraMode}</strong></span>
+              <span>Rotasi: <strong class="text-slate-800">{boothConfig.config.cameraRotate || '0°'}</strong></span>
+              <span>Mirror: <strong class="text-slate-800">{boothConfig.config.mirrorOn ? 'Aktif' : 'Nonaktif'}</strong></span>
+            </div>
+            <button
+              type="button"
+              onclick={closePreviewDialog}
+              style="
+                padding: 8px 18px;
+                border-radius: 12px;
+                background: {NEU_BG};
+                box-shadow: {neuCfg.btnSm};
+                border: none;
+                font-family: 'Poppins', sans-serif;
+                font-size: 11px;
+                font-weight: 700;
+                color: #475569;
+                cursor: pointer;
+              "
+            >
+              Tutup Preview
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  {/if}
 </div>
 
 <style>

@@ -572,6 +572,40 @@ mod platform {
             }
         }
     }
+
+    pub fn open_printer_properties(printer_name: &str) -> Result<(), PrinterError> {
+        if printer_name.trim().is_empty() {
+            return Err(PrinterError::PrinterNotFound("Nama printer kosong".into()));
+        }
+
+        // Buka Printing Preferences (/e) yang langsung menampilkan tab Layout & tombol Advanced untuk mengaktifkan 2-inch cut
+        let res = std::process::Command::new("rundll32.exe")
+            .arg("printui.dll,PrintUIEntry")
+            .arg("/e")
+            .arg("/n")
+            .arg(printer_name)
+            .spawn();
+
+        match res {
+            Ok(_) => Ok(()),
+            Err(e) => {
+                // Fallback ke Printer Properties (/p) jika /e gagal dieksekusi
+                let res2 = std::process::Command::new("rundll32.exe")
+                    .arg("printui.dll,PrintUIEntry")
+                    .arg("/p")
+                    .arg("/n")
+                    .arg(printer_name)
+                    .spawn();
+
+                res2.map(|_| ()).map_err(|e2| {
+                    PrinterError::PrintFailed(format!(
+                        "Gagal membuka dialog printer properties/preferences: {} / {}",
+                        e, e2
+                    ))
+                })
+            }
+        }
+    }
 }
 
 // ============================================================================
@@ -751,6 +785,19 @@ mod platform {
         );
         Ok(())
     }
+
+    pub fn open_printer_properties(printer_name: &str) -> Result<(), PrinterError> {
+        if printer_name.trim().is_empty() {
+            return Err(PrinterError::PrinterNotFound("Nama printer kosong".into()));
+        }
+
+        if std::process::Command::new("system-config-printer").spawn().is_err() {
+            let cups_url = format!("http://localhost:631/printers/{}", printer_name);
+            let _ = std::process::Command::new("xdg-open").arg(&cups_url).spawn();
+        }
+
+        Ok(())
+    }
 }
 
 // ============================================================================
@@ -763,6 +810,10 @@ pub fn get_installed_printers() -> Result<Vec<String>, PrinterError> {
 
 pub fn get_printer_status(printer_name: &str) -> Result<PrinterStatus, PrinterError> {
     platform::get_printer_status(printer_name)
+}
+
+pub fn open_printer_properties(printer_name: &str) -> Result<(), PrinterError> {
+    platform::open_printer_properties(printer_name)
 }
 
 pub fn print_image(

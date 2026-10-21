@@ -13,7 +13,7 @@
   import { formatTime, getLiveviewTransformStyle, getPhotoSlotTransformStyle } from '$lib/utils/shared';
   import { fetchTemplates, fetchEmots, requireActiveBoothId, type BoothTemplate, type BoothEmot } from '$lib/api/boothClient';
   import { cachedFetch } from '$lib/utils/offlineCache';
-  import { getSortedPhotoSlots, getTemplateLayers, getLayerZIndex } from '$lib/utils/templateComposite';
+  import { getSortedPhotoSlots, getTemplateLayers, getLayerZIndex, findPhotoSlotIndex } from '$lib/utils/templateComposite';
 
   interface Props {
     photos: string[];
@@ -51,6 +51,13 @@
             selectedTemplate = matched;
           } else if (templates[0]) {
             selectedTemplate = templates[0];
+          }
+          if (selectedTemplate) {
+            const bg = selectedTemplate.design_data?.find((l) => l.isBackground)?.imageUrl || selectedTemplate.frame_image_url;
+            if (bg) {
+              const img = new Image();
+              img.src = bg;
+            }
           }
         }
       );
@@ -134,7 +141,7 @@
 
   <div class="relative z-10 flex flex-row items-center gap-[clamp(32px,3.5vw,64px)] px-[clamp(32px,4vw,72px)] py-8 w-full h-full box-border justify-center">
     <!-- Filter grid card -->
-    <div class="flex-[0_0_63%] h-full bg-white rounded-3xl p-8 pb-7 flex flex-col gap-6 shadow-[0_40px_100px_rgba(0,0,0,0.7)] overflow-hidden">
+    <div class="flex-1 min-w-0 h-full bg-white rounded-3xl p-8 pb-7 flex flex-col gap-6 shadow-[0_40px_100px_rgba(0,0,0,0.7)] overflow-hidden">
       <div class="shrink-0">
         <h2 class="m-0 text-[28px] font-extrabold text-[#111117] tracking-[-0.02em]">Tambahkan Filter</h2>
         <p class="m-0 mt-2 text-[15px] text-[#999]">Buat fotomu lebih sempurna</p>
@@ -188,7 +195,7 @@
     </div>
 
     <!-- Film strip preview card -->
-    <div class="flex-[0_0_25%] h-full flex flex-col items-stretch gap-3.5">
+    <div class="w-[360px] xl:w-[420px] 2xl:w-[460px] shrink-0 h-full flex flex-col items-stretch gap-3.5">
       <div class="self-center shrink-0 flex items-center gap-3">
         <div class="flex items-center gap-2 bg-white/95 text-[#0f0e14] px-6 py-3 rounded-full font-bold text-[17px] shadow-[0_8px_32px_rgba(0,0,0,0.45)]">
           <svg width="15" height="15" fill="none" stroke={uiConfig.config.primaryColor} stroke-width="2.5" viewBox="0 0 24 24">
@@ -205,20 +212,18 @@
           <span class="text-[10px] font-semibold text-[#ccc] uppercase">Preview</span>
         </div>
 
-        <StickerCanvas
-          {stickers}
-          onMove={moveSticker}
-          onRemove={removeSticker}
-          class="flex-1 min-h-0 rounded-xl overflow-hidden"
-        >
-          <div class="w-full h-full bg-[#141412] rounded-xl flex items-center justify-center p-2 relative overflow-hidden">
-            {#if selectedTemplate}
-              {@const tWidth = selectedTemplate.width || 1200}
-              {@const tHeight = selectedTemplate.height || 1800}
-              <div
-                class="relative h-full max-w-full overflow-hidden rounded-lg bg-black/40 shadow-md"
-                style="aspect-ratio: {tWidth} / {tHeight};"
-              >
+        <div class="flex-1 min-h-0 w-full bg-[#141412] rounded-xl flex items-center justify-center p-3 relative overflow-hidden">
+          {#if selectedTemplate}
+            {@const tWidth = selectedTemplate.width || 1200}
+            {@const tHeight = selectedTemplate.height || 1800}
+            <StickerCanvas
+              {stickers}
+              onMove={moveSticker}
+              onRemove={removeSticker}
+              class="relative max-h-full max-w-full overflow-hidden rounded-lg shadow-md"
+              containerStyle="aspect-ratio: {tWidth} / {tHeight}; width: auto; height: auto;"
+            >
+              <div class="relative w-full h-full bg-black/40 overflow-hidden">
                 {#if templateLayers.length > 0}
                   {#each templateLayers.filter((l) => !l.isQr) as layer, idx (layer.id ?? idx)}
                     {@const layerZIndex = getLayerZIndex(layer, templateLayers)}
@@ -240,14 +245,15 @@
                           <img
                             src={layerBgUrl}
                             alt="Frame Overlay"
+                            loading="eager"
+                            decoding="async"
                             class="w-full h-full object-fill pointer-events-none block"
                           />
                         {/if}
                       {:else}
-                        {@const slotIdx = photoSlots.findIndex((s) => s.id === layer.id || s === layer)}
-                        {@const targetIdx = slotIdx >= 0 ? slotIdx : 0}
-                        {@const capturedPhoto = photos[targetIdx]}
-                        <div class="w-full h-full bg-black/40 relative">
+                        {@const targetIdx = findPhotoSlotIndex(layer, photoSlots)}
+                        {@const capturedPhoto = photos[targetIdx] || boothFlow.photosTaken[targetIdx]}
+                        <div class="w-full h-full bg-black/40 relative overflow-hidden">
                           {#if capturedPhoto}
                             <img
                               src={capturedPhoto}
@@ -266,11 +272,11 @@
                   {/each}
                 {/if}
               </div>
-            {:else}
-              <div class="text-white/40 text-xs">Loading Template...</div>
-            {/if}
-          </div>
-        </StickerCanvas>
+            </StickerCanvas>
+          {:else}
+            <div class="text-white/40 text-xs">Loading Template...</div>
+          {/if}
+        </div>
 
         <button
           onclick={onNext}

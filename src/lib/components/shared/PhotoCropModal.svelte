@@ -9,7 +9,7 @@
   import { boothConfig } from '$lib/stores/boothConfig.svelte';
   import { cameraStore } from '$lib/camera.svelte';
   import { getLiveviewTransformStyle, getPhotoSlotTransformStyle } from '$lib/utils/shared';
-  import { getLayerZIndex, type TemplateDesignLayer } from '$lib/utils/templateComposite';
+  import { getLayerZIndex, findPhotoSlotIndex, type TemplateDesignLayer } from '$lib/utils/templateComposite';
   import type { BoothTemplate } from '$lib/api/boothClient';
   import { STICKER_EMOJI_PX, STICKER_IMAGE_PX, type Sticker } from '$lib/utils/stickers';
 
@@ -80,8 +80,7 @@
   }
 
   function slotIndexOf(layer: TemplateDesignLayer) {
-    const idx = photoSlots.findIndex((s) => s.id === layer.id || s === layer);
-    return idx >= 0 ? idx : 0;
+    return findPhotoSlotIndex(layer, photoSlots);
   }
 
   function onPointerDown(e: PointerEvent, index: number) {

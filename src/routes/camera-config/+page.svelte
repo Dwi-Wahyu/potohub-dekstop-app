@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import { Settings } from "@lucide/svelte";
   import { cameraStore } from "$lib/camera.svelte";
   import { printerStore } from "$lib/printer.svelte";
 
@@ -205,16 +206,27 @@
       {:else}
         <div class="flex flex-col gap-1">
           <label class="text-sm text-neutral-400" for="printer-select">Pilih Printer</label>
-          <select
-            id="printer-select"
-            class="bg-neutral-900 border border-neutral-700 rounded px-3 py-2 text-sm"
-            bind:value={printerStore.selectedPrinter}
-            onchange={() => printerStore.refreshStatus()}
-          >
-            {#each printerStore.printers as p}
-              <option value={p}>{p}</option>
-            {/each}
-          </select>
+          <div class="flex items-center gap-2">
+            <select
+              id="printer-select"
+              class="bg-neutral-900 border border-neutral-700 rounded px-3 py-2 text-sm flex-1"
+              bind:value={printerStore.selectedPrinter}
+              onchange={() => printerStore.refreshStatus()}
+            >
+              {#each printerStore.printers as p}
+                <option value={p}>{p}</option>
+              {/each}
+            </select>
+            <button
+              type="button"
+              class="p-2 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 rounded border border-neutral-700 transition"
+              title="Buka Pengaturan Printer Properties / Preferences (Aktifkan 2-Inch Cut)"
+              disabled={!printerStore.selectedPrinter}
+              onclick={() => printerStore.openPrinterProperties(printerStore.selectedPrinter)}
+            >
+              <Settings class="w-4 h-4" />
+            </button>
+          </div>
         </div>
 
         {#if printerStore.status}

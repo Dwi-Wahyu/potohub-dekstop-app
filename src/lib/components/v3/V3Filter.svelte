@@ -11,7 +11,7 @@
   import PhotoCropButton from '$lib/components/shared/PhotoCropButton.svelte';
   import { fetchEmots, fetchTemplates, requireActiveBoothId, type BoothEmot, type BoothTemplate } from '$lib/api/boothClient';
   import { cachedFetch } from '$lib/utils/offlineCache';
-  import { getSortedPhotoSlots, getTemplateLayers, getLayerZIndex } from '$lib/utils/templateComposite';
+  import { getSortedPhotoSlots, getTemplateLayers, getLayerZIndex, findPhotoSlotIndex } from '$lib/utils/templateComposite';
   import { Check, Sparkles } from '@lucide/svelte';
   import type { Sticker, StickerType } from '$lib/utils/stickers';
 
@@ -180,12 +180,12 @@
             {stickers}
             onMove={moveSticker}
             onRemove={removeSticker}
-            class="relative h-full max-w-full overflow-hidden rounded-xl shadow-2xl border-2 border-gray-200"
-            containerStyle="aspect-ratio: {tWidth} / {tHeight};"
+            class="relative max-h-full max-w-full overflow-hidden rounded-xl shadow-2xl border-2 border-gray-200"
+            containerStyle="aspect-ratio: {tWidth} / {tHeight}; width: auto; height: auto;"
           >
             <div class="relative w-full h-full bg-black/40 overflow-hidden">
               {#if templateLayers.length > 0}
-                {#each templateLayers.filter((l) => !l.isQr) as layer, idx (layer.id ?? idx)}
+                {#each templateLayers.filter((l) => !l.isQr) as layer, idx (layer.isBackground ? 'bg-layer' : `slot-${idx}`)}
                   {@const layerZIndex = getLayerZIndex(layer, templateLayers)}
                   <div
                     class="absolute overflow-hidden {layer.isBackground ? 'pointer-events-none' : ''}"
@@ -205,12 +205,13 @@
                         <img
                           src={layerBgUrl}
                           alt="Frame Overlay"
+                          loading="eager"
+                          decoding="async"
                           class="w-full h-full object-fill pointer-events-none block"
                         />
                       {/if}
                     {:else}
-                      {@const slotIdx = photoSlots.findIndex((s) => s.id === layer.id || s === layer)}
-                      {@const targetIdx = slotIdx >= 0 ? slotIdx : 0}
+                      {@const targetIdx = findPhotoSlotIndex(layer, photoSlots)}
                       {@const capturedPhoto = boothFlow.photosTaken[targetIdx]}
                       <div class="w-full h-full bg-black/40 relative overflow-hidden">
                         {#if capturedPhoto}

@@ -129,9 +129,10 @@
 
     if (selectedTemplate) {
       try {
+        const effectivePhotos = photos.length > 0 ? photos : boothFlow.photosTaken;
         compositeUrl = await compositeTemplateImage(
           selectedTemplate,
-          photos,
+          effectivePhotos,
           boothFlow.selectedFilterId,
           softfileUrl,
           boothFlow.stickers
@@ -374,7 +375,7 @@
     <!-- Left: composited photo frame mockup with Toggle -->
     <div class="flex flex-col items-center shrink-0">
       <div
-        class="flex flex-col overflow-hidden bg-[#1a1a1a] border-[3px] border-[#e8e8e8] rounded-[24px] w-[260px] shadow-[0_24px_64px_rgba(0,0,0,0.7)]"
+        class="flex flex-col overflow-hidden bg-[#1a1a1a] border-[3px] border-[#e8e8e8] rounded-[24px] w-[280px] xl:w-[320px] max-w-[85vw] shadow-[0_24px_64px_rgba(0,0,0,0.7)]"
       >
         <div class="p-3 bg-[#111] flex items-center justify-center min-h-[380px]">
           {#if activePreviewTab === 'strip'}

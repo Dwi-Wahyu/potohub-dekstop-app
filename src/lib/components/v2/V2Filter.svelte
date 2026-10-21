@@ -11,7 +11,8 @@
   import PhotoCropButton from '$lib/components/shared/PhotoCropButton.svelte';
   import { fetchEmots, fetchTemplates, requireActiveBoothId, type BoothEmot, type BoothTemplate } from '$lib/api/boothClient';
   import { cachedFetch } from '$lib/utils/offlineCache';
-  import { getSortedPhotoSlots, getTemplateLayers, getLayerZIndex } from '$lib/utils/templateComposite';
+  import { getSortedPhotoSlots, getTemplateLayers, getLayerZIndex, findPhotoSlotIndex } from '$lib/utils/templateComposite';
+  import { resolveFilterCss } from '$lib/utils/filters';
   import type { Sticker, StickerType } from '$lib/utils/stickers';
   import { QrCode, ChevronLeft, ChevronRight, ArrowRight, Camera } from '@lucide/svelte';
 
@@ -195,29 +196,27 @@
           <!-- svelte-ignore a11y_no_static_element_interactions -->
           <div
             onclick={() => !isActive && (activeFilterIndex = i)}
-            class={`absolute aspect-[2/3] border-[3px] rounded-3xl bg-white p-3 transition-all duration-300 ${
+            class={`absolute border-[3px] rounded-3xl bg-white p-3 transition-all duration-300 flex items-center justify-center ${
               isActive
                 ? 'border-black shadow-[8px_8px_0_0_rgba(0,0,0,1)] z-10 scale-100 cursor-default'
                 : 'border-gray-400 opacity-50 z-0 scale-[0.82] cursor-pointer'
             } ${isPrev ? '-translate-x-[200px]' : isNext ? 'translate-x-[200px]' : ''}`}
-            style="height: 100%;"
+            style="height: 100%; aspect-ratio: {selectedTemplate ? `${selectedTemplate.width || 1200} / ${selectedTemplate.height || 1800}` : '2/3'};"
           >
             {#if isActive}
-              <StickerCanvas
-                {stickers}
-                onMove={moveSticker}
-                onRemove={removeSticker}
-                class="w-full h-full"
-              >
-                {#if selectedTemplate}
-                  {@const tWidth = selectedTemplate.width || 1200}
-                  {@const tHeight = selectedTemplate.height || 1800}
-                  <div
-                    class="relative h-full max-w-full overflow-hidden rounded-xl bg-black/40 shadow-md mx-auto"
-                    style="aspect-ratio: {tWidth} / {tHeight};"
-                  >
+              {#if selectedTemplate}
+                {@const tWidth = selectedTemplate.width || 1200}
+                {@const tHeight = selectedTemplate.height || 1800}
+                <StickerCanvas
+                  {stickers}
+                  onMove={moveSticker}
+                  onRemove={removeSticker}
+                  class="relative max-h-full max-w-full overflow-hidden rounded-xl shadow-md mx-auto"
+                  containerStyle="aspect-ratio: {tWidth} / {tHeight}; width: auto; height: auto;"
+                >
+                  <div class="relative w-full h-full bg-black/40 overflow-hidden">
                     {#if templateLayers.length > 0}
-                      {#each (templateLayers || []).filter((l) => !l.isQr) as layer, idx (layer.id ?? idx)}
+                      {#each (templateLayers || []).filter((l) => !l.isQr) as layer, idx (layer.isBackground ? 'bg-layer' : `slot-${idx}`)}
                         {@const layerZIndex = getLayerZIndex(layer, templateLayers)}
                         <div
                           class="absolute overflow-hidden {layer.isBackground ? 'pointer-events-none' : ''}"
@@ -241,16 +240,15 @@
                               />
                             {/if}
                           {:else}
-                            {@const slotIdx = photoSlots.findIndex((s) => s.id === layer.id || s === layer)}
-                            {@const targetIdx = slotIdx >= 0 ? slotIdx : 0}
+                            {@const targetIdx = findPhotoSlotIndex(layer, photoSlots)}
                             {@const capturedPhoto = boothFlow.photosTaken[targetIdx]}
                             <div class="w-full h-full bg-black/40 relative overflow-hidden">
                               {#if capturedPhoto}
                                 <img
                                   src={capturedPhoto}
                                   alt={`Photo ${targetIdx + 1}`}
-                                  class={`w-full h-full object-cover block ${f.style}`}
-                                  style="transform: {getPhotoSlotTransformStyle(boothFlow.getPhotoTransform(capturedPhoto), getLiveviewTransformStyle(boothConfig.config, cameraStore.cameraMode))};"
+                                  class="w-full h-full object-cover block"
+                                  style="filter: {resolveFilterCss(f.id)}; transform: {getPhotoSlotTransformStyle(boothFlow.getPhotoTransform(capturedPhoto), getLiveviewTransformStyle(boothConfig.config, cameraStore.cameraMode))};"
                                 />
                               {/if}
                             </div>
@@ -259,29 +257,29 @@
                       {/each}
                     {/if}
                   </div>
-                {:else}
-                  <div class="w-full h-full flex flex-col gap-2">
-                    <div class="grid grid-cols-2 gap-2 flex-1 w-full h-full">
-                      {#each boothFlow.photosTaken as photo, pIdx}
-                        <div class={`border-2 border-black bg-gray-300 overflow-hidden ${f.style}`}>
-                          <img src={photo} alt={`P ${pIdx+1}`} class="w-full h-full object-cover" />
-                        </div>
-                      {/each}
-                    </div>
+                </StickerCanvas>
+              {:else}
+                <div class="w-full h-full flex flex-col gap-2">
+                  <div class="grid grid-cols-2 gap-2 flex-1 w-full h-full">
+                    {#each boothFlow.photosTaken as photo, pIdx}
+                      <div class="border-2 border-black bg-gray-300 overflow-hidden">
+                        <img src={photo} alt={`P ${pIdx+1}`} class="w-full h-full object-cover" style="filter: {resolveFilterCss(f.id)};" />
+                      </div>
+                    {/each}
                   </div>
-                {/if}
-              </StickerCanvas>
+                </div>
+              {/if}
             {:else}
               <div class="w-full h-full flex flex-col items-center justify-center blur-[1px] opacity-70">
                 {#if selectedTemplate}
                   {@const tWidth = selectedTemplate.width || 1200}
                   {@const tHeight = selectedTemplate.height || 1800}
                   <div
-                    class="relative h-full max-w-full overflow-hidden rounded-xl bg-black/40 shadow-md mx-auto"
-                    style="aspect-ratio: {tWidth} / {tHeight};"
+                    class="relative max-h-full max-w-full overflow-hidden rounded-xl bg-black/40 shadow-md mx-auto"
+                    style="aspect-ratio: {tWidth} / {tHeight}; width: auto; height: auto;"
                   >
                     {#if templateLayers.length > 0}
-                      {#each (templateLayers || []).filter((l) => !l.isQr) as layer, idx (layer.id ?? idx)}
+                      {#each (templateLayers || []).filter((l) => !l.isQr) as layer, idx (layer.isBackground ? 'bg-layer' : `slot-${idx}`)}
                         {@const layerZIndex = getLayerZIndex(layer, templateLayers)}
                         <div
                           class="absolute overflow-hidden {layer.isBackground ? 'pointer-events-none' : ''}"
@@ -305,16 +303,15 @@
                               />
                             {/if}
                           {:else}
-                            {@const slotIdx = photoSlots.findIndex((s) => s.id === layer.id || s === layer)}
-                            {@const targetIdx = slotIdx >= 0 ? slotIdx : 0}
+                            {@const targetIdx = findPhotoSlotIndex(layer, photoSlots)}
                             {@const capturedPhoto = boothFlow.photosTaken[targetIdx]}
                             <div class="w-full h-full bg-black/40 relative overflow-hidden">
                               {#if capturedPhoto}
                                 <img
                                   src={capturedPhoto}
                                   alt={`Photo ${targetIdx + 1}`}
-                                  class={`w-full h-full object-cover block ${f.style}`}
-                                  style="transform: {getPhotoSlotTransformStyle(boothFlow.getPhotoTransform(capturedPhoto), getLiveviewTransformStyle(boothConfig.config, cameraStore.cameraMode))};"
+                                  class="w-full h-full object-cover block"
+                                  style="filter: {resolveFilterCss(f.id)}; transform: {getPhotoSlotTransformStyle(boothFlow.getPhotoTransform(capturedPhoto), getLiveviewTransformStyle(boothConfig.config, cameraStore.cameraMode))};"
                                 />
                               {/if}
                             </div>
@@ -326,8 +323,8 @@
                 {:else}
                   <div class="grid grid-cols-2 gap-2 flex-1 w-full h-full">
                     {#each boothFlow.photosTaken as photo, pIdx}
-                      <div class={`border-2 border-black bg-gray-300 overflow-hidden ${f.style}`}>
-                        <img src={photo} alt={`P ${pIdx+1}`} class="w-full h-full object-cover" />
+                      <div class="border-2 border-black bg-gray-300 overflow-hidden">
+                        <img src={photo} alt={`P ${pIdx+1}`} class="w-full h-full object-cover" style="filter: {resolveFilterCss(f.id)};" />
                       </div>
                     {/each}
                   </div>

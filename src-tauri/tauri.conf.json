@@ -36,7 +36,8 @@
       "nsis": {
         "installerIcon": "icons/icon.ico",
         "sidebarImage": "static/sidebar.bmp",
-        "headerImage": "static/header.bmp"
+        "headerImage": "static/header.bmp",
+        "installerHooks": "windows/hooks.nsh"
       },
       "wix": {
         "dialogImagePath": "static/dialog.bmp",
@@ -46,7 +47,8 @@
     "resources": {
       "gphoto-libs/*": ".",
       "gphoto-libs/camlibs/*": "camlibs",
-      "gphoto-libs/iolibs/*": "iolibs"
+      "gphoto-libs/iolibs/*": "iolibs",
+      "drivers/*": "drivers"
     },
     "externalBin": ["binaries/ffmpeg"],
     "icon": [

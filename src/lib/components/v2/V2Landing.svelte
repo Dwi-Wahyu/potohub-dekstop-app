@@ -3,7 +3,8 @@
   import { uiConfig } from '$lib/stores/uiConfig.svelte';
   import PinPad from '$lib/components/shared/PinPad.svelte';
   import IdleBannerModal from '$lib/components/shared/IdleBannerModal.svelte';
-  import { setWindowDecorations } from '$lib/utils/windowControl';
+  import { setWindowDecorations, setWindowMinimizable } from '$lib/utils/windowControl';
+  import OperatorAccessControl from '$lib/components/shared/OperatorAccessControl.svelte';
 
   interface Props {
     onStart: () => void;
@@ -15,9 +16,11 @@
 
   onMount(() => {
     void setWindowDecorations(false);
+    void setWindowMinimizable(false);
   });
 
   let showPinModal = $state(false);
+  let isOperatorUnlocked = $state(false);
   let tapCount = $state(0);
   let tapTimer: any = null;
 
@@ -97,7 +100,10 @@
     </p>
 
     <button
-      onclick={onStart}
+      onclick={() => {
+        isOperatorUnlocked = false;
+        onStart();
+      }}
       class="px-14 py-3.5 border-[2.5px] border-black rounded-full text-lg font-bold uppercase tracking-[0.2em] font-['Nunito',sans-serif] hover:bg-black hover:text-white transition-all active:scale-95 shadow-[4px_4px_0_0_#000] hover:shadow-none hover:translate-x-1 hover:translate-y-1 cursor-pointer bg-white text-black"
     >
       Start
@@ -106,6 +112,14 @@
 
   <!-- Idle Promo Banner Popup Slider -->
   <IdleBannerModal disabled={showPinModal} />
+
+  <!-- Operator Access Control (Icon gembok di kanan atas, Minimize (-) dan Close (x) di kiri atas saat terbuka, Config Dashboard di kanan bawah) -->
+  <OperatorAccessControl
+    bind:showPinModal
+    bind:isOperatorUnlocked
+    onTriggerPin={() => (showPinModal = true)}
+    {onOpenConfig}
+  />
 
   {#if showPinModal}
     <div
@@ -116,7 +130,7 @@
       <PinPad
         onSuccess={() => {
           showPinModal = false;
-          onOpenConfig();
+          isOperatorUnlocked = true;
         }}
         onCancel={() => (showPinModal = false)}
       />

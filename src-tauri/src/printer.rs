@@ -54,7 +54,9 @@ mod platform {
     use std::ffi::OsStr;
     use std::os::windows::ffi::OsStrExt;
     use std::ptr;
+    use winapi::ctypes::c_int;
     use winapi::shared::minwindef::DWORD;
+    use winapi::um::wingdi::*;
     use winapi::um::winspool::*;
 
     fn to_wide(s: &str) -> Vec<u16> {
@@ -315,78 +317,260 @@ mod platform {
         })
     }
 
-    pub fn print_image_bytes(
+    fn print_via_gdi(
         printer_name: &str,
         image_bytes: &[u8],
         options: &PrintOptions,
     ) -> Result<(), PrinterError> {
-        let wide_name = to_wide(printer_name);
-        let mut handle: winapi::shared::ntdef::HANDLE = ptr::null_mut();
+        let wide_driver = to_wide("WINSPOOL");
+        let wide_device = to_wide(printer_name);
 
-        let open_res =
-            unsafe { OpenPrinterW(wide_name.as_ptr() as *mut _, &mut handle, ptr::null_mut()) };
-        if open_res == 0 || handle.is_null() {
-            return Err(PrinterError::PrinterNotFound(printer_name.to_string()));
-        }
-
-        let mut doc_name = to_wide("Photobooth Photo");
-        let mut data_type = to_wide("RAW");
-
-        let mut doc_info = DOC_INFO_1W {
-            pDocName: doc_name.as_mut_ptr(),
-            pOutputFile: ptr::null_mut(),
-            pDatatype: data_type.as_mut_ptr(),
+        let mut hdc = unsafe {
+            CreateDCW(
+                wide_driver.as_ptr(),
+                wide_device.as_ptr(),
+                ptr::null(),
+                ptr::null(),
+            )
         };
 
-        let start_doc = unsafe { StartDocPrinterW(handle, 1, &mut doc_info as *mut _ as *mut _) };
-        if start_doc == 0 {
-            unsafe { ClosePrinter(handle) };
+        if hdc.is_null() {
+            hdc = unsafe {
+                CreateDCW(
+                    ptr::null(),
+                    wide_device.as_ptr(),
+                    ptr::null(),
+                    ptr::null(),
+                )
+            };
+        }
+
+        if hdc.is_null() {
+            return Err(PrinterError::PrintFailed(format!(
+                "Gagal membuat Device Context (DC) untuk printer '{}'",
+                printer_name
+            )));
+        }
+
+        let mut dynamic_img = image::load_from_memory(image_bytes).map_err(|e| {
+            unsafe { DeleteDC(hdc) };
+            PrinterError::PrintFailed(format!("Gagal mendecode file gambar: {}", e))
+        })?;
+
+        let doc_name = to_wide("PotoHub Photo Print");
+        let doc_info = DOCINFOW {
+            cbSize: std::mem::size_of::<DOCINFOW>() as c_int,
+            lpszDocName: doc_name.as_ptr(),
+            lpszOutput: ptr::null(),
+            lpszDatatype: ptr::null(),
+            fwType: 0,
+        };
+
+        let start_doc = unsafe { StartDocW(hdc, &doc_info) };
+        if start_doc <= 0 {
+            unsafe { DeleteDC(hdc) };
             return Err(PrinterError::PrintFailed(
-                "Gagal memulai dokumen printer".into(),
+                "Gagal memulai StartDocW di printer".into(),
             ));
         }
 
-        for _copy in 0..options.copies.max(1) {
-            let start_page = unsafe { StartPagePrinter(handle) };
-            if start_page == 0 {
+        let horz_res = unsafe { GetDeviceCaps(hdc, HORZRES) };
+        let vert_res = unsafe { GetDeviceCaps(hdc, VERTRES) };
+
+        // Sesuaikan orientasi gambar dengan orientasi kertas printer agar tidak terpotong
+        if horz_res > 0 && vert_res > 0 {
+            let img_is_landscape = dynamic_img.width() > dynamic_img.height();
+            let page_is_landscape = horz_res > vert_res;
+            if img_is_landscape != page_is_landscape {
+                dynamic_img = dynamic_img.rotate90();
+            }
+        }
+
+        let img_w = dynamic_img.width();
+        let img_h = dynamic_img.height();
+        let rgba = dynamic_img.to_rgba8();
+
+        // Konversi format ke 32-bit BGRA (DIB format)
+        let mut bgra = Vec::with_capacity((img_w * img_h * 4) as usize);
+        for p in rgba.chunks_exact(4) {
+            bgra.push(p[2]); // B
+            bgra.push(p[1]); // G
+            bgra.push(p[0]); // R
+            bgra.push(p[3]); // A
+        }
+
+        let bmi = BITMAPINFO {
+            bmiHeader: BITMAPINFOHEADER {
+                biSize: std::mem::size_of::<BITMAPINFOHEADER>() as DWORD,
+                biWidth: img_w as i32,
+                biHeight: -(img_h as i32), // Top-down DIB
+                biPlanes: 1,
+                biBitCount: 32,
+                biCompression: BI_RGB,
+                biSizeImage: (img_w * img_h * 4) as DWORD,
+                biXPelsPerMeter: 0,
+                biYPelsPerMeter: 0,
+                biClrUsed: 0,
+                biClrImportant: 0,
+            },
+            bmiColors: [RGBQUAD {
+                rgbBlue: 0,
+                rgbGreen: 0,
+                rgbRed: 0,
+                rgbReserved: 0,
+            }],
+        };
+
+        let copies = options.copies.max(1);
+        for _copy in 0..copies {
+            let start_page = unsafe { StartPage(hdc) };
+            if start_page <= 0 {
                 unsafe {
-                    EndDocPrinter(handle);
-                    ClosePrinter(handle);
+                    EndDoc(hdc);
+                    DeleteDC(hdc);
                 }
                 return Err(PrinterError::PrintFailed(
-                    "Gagal memulai halaman cetak".into(),
+                    "Gagal memulai StartPage di printer".into(),
                 ));
             }
 
-            let mut bytes_written: DWORD = 0;
-            let write_res = unsafe {
-                WritePrinter(
-                    handle,
-                    image_bytes.as_ptr() as *mut _,
-                    image_bytes.len() as DWORD,
-                    &mut bytes_written,
+            unsafe {
+                SetStretchBltMode(hdc, HALFTONE);
+                SetBrushOrgEx(hdc, 0, 0, ptr::null_mut());
+            }
+
+            let (dst_w, dst_h) = if horz_res > 0 && vert_res > 0 {
+                (horz_res, vert_res)
+            } else {
+                (img_w as i32, img_h as i32)
+            };
+
+            let draw_res = unsafe {
+                StretchDIBits(
+                    hdc,
+                    0,
+                    0,
+                    dst_w,
+                    dst_h,
+                    0,
+                    0,
+                    img_w as i32,
+                    img_h as i32,
+                    bgra.as_ptr() as *const _,
+                    &bmi,
+                    DIB_RGB_COLORS,
+                    SRCCOPY,
                 )
             };
 
-            unsafe { EndPagePrinter(handle) };
+            unsafe { EndPage(hdc) };
 
-            if write_res == 0 || bytes_written as usize != image_bytes.len() {
+            if draw_res <= 0 {
                 unsafe {
-                    EndDocPrinter(handle);
-                    ClosePrinter(handle);
+                    EndDoc(hdc);
+                    DeleteDC(hdc);
                 }
                 return Err(PrinterError::PrintFailed(
-                    "Gagal menulis data ke printer".into(),
+                    "Gagal merender data gambar ke printer (StretchDIBits)".into(),
                 ));
             }
         }
 
         unsafe {
-            EndDocPrinter(handle);
-            ClosePrinter(handle);
+            EndDoc(hdc);
+            DeleteDC(hdc);
         }
 
         Ok(())
+    }
+
+    fn print_via_powershell(
+        printer_name: &str,
+        image_bytes: &[u8],
+        options: &PrintOptions,
+    ) -> Result<(), PrinterError> {
+        let temp_dir = std::env::temp_dir();
+        let temp_file = temp_dir.join(format!("potohub_print_{}.jpg", uuid::Uuid::new_v4()));
+        std::fs::write(&temp_file, image_bytes).map_err(|e| {
+            PrinterError::PrintFailed(format!("Gagal menulis temporary image: {}", e))
+        })?;
+
+        let escaped_printer = printer_name.replace('\'', "''");
+        let escaped_path = temp_file.to_string_lossy().replace('\'', "''");
+        let copies = options.copies.max(1);
+
+        let ps_script = format!(
+            concat!(
+                "Add-Type -AssemblyName System.Drawing;\n",
+                "$doc = New-Object System.Drawing.Printing.PrintDocument;\n",
+                "$doc.PrinterSettings.PrinterName = '{printer}';\n",
+                "$doc.PrinterSettings.Copies = {copies};\n",
+                "$doc.OriginAtMargins = $false;\n",
+                "$img = [System.Drawing.Image]::FromFile('{path}');\n",
+                "if ($img.Width -gt $img.Height) {{ $doc.DefaultPageSettings.Landscape = $true; }}\n",
+                "$doc.add_PrintPage({{\n",
+                "    param($sender, $ev)\n",
+                "    $ev.Graphics.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic;\n",
+                "    $ev.Graphics.DrawImage($img, $ev.PageBounds);\n",
+                "}});\n",
+                "$doc.Print();\n",
+                "$img.Dispose();\n",
+                "$doc.Dispose();"
+            ),
+            printer = escaped_printer,
+            copies = copies,
+            path = escaped_path
+        );
+
+        let output = std::process::Command::new("powershell")
+            .args(["-NoProfile", "-NonInteractive", "-Command", &ps_script])
+            .output();
+
+        let _ = std::fs::remove_file(&temp_file);
+
+        match output {
+            Ok(out) if out.status.success() => Ok(()),
+            Ok(out) => {
+                let err_msg = String::from_utf8_lossy(&out.stderr);
+                Err(PrinterError::PrintFailed(format!(
+                    "Gagal print via PowerShell: {}",
+                    err_msg.trim()
+                )))
+            }
+            Err(e) => Err(PrinterError::PrintFailed(format!(
+                "Gagal mengeksekusi PowerShell print: {}",
+                e
+            ))),
+        }
+    }
+
+    pub fn print_image_bytes(
+        printer_name: &str,
+        image_bytes: &[u8],
+        options: &PrintOptions,
+    ) -> Result<(), PrinterError> {
+        if image_bytes.is_empty() {
+            return Err(PrinterError::PrintFailed("Buffer gambar kosong".into()));
+        }
+
+        // Coba print secara native via GDI (cepat, hemat resource, printer-agnostik)
+        match print_via_gdi(printer_name, image_bytes, options) {
+            Ok(()) => {
+                println!(
+                    "[PRINTER GDI] Berhasil mencetak {} copy ke {}",
+                    options.copies, printer_name
+                );
+                Ok(())
+            }
+            Err(err) => {
+                eprintln!(
+                    "[PRINTER GDI] GDI print gagal ({:?}), beralih ke PowerShell fallback...",
+                    err
+                );
+                // Fallback ke PowerShell System.Drawing print subsystem
+                print_via_powershell(printer_name, image_bytes, options)
+            }
+        }
     }
 }
 

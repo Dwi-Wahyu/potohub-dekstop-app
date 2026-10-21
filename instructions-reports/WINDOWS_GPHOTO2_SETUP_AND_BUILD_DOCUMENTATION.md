@@ -192,7 +192,7 @@ Berikut adalah **Checklist Wajib** untuk menjamin kamera DSLR/Mirrorless dapat d
 
 | No | Komponen | Kriteria & Tindakan |
 | :--- | :--- | :--- |
-| 1 | **Driver USB (Zadig)** | Gunakan **Zadig** (Run as Administrator) → Pilih kamera (misal `Canon Digital Camera` - VID: `04A9`, PID: `32E1`) → Ganti driver bawaan Windows (MTP/WPD) menjadi **`WinUSB (v6.1.7600.16385 atau lebih baru)`**. Jika driver tetap MTP, libgphoto2 tidak bisa membuka komunikasi raw USB. |
+| 1 | **Driver USB (UsbDk / WinUSB)** | **Metode Baru (Otomatis & Tanpa Zadig):** Aplikasi kini mendukung **UsbDk (USB Development Kit)**. Driver UsbDk dipasang otomatis melalui installer aplikasi (`UsbDk_1.0.22_x64.msi`), dan libusb otomatis mengaktifkan backend UsbDk saat start. Kamera tetap berdriver standar di Device Manager tanpa perlu Zadig.<br>**Metode Lama (Fallback):** Gunakan **Zadig** → Ganti driver kamera menjadi **WinUSB**. Masih didukung penuh sebagai fallback jika UsbDk tidak aktif. |
 | 2 | **Auto Power Off (Kamera Fisik)** | Kamera Canon secara default memiliki fitur sleep (*Auto Power Off*) setelah 30 detik / 1 menit tidak aktif. Saat tidur, status USB menjadi `Unknown`/terputus. **Wajib atur menu kamera: Auto Power Off = Disable / Mati**. |
 | 3 | **Kabel & Port USB** | Gunakan kabel data berkualitas tinggi (bukan kabel charger HP tanpa jalur data). Tancapkan langsung ke port USB motherboard belakang pada PC, hindari USB Hub pasif murahan yang dapat menyebabkan voltage drop. |
 | 4 | **Struktur Library Lengkap** | Pastikan folder `iolibs/` memiliki `usb1.dll` dan folder `camlibs/` memiliki `ptp2.dll` serta didampingi `libusb-1.0.dll` di folder root. |

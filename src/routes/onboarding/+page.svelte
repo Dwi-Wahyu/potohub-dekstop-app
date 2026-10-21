@@ -53,13 +53,11 @@
       loginPurpose = 'journey';
       step = 'login';
       activeField = 'email';
-      kbOpen = true;
     } catch (e) {
       console.error(e);
       loginPurpose = 'journey';
       step = 'login';
       activeField = 'email';
-      kbOpen = true;
     } finally {
       loading = false;
     }
@@ -78,13 +76,11 @@
       loginPurpose = 'settings';
       step = 'login';
       activeField = 'email';
-      kbOpen = true;
     } catch (e) {
       console.error(e);
       loginPurpose = 'settings';
       step = 'login';
       activeField = 'email';
-      kbOpen = true;
     } finally {
       loading = false;
     }
@@ -109,7 +105,6 @@
       } else {
         step = 'activation';
         activeField = 'code';
-        kbOpen = true;
       }
     } catch (e) {
       console.error(e);
@@ -536,11 +531,9 @@
           bind:value={email}
           onfocus={() => {
             activeField = 'email';
-            kbOpen = true;
           }}
           onclick={() => {
             activeField = 'email';
-            kbOpen = true;
           }}
           placeholder="Email"
           disabled={loading}
@@ -568,11 +561,9 @@
             bind:value={password}
             onfocus={() => {
               activeField = 'password';
-              kbOpen = true;
             }}
             onclick={() => {
               activeField = 'password';
-              kbOpen = true;
             }}
             placeholder="Password"
             disabled={loading}
@@ -756,11 +747,9 @@
           bind:value={code}
           onfocus={() => {
             activeField = 'code';
-            kbOpen = true;
           }}
           onclick={() => {
             activeField = 'code';
-            kbOpen = true;
           }}
           placeholder="Masukkan Kode Aktivasi"
           disabled={loading}

@@ -41,6 +41,70 @@ async fn is_camera_connected(state: State<'_, AppState>) -> Result<bool, GphotoE
 }
 
 #[tauri::command]
+async fn is_usbdk_installed() -> bool {
+    #[cfg(target_os = "windows")]
+    {
+        std::path::Path::new("C:\\Windows\\System32\\drivers\\UsbDk.sys").exists()
+            || std::path::Path::new("C:\\Windows\\System32\\UsbDkHelper.dll").exists()
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        true
+    }
+}
+
+#[tauri::command]
+async fn install_usbdk(app: tauri::AppHandle) -> Result<String, String> {
+    #[cfg(target_os = "windows")]
+    {
+        use tauri::Manager;
+        let resource_dir = app.path().resource_dir().map_err(|e| e.to_string())?;
+        let msi_path = resource_dir.join("drivers").join("UsbDk_1.0.22_x64.msi");
+        let target_msi = if msi_path.exists() {
+            msi_path
+        } else {
+            let exe_path = std::env::current_exe().map_err(|e| e.to_string())?;
+            let exe_dir = exe_path.parent().unwrap_or(std::path::Path::new("."));
+            let candidate1 = exe_dir.join("drivers/UsbDk_1.0.22_x64.msi");
+            let candidate2 = exe_dir.join("../drivers/UsbDk_1.0.22_x64.msi");
+            let candidate3 = exe_dir.join("../../drivers/UsbDk_1.0.22_x64.msi");
+            if candidate1.exists() {
+                candidate1
+            } else if candidate2.exists() {
+                candidate2
+            } else if candidate3.exists() {
+                candidate3
+            } else {
+                std::path::PathBuf::from("drivers/UsbDk_1.0.22_x64.msi")
+            }
+        };
+
+        if !target_msi.exists() {
+            return Err("File installer UsbDk_1.0.22_x64.msi tidak ditemukan.".into());
+        }
+
+        let output = std::process::Command::new("msiexec.exe")
+            .args(&["/i", &target_msi.to_string_lossy(), "/qn", "/norestart"])
+            .output()
+            .map_err(|e| format!("Gagal menjalankan msiexec: {}", e))?;
+
+        if output.status.success() {
+            Ok("UsbDk driver berhasil dipasang secara otomatis.".into())
+        } else {
+            Err(format!(
+                "Pemasangan UsbDk gagal dengan kode exit {}. Pastikan memiliki hak administrator.",
+                output.status
+            ))
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = app;
+        Ok("UsbDk tidak diperlukan pada sistem operasi selain Windows.".into())
+    }
+}
+
+#[tauri::command]
 fn is_development_mode() -> bool {
     let args: Vec<String> = std::env::args().collect();
     let has_dev_flag = args.iter().any(|arg| {
@@ -335,6 +399,42 @@ pub fn init_gphoto_environment() {
                 SetDllDirectoryW(wide_root.as_ptr());
             }
 
+            // Workaround 1 (UsbDk): Aktifkan backend UsbDk pada libusb secara otomatis jika UsbDk terpasang.
+            // Memungkinkan libgphoto2 mengakses kamera secara low-level tanpa perlu mengganti driver USB via Zadig.
+            set_c_and_win_env("LIBUSB_USBDK", "1");
+            set_c_and_win_env("LIBUSB_ENABLE_USBDK", "1");
+
+            type LibusbSetOptionFn = unsafe extern "C" fn(*mut std::ffi::c_void, i32) -> i32;
+            unsafe {
+                extern "system" {
+                    fn LoadLibraryA(lpLibFileName: *const std::os::raw::c_char) -> *mut std::ffi::c_void;
+                    fn GetProcAddress(
+                        hModule: *mut std::ffi::c_void,
+                        lpProcName: *const std::os::raw::c_char,
+                    ) -> *mut std::ffi::c_void;
+                }
+
+                let libusb_dll_name = std::ffi::CString::new("libusb-1.0.dll").unwrap();
+                let h_libusb = LoadLibraryA(libusb_dll_name.as_ptr());
+                if !h_libusb.is_null() {
+                    let fn_name = std::ffi::CString::new("libusb_set_option").unwrap();
+                    let proc = GetProcAddress(h_libusb, fn_name.as_ptr());
+                    if !proc.is_null() {
+                        let set_option: LibusbSetOptionFn = std::mem::transmute(proc);
+                        // 1 = LIBUSB_OPTION_USE_USBDK
+                        let res = set_option(std::ptr::null_mut(), 1);
+                        if res == 0 {
+                            println!("[gphoto2-setup] UsbDk backend AKTIF di libusb (Kamera USB terhubung tanpa Zadig)!");
+                        } else {
+                            println!(
+                                "[gphoto2-setup] UsbDk option return code {} - fallback ke WinUSB standar.",
+                                res
+                            );
+                        }
+                    }
+                }
+            }
+
             println!("[gphoto2-setup] CAMLIBS = {}", camlibs_str);
             println!("[gphoto2-setup] IOLIBS  = {}", iolibs_str);
         }
@@ -562,6 +662,8 @@ pub fn run() {
             print_photo_from_buffer,
             save_qr_result,
             is_development_mode,
+            is_usbdk_installed,
+            install_usbdk,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

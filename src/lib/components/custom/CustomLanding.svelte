@@ -3,7 +3,8 @@
   import { uiConfig } from '$lib/stores/uiConfig.svelte';
   import PinPad from '$lib/components/shared/PinPad.svelte';
   import IdleBannerModal from '$lib/components/shared/IdleBannerModal.svelte';
-  import { setWindowDecorations } from '$lib/utils/windowControl';
+  import { setWindowDecorations, setWindowMinimizable } from '$lib/utils/windowControl';
+  import OperatorAccessControl from '$lib/components/shared/OperatorAccessControl.svelte';
 
   interface Props {
     onStart: () => void;
@@ -15,9 +16,11 @@
 
   onMount(() => {
     void setWindowDecorations(false);
+    void setWindowMinimizable(false);
   });
 
   let showPinModal = $state(false);
+  let isOperatorUnlocked = $state(false);
 
   function handleKeydown(e: KeyboardEvent) {
     if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'a' || e.key === 'A')) {
@@ -44,7 +47,10 @@
   style:font-family="'Poppins', sans-serif"
 >
   <button
-    onclick={onStart}
+    onclick={() => {
+      isOperatorUnlocked = false;
+      onStart();
+    }}
     style="
       position: absolute;
       left: {startBtnPos.x}%;
@@ -62,6 +68,14 @@
   <!-- Idle Promo Banner Popup Slider -->
   <IdleBannerModal disabled={showPinModal} />
 
+  <!-- Operator Access Control (Icon gembok di kanan atas, Minimize (-) dan Close (x) di kiri atas saat terbuka, Config Dashboard di kanan bawah) -->
+  <OperatorAccessControl
+    bind:showPinModal
+    bind:isOperatorUnlocked
+    onTriggerPin={() => (showPinModal = true)}
+    {onOpenConfig}
+  />
+
   {#if showPinModal}
     <div
       class="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4"
@@ -71,7 +85,7 @@
       <PinPad
         onSuccess={() => {
           showPinModal = false;
-          onOpenConfig();
+          isOperatorUnlocked = true;
         }}
         onCancel={() => (showPinModal = false)}
       />

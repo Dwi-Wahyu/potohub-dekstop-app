@@ -59,6 +59,9 @@ pub mod platform {
     // EDSDK Return Codes
     pub const EDS_ERR_OK: u32 = 0x00000000;
     pub const EDS_ERR_DEVICE_BUSY: u32 = 0x00000082;
+    pub const EDS_ERR_OBJECT_NOTREADY: u32 = 0x0000A102;
+    pub const EDS_ERR_COMM_PORT_IS_IN_USE: u32 = 0x000000A0;
+    pub const EDS_ERR_COMM_DISCONNECTED: u32 = 0x000000C1;
 
     // EDSDK Properties
     pub const kEdsPropID_SaveTo: u32 = 0x0000000b;
@@ -67,6 +70,7 @@ pub mod platform {
 
     pub const kEdsPropID_Evf_OutputDevice: u32 = 0x00000500;
     pub const kEdsPropID_Evf_Mode: u32 = 0x00000501;
+    pub const kEdsEvfOutputDevice_TFT: u32 = 1;
     pub const kEdsEvfOutputDevice_PC: u32 = 2;
 
     // EDSDK Commands
@@ -182,7 +186,12 @@ pub mod platform {
     unsafe impl Sync for EdsdkApi {}
 
     static API: Mutex<Option<EdsdkApi>> = Mutex::new(None);
-    static CONNECTED_CAMERA: Mutex<Option<EdsCameraRef>> = Mutex::new(None);
+    #[derive(Copy, Clone, Debug)]
+    struct SafeEdsCameraRef(pub EdsCameraRef);
+    unsafe impl Send for SafeEdsCameraRef {}
+    unsafe impl Sync for SafeEdsCameraRef {}
+
+    static CONNECTED_CAMERA: Mutex<Option<SafeEdsCameraRef>> = Mutex::new(None);
     static IS_LIVEVIEW_ACTIVE: AtomicBool = AtomicBool::new(false);
     static CAPTURE_SENDER: Mutex<Option<Sender<Vec<u8>>>> = Mutex::new(None);
 
@@ -340,6 +349,10 @@ pub mod platform {
             let guard = API.lock().unwrap();
             let api = guard.as_ref().unwrap();
 
+            // Refresh SDK jika kamera belum terkoneksi agar replug / perangkat baru terdeteksi
+            if CONNECTED_CAMERA.lock().unwrap().is_none() {
+                let _ = (api.TerminateSDK)();
+            }
             let err = (api.InitializeSDK)();
             if err != EDS_ERR_OK && err != 0x00000001 { // 1 = already initialized
                 return Err(format!("Gagal inisialisasi Canon EDSDK (code: {:#X})", err));
@@ -348,7 +361,6 @@ pub mod platform {
             let mut camera_list: EdsCameraListRef = ptr::null_mut();
             let err = (api.GetCameraList)(&mut camera_list);
             if err != EDS_ERR_OK {
-                let _ = (api.TerminateSDK)();
                 return Ok(Vec::new());
             }
 
@@ -378,11 +390,14 @@ pub mod platform {
     }
 
     pub fn connect() -> Result<(String, String), String> {
+        let _ = disconnect(); // Bersihkan sesi dan SDK terlebih dahulu
+
         unsafe {
             load_api()?;
             let guard = API.lock().unwrap();
             let api = guard.as_ref().unwrap();
 
+            let _ = (api.TerminateSDK)();
             let err = (api.InitializeSDK)();
             if err != EDS_ERR_OK && err != 0x00000001 {
                 return Err(format!("Gagal inisialisasi Canon EDSDK (code: {:#X})", err));
@@ -396,9 +411,25 @@ pub mod platform {
 
             let mut count: u32 = 0;
             let _ = (api.GetChildCount)(camera_list, &mut count);
+
+            // Jika belum terdeteksi (misal Windows PnP/WPD baru selesai memasang), tunggu sejenak dan scan sekali lagi
             if count == 0 {
                 (api.Release)(camera_list);
-                return Err("Tidak ada kamera Canon yang terdeteksi via USB.".into());
+                std::thread::sleep(Duration::from_millis(500));
+                let _ = (api.TerminateSDK)();
+                let _ = (api.InitializeSDK)();
+                let mut retry_list: EdsCameraListRef = ptr::null_mut();
+                if (api.GetCameraList)(&mut retry_list) == EDS_ERR_OK {
+                    let _ = (api.GetChildCount)(retry_list, &mut count);
+                    camera_list = retry_list;
+                }
+            }
+
+            if count == 0 {
+                if !camera_list.is_null() {
+                    (api.Release)(camera_list);
+                }
+                return Err("Tidak ada kamera Canon yang terdeteksi via USB. Pastikan kamera menyala, tidak dalam mode sleep, dan software EOS Utility ditutup.".into());
             }
 
             let mut camera: EdsCameraRef = ptr::null_mut();
@@ -416,10 +447,24 @@ pub mod platform {
             // Set event handler sebelum membuka sesi
             let _ = (api.SetObjectEventHandler)(camera, kEdsObjectEvent_All, Some(handle_object_event), ptr::null_mut());
 
-            let err = (api.OpenSession)(camera);
-            if err != EDS_ERR_OK {
+            // Retry buka sesi jika Windows WPD/Explorer masih mengunci perangkat
+            let mut session_err = EDS_ERR_OK;
+            for attempt in 0..4 {
+                session_err = (api.OpenSession)(camera);
+                if session_err == EDS_ERR_OK {
+                    break;
+                }
+                if session_err == EDS_ERR_DEVICE_BUSY || session_err == EDS_ERR_COMM_PORT_IS_IN_USE {
+                    println!("[Canon-EDSDK] Port/Device sibuk (attempt {}/4), menunggu 500ms...", attempt + 1);
+                    std::thread::sleep(Duration::from_millis(500));
+                    continue;
+                }
+                break;
+            }
+
+            if session_err != EDS_ERR_OK {
                 (api.Release)(camera);
-                return Err(format!("Gagal membuka sesi ke kamera Canon (code: {:#X}). Pastikan software EOS Utility ditutup.", err));
+                return Err(format!("Gagal membuka sesi ke kamera Canon (code: {:#X}). Pastikan software EOS Utility ditutup dan kamera dalam mode foto.", session_err));
             }
 
             // Set SaveTo: Host (PC) agar foto langsung masuk ke laptop tanpa mewajibkan SD card
@@ -436,10 +481,10 @@ pub mod platform {
 
             let mut cam_guard = CONNECTED_CAMERA.lock().unwrap();
             if let Some(old) = cam_guard.take() {
-                let _ = (api.CloseSession)(old);
-                let _ = (api.Release)(old);
+                let _ = (api.CloseSession)(old.0);
+                let _ = (api.Release)(old.0);
             }
-            *cam_guard = Some(camera);
+            *cam_guard = Some(SafeEdsCameraRef(camera));
 
             println!("[Canon-EDSDK] Terhubung ke: {} (Port: {})", model, port);
             Ok((model, port))
@@ -453,8 +498,8 @@ pub mod platform {
             if let Some(ref api) = *guard {
                 let mut cam_guard = CONNECTED_CAMERA.lock().unwrap();
                 if let Some(cam) = cam_guard.take() {
-                    let _ = (api.CloseSession)(cam);
-                    let _ = (api.Release)(cam);
+                    let _ = (api.CloseSession)(cam.0);
+                    let _ = (api.Release)(cam.0);
                 }
                 let _ = (api.TerminateSDK)();
             }
@@ -463,7 +508,30 @@ pub mod platform {
     }
 
     pub fn is_connected() -> bool {
-        CONNECTED_CAMERA.lock().unwrap().is_some()
+        unsafe {
+            let mut cam_guard = CONNECTED_CAMERA.lock().unwrap();
+            if let Some(ref cam) = *cam_guard {
+                if let Ok(guard) = API.lock() {
+                    if let Some(ref api) = *guard {
+                        let mut dev_info: EdsDeviceInfo = std::mem::zeroed();
+                        if (api.GetDeviceInfo)(cam.0, &mut dev_info) == EDS_ERR_OK {
+                            return true;
+                        }
+                    }
+                }
+                println!("[Canon-EDSDK] Kamera fisik terputus (stale handle), mereset status koneksi.");
+                if let Some(stale) = cam_guard.take() {
+                    if let Ok(guard) = API.lock() {
+                        if let Some(ref api) = *guard {
+                            let _ = (api.CloseSession)(stale.0);
+                            let _ = (api.Release)(stale.0);
+                        }
+                    }
+                }
+                IS_LIVEVIEW_ACTIVE.store(false, Ordering::SeqCst);
+            }
+        }
+        false
     }
 
     pub fn start_liveview() -> Result<(), String> {
@@ -471,15 +539,27 @@ pub mod platform {
             let guard = API.lock().unwrap();
             let api = guard.as_ref().ok_or_else(|| "EDSDK API belum dimuat".to_string())?;
             let cam_guard = CONNECTED_CAMERA.lock().unwrap();
-            let camera = cam_guard.as_ref().ok_or_else(|| "Kamera Canon belum terhubung".to_string())?;
+            let camera = cam_guard.as_ref().ok_or_else(|| "Kamera Canon belum terhubung".to_string())?.0;
 
             // Aktifkan Liveview mode
             let mode: u32 = 1;
-            let _ = (api.SetPropertyData)(*camera, kEdsPropID_Evf_Mode, 0, 4, &mode as *const u32 as *const c_void);
+            let _ = (api.SetPropertyData)(camera, kEdsPropID_Evf_Mode, 0, 4, &mode as *const u32 as *const c_void);
 
-            // Arahkan output viewfinder ke PC
-            let output_device: u32 = kEdsEvfOutputDevice_PC;
-            let err = (api.SetPropertyData)(*camera, kEdsPropID_Evf_OutputDevice, 0, 4, &output_device as *const u32 as *const c_void);
+            // Arahkan output viewfinder ke PC (+ TFT jika didukung)
+            let mut device: u32 = 0;
+            let get_err = (api.GetPropertyData)(camera, kEdsPropID_Evf_OutputDevice, 0, 4, &mut device as *mut u32 as *mut c_void);
+            if get_err == EDS_ERR_OK {
+                device |= kEdsEvfOutputDevice_PC;
+            } else {
+                device = kEdsEvfOutputDevice_PC | kEdsEvfOutputDevice_TFT;
+            }
+
+            let mut err = (api.SetPropertyData)(camera, kEdsPropID_Evf_OutputDevice, 0, 4, &device as *const u32 as *const c_void);
+            if err != EDS_ERR_OK {
+                let fallback_device: u32 = kEdsEvfOutputDevice_PC;
+                err = (api.SetPropertyData)(camera, kEdsPropID_Evf_OutputDevice, 0, 4, &fallback_device as *const u32 as *const c_void);
+            }
+
             if err != EDS_ERR_OK {
                 return Err(format!("Gagal mengaktifkan EVF output PC (code: {:#X})", err));
             }
@@ -497,8 +577,14 @@ pub mod platform {
             if let Some(ref api) = *guard {
                 let cam_guard = CONNECTED_CAMERA.lock().unwrap();
                 if let Some(camera) = cam_guard.as_ref() {
-                    let output_device: u32 = 0;
-                    let _ = (api.SetPropertyData)(*camera, kEdsPropID_Evf_OutputDevice, 0, 4, &output_device as *const u32 as *const c_void);
+                    let mut device: u32 = 0;
+                    if (api.GetPropertyData)(camera.0, kEdsPropID_Evf_OutputDevice, 0, 4, &mut device as *mut u32 as *mut c_void) == EDS_ERR_OK {
+                        device &= !kEdsEvfOutputDevice_PC;
+                        let _ = (api.SetPropertyData)(camera.0, kEdsPropID_Evf_OutputDevice, 0, 4, &device as *const u32 as *const c_void);
+                    } else {
+                        let off: u32 = kEdsEvfOutputDevice_TFT;
+                        let _ = (api.SetPropertyData)(camera.0, kEdsPropID_Evf_OutputDevice, 0, 4, &off as *const u32 as *const c_void);
+                    }
                 }
             }
         }
@@ -514,7 +600,7 @@ pub mod platform {
             let guard = API.lock().unwrap();
             let api = guard.as_ref().ok_or_else(|| "EDSDK API belum dimuat".to_string())?;
             let cam_guard = CONNECTED_CAMERA.lock().unwrap();
-            let camera = cam_guard.as_ref().ok_or_else(|| "Kamera Canon belum terhubung".to_string())?;
+            let camera = cam_guard.as_ref().ok_or_else(|| "Kamera Canon belum terhubung".to_string())?.0;
 
             let mut stream: EdsStreamRef = ptr::null_mut();
             let err = (api.CreateMemoryStream)(0, &mut stream);
@@ -529,11 +615,24 @@ pub mod platform {
                 return Err(format!("Gagal membuat EvfImageRef (code: {:#X})", err));
             }
 
-            let err = (api.DownloadEvfImage)(*camera, evf_image);
-            if err != EDS_ERR_OK {
+            // Retry jika kamera belum siap menghasilkan frame liveview (EDS_ERR_OBJECT_NOTREADY / EDS_ERR_DEVICE_BUSY)
+            let mut download_err = EDS_ERR_OK;
+            for _ in 0..8 {
+                download_err = (api.DownloadEvfImage)(camera, evf_image);
+                if download_err == EDS_ERR_OK {
+                    break;
+                }
+                if download_err == EDS_ERR_OBJECT_NOTREADY || download_err == EDS_ERR_DEVICE_BUSY {
+                    std::thread::sleep(Duration::from_millis(25));
+                    continue;
+                }
+                break;
+            }
+
+            if download_err != EDS_ERR_OK {
                 let _ = (api.Release)(evf_image);
                 let _ = (api.Release)(stream);
-                return Err(format!("Gagal download liveview frame (code: {:#X})", err));
+                return Err(format!("Gagal download liveview frame (code: {:#X})", download_err));
             }
 
             let mut data_ptr: *mut c_void = ptr::null_mut();
@@ -568,14 +667,14 @@ pub mod platform {
             let guard = API.lock().unwrap();
             let api = guard.as_ref().ok_or_else(|| "EDSDK API belum dimuat".to_string())?;
             let cam_guard = CONNECTED_CAMERA.lock().unwrap();
-            let camera = cam_guard.as_ref().ok_or_else(|| "Kamera Canon belum terhubung".to_string())?;
+            let camera = cam_guard.as_ref().ok_or_else(|| "Kamera Canon belum terhubung".to_string())?.0;
 
             // Kirim perintah jepret
-            let err = (api.SendCommand)(*camera, kEdsCameraCommand_TakePicture, 0);
+            let err = (api.SendCommand)(camera, kEdsCameraCommand_TakePicture, 0);
             if err != EDS_ERR_OK {
                 // Fallback: coba tekan shutter button completely
-                let _ = (api.SendCommand)(*camera, kEdsCameraCommand_PressShutterButton, kEdsCameraCommand_ShutterButton_Completely);
-                let _ = (api.SendCommand)(*camera, kEdsCameraCommand_PressShutterButton, kEdsCameraCommand_ShutterButton_OFF);
+                let _ = (api.SendCommand)(camera, kEdsCameraCommand_PressShutterButton, kEdsCameraCommand_ShutterButton_Completely);
+                let _ = (api.SendCommand)(camera, kEdsCameraCommand_PressShutterButton, kEdsCameraCommand_ShutterButton_OFF);
             }
         }
 

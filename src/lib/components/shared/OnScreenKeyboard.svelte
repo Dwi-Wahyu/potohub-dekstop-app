@@ -3,12 +3,12 @@
 
   interface Props {
     open: boolean;
-    activeField: 'email' | 'password' | 'code';
-    availableFields?: Array<{ id: 'email' | 'password' | 'code'; label: string }>;
+    activeField: 'email' | 'password' | 'code' | 'ticket' | string;
+    availableFields?: Array<{ id: 'email' | 'password' | 'code' | 'ticket' | string; label: string }>;
     onKeyPress: (key: string) => void;
     onSubmit: () => void;
     onClose: () => void;
-    onSelectField?: (field: 'email' | 'password' | 'code') => void;
+    onSelectField?: (field: any) => void;
   }
 
   let {
@@ -79,7 +79,8 @@
   function getFieldDisplayName(field: string): string {
     if (field === 'email') return 'Email';
     if (field === 'password') return 'Password';
-    if (field === 'code') return 'Kode Aktivasi';
+    if (field === 'ticket') return 'Kode Tiket';
+    if (field === 'code') return 'Kode Tiket / Aktivasi';
     return field;
   }
 </script>
@@ -208,7 +209,7 @@
             {chip}
           </button>
         {/each}
-      {:else if activeField === 'code'}
+      {:else if activeField === 'code' || activeField === 'ticket'}
         {#each CODE_QUICK_CHIPS as chip}
           <button
             type="button"

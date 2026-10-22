@@ -3,9 +3,10 @@
   import { uiConfig } from '$lib/stores/uiConfig.svelte';
   import { boothConfig } from '$lib/stores/boothConfig.svelte';
   import QrTicketScanner from '$lib/components/shared/QrTicketScanner.svelte';
+  import OnScreenKeyboard from '$lib/components/shared/OnScreenKeyboard.svelte';
   import OfflineBanner from '$lib/components/shared/OfflineBanner.svelte';
-  import { Check, Ticket as TicketIcon, Delete } from '@lucide/svelte';
-  import type { QrScanResult, QrScanStatus } from '$lib/types/qr';
+  import { Check, AlertCircle, Camera, ChevronLeft } from '@lucide/svelte';
+  import type { QrScanStatus } from '$lib/types/qr';
 
   interface Props {
     boothId?: string;
@@ -18,114 +19,137 @@
 
   let effectiveBoothId = $derived(boothId || boothConfig.boothId || '');
 
+  let scannerRef = $state<any>(null);
+  let manualInputEl = $state<HTMLInputElement | null>(null);
   let code = $state('');
   let errorMsg = $state('');
   let successMsg = $state('');
   let verifying = $state(false);
   let kbOpen = $state(false);
-  let scanStatus = $state<QrScanStatus>('detecting');
-  let scanStatusMessage = $state('Arahkan QR ke Kamera');
+  let scanStatus = $state<QrScanStatus>('idle');
 
-  const TICKET_KB_ROWS = [
-    ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'],
-    ['Q', 'W', 'E', 'R', 'T', 'Y', 'U', 'I', 'O', 'P'],
-    ['A', 'S', 'D', 'F', 'G', 'H', 'J', 'K', 'L'],
-    ['-', 'Z', 'X', 'C', 'V', 'B', 'N', 'M', '⌫']
-  ];
-
-  function pressKey(key: string) {
-    if (errorMsg === 'Kode tiket tidak boleh kosong' || errorMsg === 'Kode tiket tidak valid') {
-      errorMsg = '';
-    }
-    if (key === '⌫') {
-      code = code.slice(0, -1);
-      return;
-    }
-    code += key;
-  }
-
-  async function handleScanDetected(result: QrScanResult) {
+  /**
+   * Tombol "Cek Tiket": Memindai frame liveview dari kamera booth
+   * dan memvalidasi QR Code terhadap tiket yang sudah sync atau online.
+   */
+  async function handleCheckTicket() {
     if (verifying) return;
     verifying = true;
     scanStatus = 'verifying';
-    scanStatusMessage = 'Memverifikasi Tiket...';
     errorMsg = '';
-    successMsg = 'QR Code Terdeteksi! Memverifikasi...';
+    successMsg = '';
 
     try {
+      const result = await scannerRef?.scanFrame?.();
+      if (!result || !result.content) {
+        scanStatus = 'error';
+        errorMsg = 'QR Code tidak terdeteksi. Posisikan QR code tiket di depan kamera dan coba lagi.';
+        setTimeout(() => {
+          verifying = false;
+          scanStatus = 'idle';
+        }, 2200);
+        return;
+      }
+
+      successMsg = 'QR Code Terdeteksi! Memverifikasi...';
       const res = await redeemTicket(result.content, effectiveBoothId);
       if (!res.valid) {
-        throw new Error(res.message);
+        throw new Error(res.message || 'Tiket QR tidak valid atau sudah digunakan');
       }
+
       scanStatus = 'success';
-      scanStatusMessage = res.offline ? 'Tiket Valid (Offline)!' : 'Tiket Valid!';
       successMsg = res.offline
         ? 'Tiket Valid (mode offline)! Memulai sesi foto…'
         : 'Tiket Valid! Memulai sesi foto…';
+
       setTimeout(() => {
         onConfirm();
-      }, 500);
+      }, 600);
     } catch (e) {
       console.error('QR verification failed:', e);
       const msg = e instanceof Error ? e.message : 'Tiket QR tidak valid atau sudah digunakan';
       scanStatus = 'error';
-      scanStatusMessage = 'Tiket Tidak Valid';
       errorMsg = msg;
       successMsg = '';
       setTimeout(() => {
         verifying = false;
-        scanStatus = 'detecting';
-        scanStatusMessage = 'Arahkan QR ke Kamera';
-        errorMsg = '';
+        scanStatus = 'idle';
       }, 2500);
     }
   }
 
   async function verifyManual() {
     if (verifying) return;
-    if (!code.trim()) {
+    const clean = code.trim();
+    if (!clean) {
       errorMsg = 'Kode tiket tidak boleh kosong';
       successMsg = '';
       return;
     }
+
     verifying = true;
     scanStatus = 'verifying';
-    scanStatusMessage = 'Memverifikasi...';
     errorMsg = '';
     successMsg = 'Memverifikasi tiket...';
 
     try {
-      const res = await redeemTicket(code.trim(), effectiveBoothId);
+      const res = await redeemTicket(clean, effectiveBoothId);
       if (!res.valid) {
-        throw new Error(res.message);
+        throw new Error(res.message || 'Kode tiket tidak valid atau sudah digunakan');
       }
+
       scanStatus = 'success';
-      scanStatusMessage = res.offline ? 'Tiket Valid (Offline)!' : 'Tiket Valid!';
       successMsg = res.offline
         ? 'Tiket Valid (mode offline)! Memulai sesi foto…'
         : 'Tiket Valid! Memulai sesi foto…';
+
       setTimeout(() => {
         onConfirm();
-      }, 500);
+      }, 600);
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Kode tiket tidak valid';
       scanStatus = 'error';
-      scanStatusMessage = 'Kode Tidak Valid';
       errorMsg = msg;
       successMsg = '';
       setTimeout(() => {
         verifying = false;
-        scanStatus = 'detecting';
-        scanStatusMessage = 'Arahkan QR ke Kamera';
-        errorMsg = '';
+        scanStatus = 'idle';
       }, 2500);
     }
   }
 
-  function handleScanError(err: string) {
-    errorMsg = err;
-    scanStatus = 'error';
-    scanStatusMessage = 'Kamera Bermasalah';
+  function handleKeyboardPress(charOrAction: string) {
+    if (errorMsg) errorMsg = '';
+    const targetInput = manualInputEl;
+
+    if (charOrAction === 'BACKSPACE') {
+      if (targetInput && targetInput.selectionStart !== null && targetInput.selectionEnd !== null) {
+        const start = targetInput.selectionStart;
+        const end = targetInput.selectionEnd;
+        if (start === end && start > 0) {
+          code = code.slice(0, start - 1) + code.slice(end);
+          requestAnimationFrame(() => targetInput?.setSelectionRange(start - 1, start - 1));
+        } else if (start !== end) {
+          code = code.slice(0, start) + code.slice(end);
+          requestAnimationFrame(() => targetInput?.setSelectionRange(start, start));
+        }
+      } else {
+        code = code.slice(0, -1);
+      }
+    } else if (charOrAction === 'CLEAR') {
+      code = '';
+      requestAnimationFrame(() => targetInput?.focus());
+    } else {
+      if (targetInput && targetInput.selectionStart !== null && targetInput.selectionEnd !== null) {
+        const start = targetInput.selectionStart;
+        const end = targetInput.selectionEnd;
+        code = code.slice(0, start) + charOrAction.toUpperCase() + code.slice(end);
+        const newCursor = start + charOrAction.length;
+        requestAnimationFrame(() => targetInput?.setSelectionRange(newCursor, newCursor));
+      } else {
+        code += charOrAction.toUpperCase();
+      }
+    }
   }
 
   const VISIBLE_STEPS = ['Package', 'Payment', 'Frames', 'Photo Session', 'Edit & Filter'];
@@ -149,7 +173,7 @@
       <h1 class="text-xl text-white font-['Playfair_Display',serif] font-bold tracking-[0.15em] leading-none uppercase m-0">
         Scan Tiket
       </h1>
-      <p class="text-white/50 text-[8px] uppercase tracking-[0.3em] mt-1 m-0">Tempelkan tiket ke scanner atau masukkan kode</p>
+      <p class="text-white/50 text-[8px] uppercase tracking-[0.3em] mt-1 m-0">Arahkan tiket ke kamera atau masukkan kode manual</p>
     </div>
 
     <!-- Stepper -->
@@ -182,33 +206,40 @@
   </div>
 
   <div
-    class="flex-1 flex flex-col items-center justify-center px-8 gap-6 transition-transform duration-300"
+    class="flex-1 flex flex-col items-center justify-center px-8 gap-5 transition-transform duration-300 my-auto"
     style={kbOpen ? 'transform: translateY(-80px);' : ''}
   >
     <OfflineBanner message="Offline — tiket akan diverifikasi dari data lokal booth." />
 
-    <div class="flex items-center justify-center gap-10">
-      <!-- Scanner Box -->
-      <div class="flex flex-col items-center gap-6">
-        <div class="relative w-56 h-56 rounded-2xl overflow-hidden bg-black border-2 border-white/20 flex items-center justify-center shadow-2xl">
+    <div class="flex items-center justify-center gap-8">
+      <!-- Scanner Box with Camera Liveview and Cek Tiket Button -->
+      <div class="flex flex-col items-center gap-3">
+        <div class="relative w-64 h-52 rounded-2xl overflow-hidden bg-black border-2 border-white/20 flex items-center justify-center shadow-2xl">
           <QrTicketScanner
+            bind:this={scannerRef}
             boxColor="#FFC107"
             boxFill="rgba(255, 193, 7, 0.18)"
             boxGlow="rgba(255, 193, 7, 0.6)"
             dotColor="#ffffff"
             status={scanStatus}
-            statusMessage={scanStatusMessage}
             class="w-full h-full"
-            onScan={handleScanDetected}
-            onError={handleScanError}
           />
-          <!-- Gold corner brackets -->
-          {#each [['top-3 left-3', 'border-t-4 border-l-4'], ['top-3 right-3', 'border-t-4 border-r-4'], ['bottom-3 left-3', 'border-b-4 border-l-4'], ['bottom-3 right-3', 'border-b-4 border-r-4']] as [pos, bdr]}
-            <div class={`absolute ${pos} w-7 h-7 border-[#FFC107] ${bdr} z-20 pointer-events-none`}></div>
-          {/each}
-          <div class="absolute inset-x-3 h-0.5 bg-[#FFC107]/80 animate-bounce rounded z-20 pointer-events-none" style="top: 48%;"></div>
         </div>
-        <p class="text-white/40 text-xs tracking-[0.3em] uppercase m-0">Arahkan tiket ke kamera</p>
+
+        <button
+          type="button"
+          onclick={handleCheckTicket}
+          disabled={verifying}
+          class="w-full py-3 bg-[#FFC107] hover:bg-yellow-400 active:scale-95 text-black font-black tracking-wider uppercase rounded-xl transition-all shadow-[0_0_15px_rgba(255,193,7,0.3)] cursor-pointer flex items-center justify-center gap-2 text-xs border-none disabled:opacity-50"
+        >
+          {#if verifying && scanStatus === 'verifying'}
+            <div class="w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin"></div>
+            <span>Memverifikasi...</span>
+          {:else}
+            <Camera size={16} strokeWidth={2.5} />
+            <span>Cek Tiket</span>
+          {/if}
+        </button>
       </div>
 
       <!-- Divider -->
@@ -219,9 +250,9 @@
       </div>
 
       <!-- Manual input -->
-      <div class="flex flex-col gap-4 w-72">
+      <div class="flex flex-col gap-3 w-72">
         <div class="flex items-center justify-between w-full">
-          <p class="text-white/60 text-xs tracking-[0.25em] uppercase font-bold m-0 text-center flex-1">Masukkan Kode Tiket</p>
+          <p class="text-white/60 text-xs tracking-[0.25em] uppercase font-bold m-0 flex-1">Masukkan Kode Tiket</p>
           <button
             type="button"
             onclick={() => (kbOpen = !kbOpen)}
@@ -233,28 +264,29 @@
 
         <!-- Status Alerts -->
         {#if successMsg}
-          <div class="w-full px-4 py-2 rounded-xl bg-emerald-500/20 border border-emerald-500/50 text-emerald-300 text-xs font-bold text-center animate-pulse">
-            ✓ {successMsg}
+          <div class="w-full px-3 py-2 rounded-xl bg-emerald-500/20 border border-emerald-500/50 text-emerald-300 text-xs font-bold text-center flex items-center justify-center gap-1.5 animate-pulse">
+            <Check size={14} /> <span>{successMsg}</span>
           </div>
         {:else if errorMsg}
-          <div class="w-full px-4 py-2 rounded-xl bg-red-500/20 border border-red-500/50 text-red-300 text-xs font-bold text-center">
-            ⚠️ {errorMsg}
+          <div class="w-full px-3 py-2 rounded-xl bg-red-500/20 border border-red-500/50 text-red-300 text-xs font-bold text-center flex items-center justify-center gap-1.5">
+            <AlertCircle size={14} class="shrink-0" /> <span>{errorMsg}</span>
           </div>
         {/if}
 
-        <div class="flex flex-col gap-3">
+        <div class="flex flex-col gap-2.5">
           <input
+            bind:this={manualInputEl}
             type="text"
             value={code}
             onfocus={() => (kbOpen = true)}
             onclick={() => (kbOpen = true)}
             oninput={(e) => {
               code = (e.target as HTMLInputElement).value.toUpperCase();
-              if (errorMsg === 'Kode tiket tidak boleh kosong' || errorMsg === 'Kode tiket tidak valid') errorMsg = '';
+              if (errorMsg) errorMsg = '';
             }}
             onkeydown={(e) => e.key === 'Enter' && verifyManual()}
             placeholder="XXXX-XXXX-XXXX"
-            class={`w-full text-center text-lg font-black tracking-[0.2em] rounded-xl px-4 py-3 outline-none border-2 transition-colors bg-white/10 text-white placeholder-white/20 uppercase ${
+            class={`w-full text-center text-base font-black tracking-[0.2em] rounded-xl px-4 py-2.5 outline-none border-2 transition-colors bg-white/10 text-white placeholder-white/20 uppercase ${
               errorMsg ? 'border-red-400 bg-red-500/10' : 'border-white/20 focus:border-[#FFC107]'
             }`}
             style="font-family: 'Space Mono', monospace;"
@@ -262,8 +294,8 @@
           <button
             type="button"
             onclick={verifyManual}
-            disabled={verifying}
-            class="w-full py-3.5 bg-[#FFC107] text-black font-black tracking-[0.2em] uppercase rounded-full hover:bg-yellow-300 transition-colors shadow-lg text-sm active:scale-95 cursor-pointer border-none disabled:opacity-40"
+            disabled={verifying || !code.trim()}
+            class="w-full py-3 bg-[#FFC107] text-black font-black tracking-[0.2em] uppercase rounded-xl hover:bg-yellow-400 transition-colors shadow-md text-xs active:scale-95 cursor-pointer border-none disabled:opacity-40"
           >
             {verifying ? 'Memverifikasi...' : 'Verifikasi Tiket ✓'}
           </button>
@@ -271,93 +303,21 @@
 
         <button
           onclick={onBack}
-          class="text-white/30 text-xs tracking-wider hover:text-white/60 transition-colors text-center bg-transparent border-none cursor-pointer mt-1"
+          class="text-white/40 text-xs tracking-wider hover:text-white transition-colors text-center bg-transparent border-none cursor-pointer mt-1 flex items-center justify-center gap-1 font-mono"
         >
-          ← Ganti Metode Pembayaran
+          <ChevronLeft size={14} /> Ganti Metode Pembayaran
         </button>
       </div>
     </div>
   </div>
 
-  <!-- On-screen keyboard -->
-  <div
-    class="absolute bottom-0 left-0 right-0 z-50 transition-transform duration-300 font-['Inter',sans-serif]"
-    style={`transform: ${kbOpen ? 'translateY(0)' : 'translateY(100%)'};`}
-  >
-    <!-- Close strip -->
-    <!-- svelte-ignore a11y_click_events_have_key_events -->
-    <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <div
-      class="flex items-center justify-between px-5 py-2 cursor-pointer"
-      style="background: rgba(10,10,15,0.98); border-top: 1px solid rgba(255,255,255,0.1);"
-      onclick={() => (kbOpen = false)}
-    >
-      <span class="text-[9px] font-bold tracking-[0.3em] uppercase text-white/40 font-mono">Keyboard Kode Tiket</span>
-      <span class="text-[9px] font-bold text-white/40 hover:text-white transition-colors">✕ Tutup</span>
-    </div>
-
-    <!-- V3 Keyboard keycaps -->
-    <div class="flex flex-col gap-1.5 px-3 pb-4 pt-3 bg-[#0a0a0f] border-t border-white/10 backdrop-blur-xl">
-      {#each TICKET_KB_ROWS as row}
-        <div class="flex gap-1.5 w-full justify-center">
-          {#each row as key}
-            <button
-              type="button"
-              onpointerdown={(e) => {
-                e.preventDefault();
-                pressKey(key);
-              }}
-              class="rounded-lg flex items-center justify-center font-bold transition-all border border-white/10 cursor-pointer bg-white/10 hover:bg-white/20 active:scale-95 text-white"
-              style={`height: 44px; flex: ${key === '⌫' ? '0 0 12%' : '1 1 0'}; max-width: 68px; min-width: 0; font-size: ${key === '⌫' ? '14px' : '16px'}; font-family: 'Space Mono', monospace;`}
-            >
-              {#if key === '⌫'}
-                <Delete size={16} />
-              {:else}
-                {key}
-              {/if}
-            </button>
-          {/each}
-        </div>
-      {/each}
-
-      <!-- Bottom action row -->
-      <div class="flex w-full gap-1.5 justify-center mt-0.5">
-        <button
-          type="button"
-          onpointerdown={(e) => {
-            e.preventDefault();
-            code = '';
-            if (errorMsg) errorMsg = '';
-          }}
-          class="rounded-lg flex items-center justify-center font-semibold border border-white/10 bg-white/5 hover:bg-white/10 text-white/70 text-xs cursor-pointer"
-          style="height: 44px; flex: 0 0 14%;"
-        >
-          Hapus
-        </button>
-        <button
-          type="button"
-          onpointerdown={(e) => {
-            e.preventDefault();
-            code += ' ';
-          }}
-          class="rounded-lg flex-1 flex items-center justify-center font-bold border border-white/10 bg-white/10 hover:bg-white/20 text-white text-xs uppercase tracking-wider cursor-pointer"
-          style="height: 44px;"
-        >
-          Spasi
-        </button>
-        <button
-          type="button"
-          onpointerdown={(e) => {
-            e.preventDefault();
-            verifyManual();
-          }}
-          disabled={verifying}
-          class="rounded-lg flex items-center justify-center font-black bg-[#FFC107] text-black text-xs uppercase tracking-wider border-none hover:bg-yellow-300 cursor-pointer disabled:opacity-40"
-          style="height: 44px; flex: 0 0 28%;"
-        >
-          {verifying ? 'Memverifikasi...' : 'Verifikasi Tiket'}
-        </button>
-      </div>
-    </div>
-  </div>
+  <!-- On-Screen Keyboard Drawer (seperti di halaman login) -->
+  <OnScreenKeyboard
+    open={kbOpen}
+    activeField="ticket"
+    availableFields={[{ id: 'ticket', label: 'Kode Tiket' }]}
+    onKeyPress={handleKeyboardPress}
+    onSubmit={verifyManual}
+    onClose={() => (kbOpen = false)}
+  />
 </div>

@@ -1,8 +1,10 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
-  import jsQR from 'jsqr';
   import { invoke } from '@tauri-apps/api/core';
   import { cameraStore } from '$lib/camera.svelte';
+  import { boothConfig } from '$lib/stores/boothConfig.svelte';
+  import { getLiveviewTransformStyle } from '$lib/utils/shared';
+  import { detectQrFromImageUrl, detectQrFromVideo } from '$lib/utils/qrScanner';
   import type { QrPoint, QrScanResult, QrScanStatus } from '$lib/types/qr';
 
   interface Props {
@@ -17,11 +19,9 @@
     showCornerBrackets?: boolean;
     showLaserBeam?: boolean;
     showCenterGuide?: boolean;
-    mirrored?: boolean;
     status?: QrScanStatus;
     statusMessage?: string;
     class?: string;
-    frameSkip?: number;
     saveToBackend?: boolean;
     onScan?: (result: QrScanResult) => void;
     onError?: (error: string) => void;
@@ -38,13 +38,11 @@
     errorColor = '#ef4444',
     showCornerDots = true,
     showCornerBrackets = true,
-    showLaserBeam = true,
+    showLaserBeam = false,
     showCenterGuide = true,
-    mirrored = true,
     status = 'idle',
     statusMessage = '',
     class: className = '',
-    frameSkip = 2,
     saveToBackend = true,
     onScan,
     onError,
@@ -53,183 +51,64 @@
 
   let videoEl = $state<HTMLVideoElement | null>(null);
   let overlayCanvas = $state<HTMLCanvasElement | null>(null);
-  let hiddenCanvas = $state<HTMLCanvasElement | null>(null);
-
-  let isStreaming = $state(false);
-  let stream: MediaStream | null = null;
-  let scanAnimationId: number | null = null;
-  let frameCounter = 0;
+  let frameSrc = $state<string | null>(null);
+  let liveviewInterval: any = null;
   let lastDetectedPoints = $state<QrPoint[] | null>(null);
 
-  async function startCamera() {
+  function playStream(node: HTMLVideoElement, stream: MediaStream | null) {
+    if (stream) {
+      node.srcObject = stream;
+      node.play().catch(() => {});
+    }
+    return {
+      update(nextStream: MediaStream | null) {
+        if (nextStream && node.srcObject !== nextStream) {
+          node.srcObject = nextStream;
+          node.play().catch(() => {});
+        }
+      }
+    };
+  }
+
+  async function startCameraLiveview() {
     try {
-      if (stream) {
-        stopCamera();
+      if (cameraStore.status === 'idle' || cameraStore.status === 'error') {
+        await cameraStore.connect(
+          cameraStore.isDevMode ? 'webcam' : (boothConfig.config.cameraMode || 'usb')
+        );
       }
 
-      try {
-        stream = await navigator.mediaDevices.getUserMedia({
-          video: {
-            facingMode: 'user',
-            width: { ideal: 1280 },
-            height: { ideal: 720 }
-          },
-          audio: false
-        });
-      } catch (e) {
-        console.warn('High resolution / facingMode constraints failed, falling back to default camera:', e);
-        try {
-          stream = await navigator.mediaDevices.getUserMedia({
-            video: true,
-            audio: false
-          });
-        } catch (e2) {
-          // Fallback: If camera is already held by cameraStore (e.g. Linux V4L2 single-consumer lock)
-          if (cameraStore.stream && cameraStore.stream.active) {
-            const tracks = cameraStore.stream.getVideoTracks().filter((t) => t.readyState === 'live');
-            if (tracks.length > 0) {
-              console.log('[QrTicketScanner] Reusing active cameraStore webcam stream');
-              stream = new MediaStream(tracks);
-            } else {
-              throw e2;
-            }
-          } else {
-            throw e2;
+      await cameraStore.startLiveview(videoEl);
+
+      if (cameraStore.cameraMode === 'usb' || cameraStore.cameraMode === 'demo') {
+        // Ambil frame awal langsung
+        const initialFrame = await cameraStore.getLiveviewFrame();
+        if (initialFrame) frameSrc = initialFrame;
+
+        // Interval liveview frame (~10-12 FPS)
+        liveviewInterval = setInterval(async () => {
+          const url = await cameraStore.getLiveviewFrame();
+          if (url) {
+            frameSrc = url;
           }
-        }
+        }, 100);
       }
 
-      if (videoEl && stream) {
-        videoEl.srcObject = stream;
-
-        let initialized = false;
-        const handleVideoReady = () => {
-          if (initialized) return;
-          initialized = true;
-          syncCanvasDimensions();
-          videoEl?.play().catch((err) => console.warn('Video play error:', err));
-          isStreaming = true;
-          onReady?.();
-          if (!scanAnimationId) {
-            scanAnimationId = requestAnimationFrame(scanLoop);
-          }
-        };
-
-        videoEl.onloadedmetadata = handleVideoReady;
-        videoEl.addEventListener('loadedmetadata', handleVideoReady, { once: true });
-        videoEl.addEventListener('canplay', handleVideoReady, { once: true });
-        videoEl.addEventListener('playing', handleVideoReady, { once: true });
-
-        // Crucial for WebKit / Tauri webview: start video pipeline directly
-        videoEl.play().catch((err) => {
-          console.warn('Initial video play kickstart failed:', err);
-        });
-
-        if (videoEl.readyState >= 1 || videoEl.videoWidth > 0) {
-          handleVideoReady();
-        }
-      }
+      onReady?.();
     } catch (err) {
-      console.error('Camera stream access failed:', err);
+      console.error('[QrTicketScanner] Gagal memulai liveview kamera:', err);
       const msg = err instanceof Error ? err.message : 'Kamera tidak dapat diakses';
       onError?.(msg);
     }
   }
 
-  function stopCamera() {
-    if (scanAnimationId !== null) {
-      cancelAnimationFrame(scanAnimationId);
-      scanAnimationId = null;
+  function stopCameraLiveview() {
+    if (liveviewInterval) {
+      clearInterval(liveviewInterval);
+      liveviewInterval = null;
     }
-    if (stream) {
-      const isSharedFromStore =
-        cameraStore.stream &&
-        cameraStore.stream.getVideoTracks().some((st) => stream?.getVideoTracks().some((t) => t.id === st.id));
-      if (!isSharedFromStore) {
-        stream.getTracks().forEach((track) => track.stop());
-      }
-      stream = null;
-    }
-    isStreaming = false;
+    cameraStore.stopLiveview();
     clearOverlay();
-  }
-
-  function syncCanvasDimensions() {
-    if (!videoEl) return;
-    const w = videoEl.videoWidth || 640;
-    const h = videoEl.videoHeight || 480;
-
-    if (hiddenCanvas) {
-      hiddenCanvas.width = w;
-      hiddenCanvas.height = h;
-    }
-    if (overlayCanvas) {
-      overlayCanvas.width = w;
-      overlayCanvas.height = h;
-    }
-  }
-
-  async function detectFrame(): Promise<QrScanResult | null> {
-    if (!videoEl || !hiddenCanvas || videoEl.readyState < videoEl.HAVE_CURRENT_DATA) {
-      return null;
-    }
-
-    if (videoEl.videoWidth > 0 && hiddenCanvas.width !== videoEl.videoWidth) {
-      syncCanvasDimensions();
-    }
-
-    const w = hiddenCanvas.width;
-    const h = hiddenCanvas.height;
-    if (w === 0 || h === 0) return null;
-
-    const ctx = hiddenCanvas.getContext('2d', { willReadFrequently: true });
-    if (!ctx) return null;
-
-    ctx.drawImage(videoEl, 0, 0, w, h);
-
-    // 1. Native BarcodeDetector API (fastest if supported)
-    if (typeof window !== 'undefined' && 'BarcodeDetector' in window) {
-      try {
-        const detector = new (window as any).BarcodeDetector({ formats: ['qr_code'] });
-        const barcodes = await detector.detect(hiddenCanvas);
-        if (barcodes && barcodes.length > 0) {
-          const first = barcodes[0];
-          const raw = first.rawValue || '';
-          if (raw.trim()) {
-            const pts: QrPoint[] = (first.cornerPoints || []).map((p: any) => ({
-              x: Number(p.x),
-              y: Number(p.y)
-            }));
-            return { content: raw, cornerPoints: pts };
-          }
-        }
-      } catch {
-        // Fall back to jsQR
-      }
-    }
-
-    // 2. Fallback to jsQR
-    try {
-      const imageData = ctx.getImageData(0, 0, w, h);
-      const code = jsQR(imageData.data, imageData.width, imageData.height, {
-        inversionAttempts: 'attemptBoth'
-      });
-
-      if (code && code.data && code.data.trim()) {
-        const loc = code.location;
-        const pts: QrPoint[] = [
-          { x: loc.topLeftCorner.x, y: loc.topLeftCorner.y },
-          { x: loc.topRightCorner.x, y: loc.topRightCorner.y },
-          { x: loc.bottomRightCorner.x, y: loc.bottomRightCorner.y },
-          { x: loc.bottomLeftCorner.x, y: loc.bottomLeftCorner.y }
-        ];
-        return { content: code.data, cornerPoints: pts };
-      }
-    } catch (e) {
-      console.warn('jsQR detection error:', e);
-    }
-
-    return null;
   }
 
   function getThemeColors() {
@@ -277,13 +156,12 @@
     };
   }
 
-  function drawBoundingBox(points: QrPoint[]) {
+  export function drawBoundingBox(points: QrPoint[]) {
     if (!overlayCanvas || points.length < 4) return;
     const ctx = overlayCanvas.getContext('2d');
     if (!ctx) return;
 
     ctx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
-
     const colors = getThemeColors();
 
     // 1. Draw polygon path
@@ -294,11 +172,9 @@
     }
     ctx.closePath();
 
-    // Fill
     ctx.fillStyle = colors.fill;
     ctx.fill();
 
-    // Stroke with Outer Glow
     ctx.save();
     ctx.shadowColor = colors.glow;
     ctx.shadowBlur = status === 'verifying' || status === 'success' ? 24 : 14;
@@ -337,7 +213,7 @@
       }
     }
 
-    // 3. Corner Dots / Nodes
+    // 3. Corner Dots
     if (showCornerDots) {
       points.forEach((p) => {
         ctx.beginPath();
@@ -349,38 +225,9 @@
         ctx.stroke();
       });
     }
-
-    // 4. Laser Scan Beam across bounding box
-    if (showLaserBeam && (status === 'detecting' || status === 'verifying')) {
-      const t = (Math.sin(Date.now() / 180) + 1) / 2; // 0 to 1 oscillating
-      const leftBeam = {
-        x: points[0].x + (points[3].x - points[0].x) * t,
-        y: points[0].y + (points[3].y - points[0].y) * t
-      };
-      const rightBeam = {
-        x: points[1].x + (points[2].x - points[1].x) * t,
-        y: points[1].y + (points[2].y - points[1].y) * t
-      };
-
-      const grad = ctx.createLinearGradient(leftBeam.x, leftBeam.y, rightBeam.x, rightBeam.y);
-      grad.addColorStop(0, 'rgba(255, 255, 255, 0.1)');
-      grad.addColorStop(0.5, colors.box);
-      grad.addColorStop(1, 'rgba(255, 255, 255, 0.1)');
-
-      ctx.save();
-      ctx.beginPath();
-      ctx.moveTo(leftBeam.x, leftBeam.y);
-      ctx.lineTo(rightBeam.x, rightBeam.y);
-      ctx.strokeStyle = grad;
-      ctx.lineWidth = 3;
-      ctx.shadowColor = colors.glow;
-      ctx.shadowBlur = 12;
-      ctx.stroke();
-      ctx.restore();
-    }
   }
 
-  function clearOverlay() {
+  export function clearOverlay() {
     if (!overlayCanvas) return;
     const ctx = overlayCanvas.getContext('2d');
     if (ctx) {
@@ -389,111 +236,121 @@
     lastDetectedPoints = null;
   }
 
-  async function scanLoop() {
-    if (!isStreaming) return;
+  /**
+   * Mengambil snapshot liveview kamera saat ini dan memindai QR Code.
+   * Dipanggil saat pengguna menekan tombol "Cek Tiket".
+   */
+  export async function scanFrame(): Promise<QrScanResult | null> {
+    let result: QrScanResult | null = null;
 
-    frameCounter = (frameCounter + 1) % (frameSkip + 1);
-
-    if (frameCounter === 0 && status !== 'verifying' && status !== 'success') {
-      const result = await detectFrame();
-      if (result && result.content && result.cornerPoints.length >= 4) {
-        lastDetectedPoints = result.cornerPoints;
-        drawBoundingBox(result.cornerPoints);
-
-        if (saveToBackend) {
-          invoke('save_qr_result', {
-            data: {
-              content: result.content,
-              corner_points: result.cornerPoints
-            }
-          }).catch(() => {
-            // Optional Tauri logging fallback
-          });
-        }
-
-        onScan?.(result);
-      } else {
-        if (lastDetectedPoints) {
-          clearOverlay();
-        }
-      }
-    } else if (lastDetectedPoints && (status === 'verifying' || status === 'success' || status === 'error')) {
-      // Keep re-drawing active bounding box animation during verifying/success state
-      drawBoundingBox(lastDetectedPoints);
+    if (cameraStore.cameraMode === 'webcam' && videoEl) {
+      result = await detectQrFromVideo(videoEl);
+    } else if (frameSrc) {
+      result = await detectQrFromImageUrl(frameSrc);
     }
 
-    scanAnimationId = requestAnimationFrame(scanLoop);
+    // Jika pada frame cache belum terdeteksi, coba ambil 1 frame langsung dari kamera
+    if (!result && (cameraStore.cameraMode === 'usb' || cameraStore.cameraMode === 'demo')) {
+      const freshUrl = await cameraStore.getLiveviewFrame();
+      if (freshUrl) {
+        frameSrc = freshUrl;
+        result = await detectQrFromImageUrl(freshUrl);
+      }
+    }
+
+    if (result) {
+      lastDetectedPoints = result.cornerPoints;
+      if (overlayCanvas) {
+        overlayCanvas.width = overlayCanvas.clientWidth || 640;
+        overlayCanvas.height = overlayCanvas.clientHeight || 480;
+        drawBoundingBox(result.cornerPoints);
+      }
+
+      if (saveToBackend) {
+        invoke('save_qr_result', {
+          data: {
+            content: result.content,
+            corner_points: result.cornerPoints
+          }
+        }).catch(() => {});
+      }
+
+      onScan?.(result);
+    } else {
+      clearOverlay();
+    }
+
+    return result;
   }
 
   onMount(() => {
-    startCamera();
+    startCameraLiveview();
   });
 
   onDestroy(() => {
-    stopCamera();
+    stopCameraLiveview();
   });
 </script>
 
-<div class={`relative overflow-hidden ${className}`}>
-  <!-- Camera Video Stream -->
-  <video
-    bind:this={videoEl}
-    autoplay
-    playsinline
-    muted
-    class={`absolute inset-0 w-full h-full object-cover transition-transform duration-300 ${
-      mirrored ? 'transform -scale-x-100' : ''
-    }`}
-  ></video>
-
-  <!-- Overlay Canvas for Dynamic Bounding Box -->
-  <canvas
-    bind:this={overlayCanvas}
-    class={`absolute inset-0 w-full h-full object-cover pointer-events-none z-10 ${
-      mirrored ? 'transform -scale-x-100' : ''
-    }`}
-  ></canvas>
-
-  <!-- Hidden Processing Canvas -->
-  <canvas bind:this={hiddenCanvas} class="hidden"></canvas>
-
-  <!-- Idle / Search Central Guide Reticle -->
-  {#if showCenterGuide && !lastDetectedPoints && status !== 'error'}
-    <div class="absolute inset-10 pointer-events-none z-10 flex items-center justify-center">
-      <!-- Animated Scan Line -->
-      <!-- <div class="w-full h-0.5 bg-gradient-to-r from-transparent via-white/50 to-transparent animate-pulse"></div> -->
-
-      <!-- Reticle corner markers -->
-      <div class="absolute -top-1 -left-1 w-4 h-4 border-t-2 border-l-2 border-white/70"></div>
-      <div class="absolute -top-1 -right-1 w-4 h-4 border-t-2 border-r-2 border-white/70"></div>
-      <div class="absolute -bottom-1 -left-1 w-4 h-4 border-b-2 border-l-2 border-white/70"></div>
-      <div class="absolute -bottom-1 -right-1 w-4 h-4 border-b-2 border-r-2 border-white/70"></div>
+<div class={`relative overflow-hidden bg-black flex items-center justify-center ${className}`}>
+  <!-- Camera Liveview Feed Layer -->
+  {#if cameraStore.isLiveviewActive}
+    {#if cameraStore.cameraMode === 'webcam'}
+      <video
+        bind:this={videoEl}
+        use:playStream={cameraStore.stream}
+        autoplay
+        playsinline
+        muted
+        class="absolute inset-0 w-full h-full object-cover block"
+        style="transform: {getLiveviewTransformStyle(boothConfig.config, cameraStore.cameraMode)};"
+      ></video>
+    {:else if frameSrc}
+      <img
+        src={frameSrc}
+        alt="Camera liveview"
+        class="absolute inset-0 w-full h-full object-cover block"
+        style="transform: {getLiveviewTransformStyle(boothConfig.config, cameraStore.cameraMode)};"
+      />
+    {:else}
+      <div class="flex flex-col items-center justify-center gap-2 text-white/50 text-xs">
+        <div class="w-6 h-6 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+        <span>Memuat Kamera...</span>
+      </div>
+    {/if}
+  {:else}
+    <div class="flex flex-col items-center justify-center gap-2 text-white/50 text-xs">
+      <div class="w-6 h-6 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+      <span>Menghubungkan Kamera...</span>
     </div>
   {/if}
 
-  <!-- Status HUD Badge -->
-  <!-- {#if statusMessage}
-    <div
-      class={`absolute bottom-4 left-1/2 -translate-x-1/2 px-4 py-2 rounded-full text-xs font-semibold tracking-wide backdrop-blur-md z-20 flex items-center gap-2 shadow-lg border transition-all duration-200 ${
-        status === 'success'
-          ? 'bg-emerald-500/30 border-emerald-400/60 text-emerald-300'
-          : status === 'error'
-          ? 'bg-red-500/30 border-red-400/60 text-red-300'
-          : status === 'verifying'
-          ? 'bg-blue-500/30 border-blue-400/60 text-blue-200'
-          : 'bg-black/70 border-white/20 text-white'
-      }`}
-    >
-      {#if status === 'verifying'}
-        <span class="w-2 h-2 rounded-full bg-blue-400 animate-ping"></span>
-      {:else if status === 'success'}
-        <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
-      {:else if status === 'error'}
-        <span class="w-2 h-2 rounded-full bg-red-400"></span>
-      {:else}
-        <span class="w-2 h-2 rounded-full bg-yellow-400 animate-pulse"></span>
-      {/if}
-      <span>{statusMessage}</span>
+  <!-- Overlay Canvas for Bounding Box Animation -->
+  <canvas
+    bind:this={overlayCanvas}
+    class="absolute inset-0 w-full h-full object-cover pointer-events-none z-10"
+  ></canvas>
+
+  <!-- Central Guide Reticle -->
+  {#if showCenterGuide && !lastDetectedPoints}
+    <div class="absolute inset-10 pointer-events-none z-10 flex items-center justify-center">
+      <!-- Reticle corner markers -->
+      <div class="absolute top-0 left-0 w-6 h-6 border-t-[3px] border-l-[3px] border-white/80 rounded-tl-sm"></div>
+      <div class="absolute top-0 right-0 w-6 h-6 border-t-[3px] border-r-[3px] border-white/80 rounded-tr-sm"></div>
+      <div class="absolute bottom-0 left-0 w-6 h-6 border-b-[3px] border-l-[3px] border-white/80 rounded-bl-sm"></div>
+      <div class="absolute bottom-0 right-0 w-6 h-6 border-b-[3px] border-r-[3px] border-white/80 rounded-br-sm"></div>
+
+      <!-- Center Crosshair / Instruction -->
+      <div class="text-[11px] font-bold tracking-wider text-white/70 uppercase bg-black/40 px-3 py-1 rounded-full backdrop-blur-sm pointer-events-none">
+        Posisikan QR di sini
+      </div>
     </div>
-  {/if} -->
+  {/if}
+
+  <!-- Scanning Indicator Animation if status is verifying -->
+  {#if status === 'verifying'}
+    <div class="absolute inset-0 bg-blue-500/10 pointer-events-none z-20 flex items-center justify-center">
+      <div class="w-full h-1 bg-gradient-to-r from-transparent via-blue-400 to-transparent animate-pulse shadow-[0_0_12px_#60a5fa]"></div>
+    </div>
+  {/if}
 </div>

@@ -54,7 +54,7 @@ class CameraStore {
   status = $state<ConnectionStatus>("idle");
   errorMessage = $state<string | null>(null);
   device = $state<DeviceInfo | null>(null);
-  cameraMode = $state<"usb" | "webcam" | "demo">("usb");
+  cameraMode = $state<"usb" | "webcam" | "demo">(isDevWebcamEnabled() ? "webcam" : "usb");
   cameraBaseUrl = $state<string>("http://192.168.1.100:8080");
 
   detectedCameras = $state<DetectedCamera[]>([]);
@@ -68,7 +68,8 @@ class CameraStore {
   private videoElement: HTMLVideoElement | null = null;
   private offscreenVideo: HTMLVideoElement | null = null;
 
-  isDevMode = $state<boolean>(false);
+  isDevMode = $state<boolean>(isDevWebcamEnabled());
+  private connectingPromise: Promise<void> | null = null;
 
   private recorder: MediaRecorder | null = null;
   private clipChunks: { blob: Blob; timestamp: number }[] = [];
@@ -121,11 +122,69 @@ class CameraStore {
     }
   }
 
+  /**
+   * Mengambil MediaStream webcam dengan resolusi ideal, dengan fallback graceful
+   * jika webcam perangkat tidak mendukung constraint spesifik (mis. 720p/480p).
+   */
+  private async getWebcamStream(): Promise<MediaStream> {
+    try {
+      return await navigator.mediaDevices.getUserMedia({
+        video: {
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
+          facingMode: "user",
+        },
+        audio: false,
+      });
+    } catch (err) {
+      console.warn("[CameraStore] Fallback ke resolusi standar kamera:", err);
+      return await navigator.mediaDevices.getUserMedia({
+        video: true,
+        audio: false,
+      });
+    }
+  }
+
   async connect(mode: "usb" | "webcam" | "demo" = "usb"): Promise<void> {
-    if (this.status === "connecting") return;
+    if (this.status === "connecting" && this.connectingPromise) {
+      return this.connectingPromise;
+    }
+    const target = mode ?? this.cameraMode;
+    if (
+      this.status === "connected" &&
+      target === this.cameraMode &&
+      (this.cameraMode !== "webcam" || (this.stream && this.stream.active))
+    ) {
+      return;
+    }
+
+    this.connectingPromise = this.internalConnect(target);
+    try {
+      await this.connectingPromise;
+    } finally {
+      this.connectingPromise = null;
+    }
+  }
+
+  private async internalConnect(mode: "usb" | "webcam" | "demo"): Promise<void> {
     await this.checkDevMode();
 
-    if (mode === "usb") {
+    let targetMode = mode;
+    // Jika developer mengaktifkan VITE_ENABLE_DEV_WEBCAM / dev mode dan target masih 'usb',
+    // cek apakah ada DSLR fisik yang sudah terhubung. Jika tidak, langsung alihkan ke webcam
+    // agar UI tidak freeze atau menunggu timeout GPhoto2 autodetect yang lambat.
+    if (this.isDevMode && targetMode === "usb") {
+      let isUsbReady = false;
+      try {
+        isUsbReady = await invoke<boolean>("is_camera_connected").catch(() => false);
+      } catch {}
+      if (!isUsbReady) {
+        console.info("[CameraStore] Dev webcam aktif & tidak ada DSLR terhubung, beralih langsung ke webcam.");
+        targetMode = "webcam";
+      }
+    }
+
+    if (targetMode === "usb") {
       try {
         const isConnected = await invoke<boolean>("is_camera_connected").catch(() => false);
         if (isConnected) {
@@ -141,9 +200,9 @@ class CameraStore {
 
     this.status = "connecting";
     this.errorMessage = null;
-    this.cameraMode = mode;
+    this.cameraMode = targetMode;
 
-    if (mode === "usb") {
+    if (targetMode === "usb") {
       try {
         await invoke("disconnect_camera").catch(() => {});
         this.device = await invoke<DeviceInfo>("connect_camera");
@@ -159,28 +218,20 @@ class CameraStore {
           }
         }
       } catch (err) {
-        // Jika mode development aktif dan koneksi USB DSLR gagal (mis. belum ada kamera fisik),
-        // fallback otomatis ke webcam laptop agar E2E test print/strip dapat berlanjut
+        // Jika mode development aktif dan koneksi USB DSLR gagal, fallback otomatis ke webcam laptop
         if (this.isDevMode) {
           console.warn(
             "[CameraStore] Mode pengembang aktif & tidak ada DSLR USB, beralih sementara ke webcam laptop."
           );
           this.status = "idle";
-          return this.connect("webcam");
+          return this.internalConnect("webcam");
         }
         this.status = "error";
         this.errorMessage = this.formatError(err);
       }
-    } else if (mode === "webcam") {
+    } else if (targetMode === "webcam") {
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: {
-            width: { ideal: 1920, min: 1280 },
-            height: { ideal: 1080, min: 720 },
-            facingMode: "user",
-          },
-          audio: false,
-        });
+        const stream = await this.getWebcamStream();
         this.stream = stream;
         this.initOffscreenVideo(stream);
         this.startWebcamRecordingPipeline(stream);
@@ -194,7 +245,7 @@ class CameraStore {
         this.status = "error";
         this.errorMessage = "Gagal mengakses kamera laptop: " + String(err);
       }
-    } else if (mode === "demo") {
+    } else if (targetMode === "demo") {
       this.device = {
         manufacturer: "PotoHub",
         productname: "Demo / Mock Camera Mode",
@@ -286,8 +337,10 @@ class CameraStore {
   }
 
   async startLiveview(videoEl?: HTMLVideoElement | null) {
-    if (this.status === "idle") {
-      await this.connect(this.cameraMode);
+    if (this.status === "idle" || this.status === "error") {
+      await this.connect(this.isDevMode ? "webcam" : this.cameraMode);
+    } else if (this.status === "connecting" && this.connectingPromise) {
+      await this.connectingPromise;
     }
     if (this.status !== "connected") return;
     this.errorMessage = null;
@@ -303,16 +356,12 @@ class CameraStore {
       }
     } else if (this.cameraMode === "webcam") {
       try {
-        if (!this.stream) {
-          const stream = await navigator.mediaDevices.getUserMedia({
-            video: {
-              width: { ideal: 1920, min: 1280 },
-              height: { ideal: 1080, min: 720 },
-              facingMode: "user",
-            },
-            audio: false,
-          });
-          this.stream = stream;
+        if (
+          !this.stream ||
+          !this.stream.active ||
+          this.stream.getVideoTracks().every((t) => t.readyState === "ended")
+        ) {
+          this.stream = await this.getWebcamStream();
         }
         this.initOffscreenVideo(this.stream);
         this.startWebcamRecordingPipeline(this.stream);

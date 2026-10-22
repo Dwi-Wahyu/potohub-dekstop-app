@@ -158,9 +158,8 @@
   }
 
   onMount(async () => {
+    void cameraStore.startLiveview(videoEl);
     await loadCatalog();
-
-    await cameraStore.startLiveview(videoEl);
     timer = setInterval(() => {
       if (secs > 0) secs--;
       else {

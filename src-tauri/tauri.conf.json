@@ -45,6 +45,7 @@
       }
     },
     "resources": {
+      "windows/WebView2Loader.dll": ".",
       "gphoto-libs/*": ".",
       "gphoto-libs/camlibs/*": "camlibs",
       "gphoto-libs/iolibs/*": "iolibs",

@@ -1,3 +1,4 @@
+pub mod canon_edsdk;
 mod cache;
 mod gphoto;
 mod media;
@@ -19,6 +20,23 @@ pub struct AppState {
 
 #[tauri::command]
 async fn connect_camera(state: State<'_, AppState>) -> Result<DeviceInfo, GphotoError> {
+    #[cfg(target_os = "windows")]
+    {
+        if canon_edsdk::platform::is_available() {
+            match canon_edsdk::platform::connect() {
+                Ok((model, port)) => {
+                    return Ok(DeviceInfo {
+                        manufacturer: Some("Canon (EDSDK Native)".into()),
+                        productname: Some(format!("{} [{}]", model, port)),
+                    });
+                }
+                Err(e) => {
+                    eprintln!("[connect_camera] EDSDK connect info: {}. Mencoba fallback gphoto2...", e);
+                }
+            }
+        }
+    }
+
     let (camera, info) = gphoto::connect().await?;
     *state.camera.lock().await = Some(camera);
     Ok(info)
@@ -26,17 +44,44 @@ async fn connect_camera(state: State<'_, AppState>) -> Result<DeviceInfo, Gphoto
 
 #[tauri::command]
 async fn detect_camera() -> Result<Vec<gphoto::DetectedCamera>, GphotoError> {
+    #[cfg(target_os = "windows")]
+    {
+        if canon_edsdk::platform::is_available() {
+            if let Ok(canon_cams) = canon_edsdk::platform::detect_cameras() {
+                if !canon_cams.is_empty() {
+                    return Ok(canon_cams
+                        .into_iter()
+                        .map(|c| gphoto::DetectedCamera {
+                            model: c.model,
+                            port: c.port,
+                        })
+                        .collect());
+                }
+            }
+        }
+    }
+
     gphoto::detect().await
 }
 
 #[tauri::command]
 async fn disconnect_camera(state: State<'_, AppState>) -> Result<(), GphotoError> {
+    #[cfg(target_os = "windows")]
+    {
+        let _ = canon_edsdk::platform::disconnect();
+    }
     *state.camera.lock().await = None;
     Ok(())
 }
 
 #[tauri::command]
 async fn is_camera_connected(state: State<'_, AppState>) -> Result<bool, GphotoError> {
+    #[cfg(target_os = "windows")]
+    {
+        if canon_edsdk::platform::is_connected() {
+            return Ok(true);
+        }
+    }
     Ok(state.camera.lock().await.is_some())
 }
 
@@ -125,6 +170,15 @@ async fn get_camera_setting(
     state: State<'_, AppState>,
     key: String,
 ) -> Result<serde_json::Value, GphotoError> {
+    #[cfg(target_os = "windows")]
+    {
+        if canon_edsdk::platform::is_connected() {
+            return Ok(serde_json::json!({
+                "value": "auto",
+                "choices": ["auto"]
+            }));
+        }
+    }
     let guard = state.camera.lock().await;
     let camera = guard.as_ref().ok_or(GphotoError::NotConnected)?;
     gphoto::get_setting(camera, &key).await
@@ -136,6 +190,12 @@ async fn set_camera_setting(
     key: String,
     value: String,
 ) -> Result<(), GphotoError> {
+    #[cfg(target_os = "windows")]
+    {
+        if canon_edsdk::platform::is_connected() {
+            return Ok(());
+        }
+    }
     let guard = state.camera.lock().await;
     let camera = guard.as_ref().ok_or(GphotoError::NotConnected)?;
     gphoto::set_setting(camera, &key, &value).await
@@ -146,6 +206,14 @@ async fn capture_photo(
     state: State<'_, AppState>,
     app: tauri::AppHandle,
 ) -> Result<Vec<u8>, GphotoError> {
+    #[cfg(target_os = "windows")]
+    {
+        if canon_edsdk::platform::is_connected() {
+            let bytes = canon_edsdk::platform::capture_photo()
+                .map_err(|e| GphotoError::Operation(e))?;
+            return Ok(bytes);
+        }
+    }
     let guard = state.camera.lock().await;
     let camera = guard.as_ref().ok_or(GphotoError::NotConnected)?;
     let save_dir = app
@@ -157,6 +225,14 @@ async fn capture_photo(
 
 #[tauri::command]
 async fn start_liveview(state: State<'_, AppState>) -> Result<(), GphotoError> {
+    #[cfg(target_os = "windows")]
+    {
+        if canon_edsdk::platform::is_connected() {
+            canon_edsdk::platform::start_liveview()
+                .map_err(|e| GphotoError::Operation(e))?;
+            return Ok(());
+        }
+    }
     let guard = state.camera.lock().await;
     let camera = guard.as_ref().ok_or(GphotoError::NotConnected)?;
     gphoto::set_viewfinder(camera, true).await
@@ -164,6 +240,13 @@ async fn start_liveview(state: State<'_, AppState>) -> Result<(), GphotoError> {
 
 #[tauri::command]
 async fn stop_liveview(state: State<'_, AppState>) -> Result<(), GphotoError> {
+    #[cfg(target_os = "windows")]
+    {
+        if canon_edsdk::platform::is_connected() {
+            let _ = canon_edsdk::platform::stop_liveview();
+            return Ok(());
+        }
+    }
     let guard = state.camera.lock().await;
     let camera = guard.as_ref().ok_or(GphotoError::NotConnected)?;
     gphoto::set_viewfinder(camera, false).await
@@ -171,6 +254,15 @@ async fn stop_liveview(state: State<'_, AppState>) -> Result<(), GphotoError> {
 
 #[tauri::command]
 async fn get_liveview_frame(state: State<'_, AppState>) -> Result<Vec<u8>, GphotoError> {
+    #[cfg(target_os = "windows")]
+    {
+        if canon_edsdk::platform::is_connected() {
+            let bytes = canon_edsdk::platform::get_liveview_frame()
+                .map_err(|e| GphotoError::Operation(e))?;
+            state.liveview_buffer.lock().await.push(bytes.clone());
+            return Ok(bytes);
+        }
+    }
     let guard = state.camera.lock().await;
     let camera = guard.as_ref().ok_or(GphotoError::NotConnected)?;
     let bytes = gphoto::get_liveview_frame(camera).await?;

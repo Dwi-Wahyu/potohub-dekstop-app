@@ -247,6 +247,20 @@ class PrinterStore {
       this.isPrinting = false;
     }
   }
+
+  async openPrinterProperties(printerName?: string | null) {
+    const target = printerName || this.selectedPrinter;
+    if (!target) return;
+    try {
+      await invoke("open_printer_properties", {
+        printerName: target,
+      });
+    } catch (err) {
+      console.error("[printerStore] Failed to open printer properties:", err);
+      this.errorMessage = String(err);
+      throw err;
+    }
+  }
 }
 
 export const printerStore = new PrinterStore();

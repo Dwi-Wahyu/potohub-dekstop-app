@@ -4,7 +4,8 @@
   import PinPad from '$lib/components/shared/PinPad.svelte';
   import IdleBannerModal from '$lib/components/shared/IdleBannerModal.svelte';
   import { Camera, Image as ImageIcon, Star } from '@lucide/svelte';
-  import { setWindowDecorations } from '$lib/utils/windowControl';
+  import { setWindowDecorations, setWindowMinimizable } from '$lib/utils/windowControl';
+  import OperatorAccessControl from '$lib/components/shared/OperatorAccessControl.svelte';
 
   interface Props {
     onStart: () => void;
@@ -16,9 +17,11 @@
 
   onMount(() => {
     void setWindowDecorations(false);
+    void setWindowMinimizable(false);
   });
 
   let showPinModal = $state(false);
+  let isOperatorUnlocked = $state(false);
   let tapCount = $state(0);
   let tapTimer: any = null;
 
@@ -141,7 +144,10 @@
 
       <div class="flex items-center gap-4 mt-4">
         <button
-          onclick={onStart}
+          onclick={() => {
+            isOperatorUnlocked = false;
+            onStart();
+          }}
           class="bg-white text-[#CD1C33] px-10 py-3.5 rounded-full text-base font-black tracking-[0.2em] hover:scale-105 active:scale-95 transition-all shadow-2xl uppercase border-none cursor-pointer"
         >
           {uiConfig.getElementLabel('start', 'start_button', 'Mulai Sekarang')}
@@ -174,6 +180,14 @@
   <!-- Idle Promo Banner Popup Slider -->
   <IdleBannerModal disabled={showPinModal} />
 
+  <!-- Operator Access Control (Icon gembok di kanan atas, Minimize (-) dan Close (x) di kiri atas saat terbuka, Config Dashboard di kanan bawah) -->
+  <OperatorAccessControl
+    bind:showPinModal
+    bind:isOperatorUnlocked
+    onTriggerPin={() => (showPinModal = true)}
+    {onOpenConfig}
+  />
+
   {#if showPinModal}
     <div
       class="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4"
@@ -183,7 +197,7 @@
       <PinPad
         onSuccess={() => {
           showPinModal = false;
-          onOpenConfig();
+          isOperatorUnlocked = true;
         }}
         onCancel={() => (showPinModal = false)}
       />

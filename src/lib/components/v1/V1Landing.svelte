@@ -3,7 +3,8 @@
   import PinPad from '$lib/components/shared/PinPad.svelte';
   import IdleBannerModal from '$lib/components/shared/IdleBannerModal.svelte';
   import { uiConfig } from '$lib/stores/uiConfig.svelte';
-  import { setWindowDecorations } from '$lib/utils/windowControl';
+  import { setWindowDecorations, setWindowMinimizable } from '$lib/utils/windowControl';
+  import OperatorAccessControl from '$lib/components/shared/OperatorAccessControl.svelte';
 
   interface Props {
     onStart: () => void;
@@ -15,9 +16,11 @@
 
   onMount(() => {
     void setWindowDecorations(false);
+    void setWindowMinimizable(false);
   });
 
   let showPinModal = $state(false);
+  let isOperatorUnlocked = $state(false);
   let tapCount = $state(0);
   let tapTimer = $state<NodeJS.Timeout | null>(null);
 
@@ -97,7 +100,10 @@
 
   <!-- MULAI button Dinamis -->
   <button
-    onclick={onStart}
+    onclick={() => {
+      isOperatorUnlocked = false;
+      onStart();
+    }}
     style="
       background-color: {startBtnStyle.bgColor};
       color: {startBtnStyle.textColor};
@@ -119,6 +125,14 @@
   <!-- Idle Promo Banner Popup Slider -->
   <IdleBannerModal disabled={showPinModal} />
 
+  <!-- Operator Access Control (Icon gembok di kanan atas, Minimize (-) dan Close (x) di kiri atas saat terbuka, Config Dashboard di kanan bawah) -->
+  <OperatorAccessControl
+    bind:showPinModal
+    bind:isOperatorUnlocked
+    onTriggerPin={() => (showPinModal = true)}
+    {onOpenConfig}
+  />
+
   <!-- PIN Modal for hidden trigger or keyboard shortcut -->
   {#if showPinModal}
     <div
@@ -129,7 +143,7 @@
       <PinPad
         onSuccess={() => {
           showPinModal = false;
-          onOpenConfig();
+          isOperatorUnlocked = true;
         }}
         onCancel={() => (showPinModal = false)}
       />

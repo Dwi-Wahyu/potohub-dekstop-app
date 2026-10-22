@@ -1,3 +1,5 @@
+import { isDevWebcamEnabled } from '$lib/camera.svelte';
+
 export interface BoothCfg {
   pin: string;
   paperThreshold: number;
@@ -60,7 +62,7 @@ export const DEFAULT_CFG: BoothCfg = {
   paymentPage: true,
   basePrice: 35000,
   skipPayment: false,
-  cameraMode: 'usb',
+  cameraMode: isDevWebcamEnabled() ? 'webcam' : 'usb',
   bootScreen: 'welcome',
   liveviewClipPreSecs: 2.5,
   liveviewClipPostSecs: 0.5,
@@ -103,6 +105,7 @@ class BoothConfigStore {
           paymentPage: !!early,
           basePrice: baseVal,
           skipPayment: parsed.skipPayment ?? false,
+          cameraMode: isDevWebcamEnabled() ? 'webcam' : (parsed.cameraMode ?? DEFAULT_CFG.cameraMode),
         };
       } else {
         this.config = { ...DEFAULT_CFG };

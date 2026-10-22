@@ -467,7 +467,7 @@
     <!-- Center: composited frame mockup with Toggle -->
     <div class="flex flex-col items-center shrink-0">
       <div
-        class="flex flex-col overflow-hidden bg-white border-[3px] border-black rounded-[24px] w-[240px] shadow-[10px_10px_0_0_rgba(0,0,0,1)] p-3"
+        class="flex flex-col overflow-hidden bg-white border-[3px] border-black rounded-[24px] w-[260px] xl:w-[300px] max-w-[85vw] shadow-[10px_10px_0_0_rgba(0,0,0,1)] p-3"
       >
         <div class="flex items-center justify-center min-h-[340px]">
           {#if activePreviewTab === 'strip'}

@@ -385,7 +385,7 @@
       <p class="text-white/60 text-[9px] font-bold uppercase tracking-[0.3em] m-0">✦ Hasil Foto Kamu ✦</p>
 
       <div class="relative">
-        <div class="bg-white p-3 shadow-2xl rounded-2xl border border-gray-100 w-[210px]">
+        <div class="bg-white p-3 shadow-2xl rounded-2xl border border-gray-100 w-[240px] xl:w-[280px] max-w-[85vw]">
           <div class="flex items-center justify-center min-h-[300px]">
             {#if activePreviewTab === 'strip'}
               {#if compositeUrl}

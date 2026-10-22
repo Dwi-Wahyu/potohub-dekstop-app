@@ -310,6 +310,115 @@ async fn save_qr_result(data: QRCodeData) -> Result<String, String> {
 }
 
 #[cfg(target_os = "windows")]
+mod usbdk_hook {
+    use std::ffi::c_void;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    type LibusbInitContextFn = unsafe extern "C" fn(*mut *mut c_void, *const c_void, i32) -> i32;
+    type LibusbSetOptionFn = unsafe extern "C" fn(*mut c_void, i32) -> i32;
+
+    static mut ORIGINAL_INIT_CONTEXT: Option<LibusbInitContextFn> = None;
+    static mut ORIGINAL_SET_OPTION: Option<LibusbSetOptionFn> = None;
+    static HOOKED: AtomicBool = AtomicBool::new(false);
+
+    /// Detour fungsi libusb_init.
+    /// Ketika iolibs/usb1.dll memanggil libusb_init(&ctx), fungsi ini dieksekusi.
+    unsafe extern "C" fn hooked_libusb_init(ctx: *mut *mut c_void) -> i32 {
+        let init_ctx = match ORIGINAL_INIT_CONTEXT {
+            Some(f) => f,
+            None => return -1,
+        };
+
+        // 1. Panggil fungsi inisialisasi context asli: libusb_init_context(ctx, NULL, 0)
+        let res = init_ctx(ctx, std::ptr::null(), 0);
+        if res == 0 && !ctx.is_null() && !(*ctx).is_null() {
+            let context_ptr = *ctx;
+            // 2. Pada context yang baru dibuat, alihkan backend ke UsbDk:
+            // libusb_set_option(*ctx, 1) -> 1 = LIBUSB_OPTION_USE_USBDK
+            if let Some(set_option) = ORIGINAL_SET_OPTION {
+                let opt_res = set_option(context_ptr, 1);
+                if opt_res == 0 {
+                    println!(
+                        "[gphoto2-usbdk] SUCCESS: libusb context {:p} berhasil dialihkan ke UsbDk backend (Kamera USB terbaca tanpa Zadig)!",
+                        context_ptr
+                    );
+                } else {
+                    println!(
+                        "[gphoto2-usbdk] Info: libusb_set_option USE_USBDK mengembalikan kode {} pada context {:p}",
+                        opt_res, context_ptr
+                    );
+                }
+            }
+        }
+        res
+    }
+
+    /// Pasang 14-byte inline detour pada fungsi libusb_init di libusb-1.0.dll
+    pub unsafe fn install_usbdk_hook() {
+        if HOOKED.swap(true, Ordering::SeqCst) {
+            return;
+        }
+
+        extern "system" {
+            fn LoadLibraryA(lpLibFileName: *const std::os::raw::c_char) -> *mut c_void;
+            fn GetProcAddress(
+                hModule: *mut c_void,
+                lpProcName: *const std::os::raw::c_char,
+            ) -> *mut c_void;
+            fn VirtualProtect(
+                lpAddress: *mut c_void,
+                dwSize: usize,
+                flNewProtect: u32,
+                lpflOldProtect: *mut u32,
+            ) -> i32;
+        }
+
+        const PAGE_EXECUTE_READWRITE: u32 = 0x40;
+
+        let dll_name = std::ffi::CString::new("libusb-1.0.dll").unwrap();
+        let h_libusb = LoadLibraryA(dll_name.as_ptr());
+        if h_libusb.is_null() {
+            println!("[gphoto2-usbdk] Warning: Gagal memuat libusb-1.0.dll untuk hook UsbDk");
+            return;
+        }
+
+        let init_name = std::ffi::CString::new("libusb_init").unwrap();
+        let init_ctx_name = std::ffi::CString::new("libusb_init_context").unwrap();
+        let set_opt_name = std::ffi::CString::new("libusb_set_option").unwrap();
+
+        let proc_init = GetProcAddress(h_libusb, init_name.as_ptr());
+        let proc_init_ctx = GetProcAddress(h_libusb, init_ctx_name.as_ptr());
+        let proc_set_opt = GetProcAddress(h_libusb, set_opt_name.as_ptr());
+
+        if proc_init.is_null() || proc_init_ctx.is_null() || proc_set_opt.is_null() {
+            println!("[gphoto2-usbdk] Warning: Simbol fungsi libusb tidak lengkap");
+            return;
+        }
+
+        ORIGINAL_INIT_CONTEXT = Some(std::mem::transmute(proc_init_ctx));
+        ORIGINAL_SET_OPTION = Some(std::mem::transmute(proc_set_opt));
+
+        // Struktur jump x64:
+        // FF 25 00 00 00 00 [8-byte address] -> jmp qword ptr [rip + 0]
+        let target_addr = (hooked_libusb_init as usize).to_le_bytes();
+        let mut patch: [u8; 14] = [
+            0xFF, 0x25, 0x00, 0x00, 0x00, 0x00,
+            target_addr[0], target_addr[1], target_addr[2], target_addr[3],
+            target_addr[4], target_addr[5], target_addr[6], target_addr[7],
+        ];
+
+        let mut old_protect = 0u32;
+        if VirtualProtect(proc_init, 14, PAGE_EXECUTE_READWRITE, &mut old_protect) != 0 {
+            std::ptr::copy_nonoverlapping(patch.as_ptr(), proc_init as *mut u8, 14);
+            VirtualProtect(proc_init, 14, old_protect, &mut old_protect);
+            println!("[gphoto2-usbdk] Detour hook pada libusb_init BERHASIL dipasang. UsbDk akan otomatis aktif pada seluruh pemanggilan gphoto2!");
+        } else {
+            println!("[gphoto2-usbdk] Warning: Gagal mengubah proteksi memori libusb_init");
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
 pub fn init_gphoto_environment() {
     extern "C" {
         fn _putenv(envstring: *const std::os::raw::c_char) -> std::os::raw::c_int;
@@ -406,38 +515,8 @@ pub fn init_gphoto_environment() {
 
             // Workaround 1 (UsbDk): Aktifkan backend UsbDk pada libusb secara otomatis jika UsbDk terpasang.
             // Memungkinkan libgphoto2 mengakses kamera secara low-level tanpa perlu mengganti driver USB via Zadig.
-            set_c_and_win_env("LIBUSB_USBDK", "1");
-            set_c_and_win_env("LIBUSB_ENABLE_USBDK", "1");
-
-            type LibusbSetOptionFn = unsafe extern "C" fn(*mut std::ffi::c_void, i32) -> i32;
             unsafe {
-                extern "system" {
-                    fn LoadLibraryA(lpLibFileName: *const std::os::raw::c_char) -> *mut std::ffi::c_void;
-                    fn GetProcAddress(
-                        hModule: *mut std::ffi::c_void,
-                        lpProcName: *const std::os::raw::c_char,
-                    ) -> *mut std::ffi::c_void;
-                }
-
-                let libusb_dll_name = std::ffi::CString::new("libusb-1.0.dll").unwrap();
-                let h_libusb = LoadLibraryA(libusb_dll_name.as_ptr());
-                if !h_libusb.is_null() {
-                    let fn_name = std::ffi::CString::new("libusb_set_option").unwrap();
-                    let proc = GetProcAddress(h_libusb, fn_name.as_ptr());
-                    if !proc.is_null() {
-                        let set_option: LibusbSetOptionFn = std::mem::transmute(proc);
-                        // 1 = LIBUSB_OPTION_USE_USBDK
-                        let res = set_option(std::ptr::null_mut(), 1);
-                        if res == 0 {
-                            println!("[gphoto2-setup] UsbDk backend AKTIF di libusb (Kamera USB terhubung tanpa Zadig)!");
-                        } else {
-                            println!(
-                                "[gphoto2-setup] UsbDk option return code {} - fallback ke WinUSB standar.",
-                                res
-                            );
-                        }
-                    }
-                }
+                usbdk_hook::install_usbdk_hook();
             }
 
             println!("[gphoto2-setup] CAMLIBS = {}", camlibs_str);

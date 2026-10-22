@@ -94,6 +94,11 @@ static INIT_GPHOTO: std::sync::Once = std::sync::Once::new();
 
 pub fn ensure_gphoto_initialized() {
     INIT_GPHOTO.call_once(|| {
+        #[cfg(target_os = "windows")]
+        {
+            crate::init_gphoto_environment();
+        }
+
         unsafe extern "C" fn gp_log_callback(
             level: libgphoto2_sys::GPLogLevel,
             domain: *const std::os::raw::c_char,

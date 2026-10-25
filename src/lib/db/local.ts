@@ -450,6 +450,138 @@ export async function countPendingOutboxJobs(): Promise<number> {
   return Number(rows[0]?.c ?? 0);
 }
 
+export interface SessionHistoryItem {
+  id: number;
+  sessionCode: string;
+  status: 'pending' | 'processing' | 'done' | 'dead_letter';
+  attempts: number;
+  lastError: string | null;
+  createdAt: number;
+  softfileTarget: string | null;
+  compositePath: string | null;
+  printQty: number;
+  paperSize?: string;
+  useSecondary?: boolean;
+}
+
+export async function getOutboxJobByLocalRef(localRef: string): Promise<OutboxJob | null> {
+  const conn = await db();
+  const rows = await conn.select<any[]>(
+    "SELECT * FROM offline_outbox WHERE local_ref = $1 ORDER BY id DESC LIMIT 1",
+    [localRef],
+  );
+  if (!rows.length) return null;
+  const r = rows[0];
+  return {
+    id: r.id,
+    jobType: r.job_type,
+    localRef: r.local_ref,
+    payload: r.payload,
+    status: r.status,
+    attempts: r.attempts,
+    lastError: r.last_error,
+  };
+}
+
+export async function upsertSessionOutboxJob(
+  sessionCode: string,
+  payload: any,
+): Promise<number> {
+  const conn = await db();
+  const now = Date.now();
+  const existing = await getOutboxJobByLocalRef(sessionCode);
+  if (existing) {
+    let existingPayload: any = {};
+    try {
+      existingPayload = JSON.parse(existing.payload);
+    } catch {}
+    const merged = { ...existingPayload, ...payload };
+    if (payload.softfileTarget && !existingPayload.softfileTarget) {
+      merged.softfileTarget = payload.softfileTarget;
+    }
+    await conn.execute(
+      `UPDATE offline_outbox 
+       SET payload = $2, status = 'pending', attempts = 0, last_error = NULL, updated_at = $3
+       WHERE id = $1`,
+      [existing.id, JSON.stringify(merged), now],
+    );
+    return existing.id;
+  } else {
+    return enqueueOutboxJob('session_softfile', payload, sessionCode);
+  }
+}
+
+export async function listAllSessionOutboxJobs(limit = 60): Promise<SessionHistoryItem[]> {
+  const conn = await db();
+  const rows = await conn.select<any[]>(
+    `SELECT * FROM offline_outbox 
+     WHERE job_type = 'session_softfile' 
+     ORDER BY id DESC LIMIT $1`,
+    [limit],
+  );
+  return rows.map((r) => {
+    let payloadObj: any = {};
+    try {
+      payloadObj = JSON.parse(r.payload);
+    } catch {}
+    const compositePath =
+      payloadObj.assetRelativePaths?.find((a: any) => a.role === 'composite')?.path || null;
+    return {
+      id: r.id,
+      sessionCode: r.local_ref || payloadObj.localSessionCode || `sesi-${r.id}`,
+      status: r.status,
+      attempts: r.attempts,
+      lastError: r.last_error,
+      createdAt: r.created_at || Date.now(),
+      softfileTarget: payloadObj.softfileTarget || null,
+      compositePath,
+      printQty: payloadObj.printQty || 1,
+    };
+  });
+}
+
+export async function countPendingSessionSoftfileJobs(): Promise<number> {
+  const conn = await db();
+  const rows = await conn.select<any[]>(
+    `SELECT COUNT(*) as c FROM offline_outbox 
+     WHERE job_type = 'session_softfile' AND status IN ('pending', 'dead_letter')`,
+  );
+  return Number(rows[0]?.c ?? 0);
+}
+
+export async function getOutboxJobById(id: number): Promise<OutboxJob | null> {
+  const conn = await db();
+  const rows = await conn.select<any[]>("SELECT * FROM offline_outbox WHERE id = $1", [id]);
+  if (!rows.length) return null;
+  const r = rows[0];
+  return {
+    id: r.id,
+    jobType: r.job_type,
+    localRef: r.local_ref,
+    payload: r.payload,
+    status: r.status,
+    attempts: r.attempts,
+    lastError: r.last_error,
+  };
+}
+
+export async function updateOutboxJobPayload(id: number, payload: string): Promise<void> {
+  const conn = await db();
+  await conn.execute("UPDATE offline_outbox SET payload = $2, updated_at = $3 WHERE id = $1", [
+    id,
+    payload,
+    Date.now(),
+  ]);
+}
+
+export async function resetOutboxJobForRetry(id: number): Promise<void> {
+  const conn = await db();
+  await conn.execute(
+    "UPDATE offline_outbox SET status = 'pending', attempts = 0, last_error = NULL, updated_at = $2 WHERE id = $1",
+    [id, Date.now()],
+  );
+}
+
 // ============================================================================
 // DEVICE IDENTITY (SQLite `device_identity`)
 // ============================================================================

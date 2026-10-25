@@ -89,6 +89,15 @@ class BoothFlowStore {
     this.isGeneratingGif = false;
     this.isGeneratingVideo = false;
     this.photoTransforms = {};
+
+    // Trigger idle queue processor otomatis saat kembali ke layar standby awal
+    if (typeof window !== 'undefined') {
+      setTimeout(() => {
+        import('$lib/utils/idleCoordinator').then(({ checkAndFlushQueuesIfIdle }) => {
+          void checkAndFlushQueuesIfIdle();
+        });
+      }, 500);
+    }
   }
 }
 

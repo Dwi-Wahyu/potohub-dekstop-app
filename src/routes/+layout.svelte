@@ -5,6 +5,7 @@
   import { printerStore } from '$lib/printer.svelte';
   import { syncBoothSettings } from '$lib/api/boothClient';
   import { updaterStore } from '$lib/utils/updater.svelte';
+  import { startIdleQueueWatcher } from '$lib/utils/idleCoordinator';
 
   let { children } = $props();
 
@@ -12,6 +13,7 @@
     networkStatus.init();
     void printerStore.loadPrinters();
     void updaterStore.checkForUpdates(true);
+    startIdleQueueWatcher();
 
     // Background sync periodik (tiap 10 menit) bila online
     const interval = setInterval(() => {

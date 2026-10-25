@@ -101,7 +101,7 @@ class PrinterStore {
 
       if (this.selectedPrinter) {
         await this.refreshStatus();
-        flushPrintQueue().catch((err) =>
+        flushPrintQueue({ force: false }).catch((err) =>
           console.error("[PrinterStore] Initial queue flush error:", err)
         );
       } else {
@@ -174,7 +174,7 @@ class PrinterStore {
 
     if (anyTransitionedToOnline) {
       console.log("[printerStore] Printer transitioned OFFLINE -> ONLINE! Triggering flushPrintQueue...");
-      flushPrintQueue().catch((err) =>
+      flushPrintQueue({ force: false }).catch((err) =>
         console.error("[PrinterStore] Auto queue flush error:", err)
       );
     }

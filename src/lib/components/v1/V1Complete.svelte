@@ -16,7 +16,7 @@
     type BoothTemplate
   } from '$lib/api/boothClient';
   import { networkStatus } from '$lib/stores/networkStatus.svelte';
-  import { enqueueOutboxJob, enqueuePrintJob } from '$lib/db/local';
+  import { enqueueOutboxJob, enqueuePrintJob, upsertSessionOutboxJob } from '$lib/db/local';
   import { printerStore } from '$lib/printer.svelte';
   import OfflineBanner from '$lib/components/shared/OfflineBanner.svelte';
   import { buildAssetRelativePaths } from '$lib/utils/localSessionStorage';
@@ -212,6 +212,23 @@
       console.error('Failed to save session assets:', err);
     } finally {
       isSavingSession = false;
+      if (!networkStatus.isOnline) {
+        void requireActiveBoothId().then((bId) => {
+          return upsertSessionOutboxJob(
+            boothFlow.sessionCode || localSessionCode,
+            {
+              boothId: bId,
+              categoryId: selectedTemplate?.category_id ?? null,
+              frameId: frameConfigId,
+              printQty: boothFlow.printQty,
+              paymentMethod: 'Cashless',
+              softfileTarget: null,
+              localSessionCode: boothFlow.sessionCode || localSessionCode,
+              assetRelativePaths: buildAssetRelativePaths(boothFlow.sessionCode || localSessionCode, uiConfig.config.boothName),
+            }
+          );
+        }).catch(console.warn);
+      }
     }
   });
 
@@ -222,8 +239,9 @@
   let sendError = $state('');
 
   async function enqueueSoftfileJob(target: string) {
-    await enqueueOutboxJob(
-      'session_softfile',
+    const sCode = boothFlow.sessionCode || generateSessionCode(uiConfig.config.boothName);
+    await upsertSessionOutboxJob(
+      sCode,
       {
         boothId: await requireActiveBoothId().catch(() => 'default'),
         categoryId: selectedTemplate?.category_id ?? null,
@@ -231,10 +249,9 @@
         printQty: boothFlow.printQty,
         paymentMethod: 'Cashless',
         softfileTarget: target,
-        localSessionCode: boothFlow.sessionCode,
-        assetRelativePaths: buildAssetRelativePaths(boothFlow.sessionCode, uiConfig.config.boothName),
+        localSessionCode: sCode,
+        assetRelativePaths: buildAssetRelativePaths(sCode, uiConfig.config.boothName),
       },
-      boothFlow.sessionCode ?? undefined,
     );
     softfileQueued = true;
     emailSent = target === email.trim();

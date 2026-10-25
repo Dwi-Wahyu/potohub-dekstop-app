@@ -4,6 +4,8 @@ import {
   markOutboxJobFailedAttempt,
   markOutboxJobDeadLetter,
   clearCachedTicketOfflineFlag,
+  getOutboxJobById,
+  updateOutboxJobPayload,
   type OutboxJob,
 } from '$lib/db/local';
 import {
@@ -22,7 +24,7 @@ interface RedeemTicketPayload {
   boothId: string;
 }
 
-interface SessionSoftfilePayload {
+export interface SessionSoftfilePayload {
   boothId: string;
   categoryId: string | null;
   frameId: string | null;
@@ -30,6 +32,7 @@ interface SessionSoftfilePayload {
   paymentMethod: 'Ticket' | 'Cashless';
   softfileTarget: string | null;
   localSessionCode: string;
+  backendSessionId?: string;
   assetRelativePaths: {
     role: 'composite' | 'gif' | 'video';
     path: string;
@@ -39,33 +42,68 @@ interface SessionSoftfilePayload {
   }[];
 }
 
-export async function flushOutbox(): Promise<void> {
-  if (flushing) return;
+export interface FlushOptions {
+  force?: boolean;
+}
+
+export async function flushOutbox(options?: FlushOptions): Promise<{ processed: number; errors: number }> {
+  if (flushing) return { processed: 0, errors: 0 };
+
+  // Cek apakah aplikasi idle jika tidak dipaksa secara manual oleh operator
+  if (!options?.force) {
+    const { isAppIdle } = await import('$lib/utils/idleCoordinator');
+    if (!isAppIdle()) {
+      console.log('[offlineOutbox] Aplikasi sedang aktif dengan pelanggan. Auto-flush outbox ditunda.');
+      return { processed: 0, errors: 0 };
+    }
+  }
+
   flushing = true;
+  let processed = 0;
+  let errors = 0;
+
   try {
     const jobs = await listPendingOutboxJobs();
     for (const job of jobs) {
       const result = await processJob(job);
-      if (result.status === 'network_failure') {
+      if (result.status === 'success') {
+        processed++;
+      } else if (result.status === 'network_failure') {
+        errors++;
         // HANYA jika benar-benar error jaringan transport, tandai offline dan hentikan antrean
         console.warn(`[offlineOutbox] Job #${job.id} mengalami error jaringan. Menjeda outbox.`);
         const { networkStatus } = await import('$lib/stores/networkStatus.svelte');
         networkStatus.markOfflineDueToFailure();
         break;
+      } else {
+        errors++;
       }
       // Jika result status 'success' atau 'business_error', lanjut ke job berikutnya!
     }
   } finally {
     flushing = false;
   }
+
+  return { processed, errors };
 }
 
-type JobProcessOutcome = 
+export type JobProcessOutcome = 
   | { status: 'success' }
   | { status: 'business_error'; reason: string }
   | { status: 'network_failure'; error: unknown };
 
-async function processJob(job: OutboxJob): Promise<JobProcessOutcome> {
+/**
+ * Jalankan proses satu job spesifik secara manual (misal dari tombol Reupload sesi di dialog)
+ */
+export async function processSingleJobById(jobId: number): Promise<JobProcessOutcome> {
+  const job = await getOutboxJobById(jobId);
+  if (!job) {
+    return { status: 'business_error', reason: `Job #${jobId} tidak ditemukan` };
+  }
+  return await processJob(job);
+}
+
+export async function processJob(job: OutboxJob): Promise<JobProcessOutcome> {
   try {
     if (job.jobType === 'redeem_ticket') {
       const payload: RedeemTicketPayload = JSON.parse(job.payload);
@@ -84,25 +122,34 @@ async function processJob(job: OutboxJob): Promise<JobProcessOutcome> {
     if (job.jobType === 'session_softfile') {
       const payload: SessionSoftfilePayload = JSON.parse(job.payload);
 
-      let sessionId: string;
-      try {
-        const session = await createTransactionSession(
-          payload.boothId,
-          payload.categoryId,
-          payload.printQty,
-          payload.paymentMethod,
-          payload.frameId,
-        );
-        sessionId = session.session_id || (session as any).id;
-      } catch (sessErr) {
-        if (isNetworkTransportError(sessErr)) {
-          await markOutboxJobFailedAttempt(job.id, String(sessErr));
-          return { status: 'network_failure', error: sessErr };
+      let sessionId = payload.backendSessionId;
+      if (!sessionId) {
+        try {
+          const session = await createTransactionSession(
+            payload.boothId,
+            payload.categoryId,
+            payload.printQty,
+            payload.paymentMethod,
+            payload.frameId,
+          );
+          sessionId = session.session_id || (session as any).id;
+          payload.backendSessionId = sessionId;
+          // Simpan backendSessionId kembali ke database agar percobaan ulang tidak menduplikasi transaksi
+          await updateOutboxJobPayload(job.id, JSON.stringify(payload)).catch(() => {});
+        } catch (sessErr) {
+          if (isNetworkTransportError(sessErr)) {
+            await markOutboxJobFailedAttempt(job.id, String(sessErr));
+            return { status: 'network_failure', error: sessErr };
+          }
+          // Jika 400/401/404 bukan error jaringan, catat sebagai dead-letter agar tidak macet selamanya
+          console.error(`[offlineOutbox] createTransactionSession gagal permanen untuk Job #${job.id}:`, sessErr);
+          await markOutboxJobDeadLetter(job.id, `Session create failed: ${sessErr}`);
+          return { status: 'business_error', reason: String(sessErr) };
         }
-        // Jika 400/401/404 bukan error jaringan, catat sebagai dead-letter agar tidak macet selamanya
-        console.error(`[offlineOutbox] createTransactionSession gagal permanen untuk Job #${job.id}:`, sessErr);
-        await markOutboxJobDeadLetter(job.id, `Session create failed: ${sessErr}`);
-        return { status: 'business_error', reason: String(sessErr) };
+      }
+
+      if (!sessionId) {
+        return { status: 'business_error', reason: 'Session ID tidak valid' };
       }
 
       // Upload file aset lokal yang tersimpan

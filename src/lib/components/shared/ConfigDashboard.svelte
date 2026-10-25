@@ -15,16 +15,20 @@
     X,
     Settings,
     RefreshCw,
-    Layers
+    Layers,
+    UploadCloud
   } from '@lucide/svelte';
   import UpdateModal from '$lib/components/shared/UpdateModal.svelte';
+  import ReuploadSessionsModal from '$lib/components/shared/ReuploadSessionsModal.svelte';
   import { updaterStore } from '$lib/utils/updater.svelte';
   import { goto } from '$app/navigation';
   import { boothConfig, type BoothCfg } from '$lib/stores/boothConfig.svelte';
   import { uiConfig } from '$lib/stores/uiConfig.svelte';
   import { syncBoothSettings, getActiveBoothId } from '$lib/api/boothClient';
   import { networkStatus } from '$lib/stores/networkStatus.svelte';
-  import { countPendingOutboxJobs } from '$lib/db/local';
+  import { countPendingOutboxJobs, countPendingSessionSoftfileJobs } from '$lib/db/local';
+  import { flushOutbox } from '$lib/utils/offlineOutbox';
+  import { flushPrintQueue } from '$lib/utils/printQueue';
   import { cameraStore } from '$lib/camera.svelte';
   import { printerStore } from '$lib/printer.svelte';
   import { getLiveviewTransformStyle } from '$lib/utils/shared';
@@ -42,6 +46,9 @@
   let fallbackMode = $state<'demo' | null>(null);
   let saveNotice = $state<string | null>(null);
   let pendingJobs = $state(0);
+  let pendingSoftfileSessions = $state(0);
+  let isReuploadModalOpen = $state(false);
+  let isUploadingPending = $state(false);
 
   const NEU_BG = '#ebf0f7';
   const NEU_PRIMARY = '#2a2873';
@@ -90,11 +97,37 @@
     } catch (e) {
       syncStatus = e instanceof Error ? e.message : 'Sync gagal';
     } finally {
-      pendingJobs = await countPendingOutboxJobs().catch(() => 0);
+      await refreshPendingCount();
     }
     setTimeout(() => {
       syncStatus = null;
     }, 3000);
+  }
+
+  async function refreshPendingCount() {
+    pendingJobs = await countPendingOutboxJobs().catch(() => 0);
+    pendingSoftfileSessions = await countPendingSessionSoftfileJobs().catch(() => 0);
+  }
+
+  async function handleUploadAllPending() {
+    if (isUploadingPending) return;
+    isUploadingPending = true;
+    try {
+      const outboxRes = await flushOutbox({ force: true });
+      const printRes = await flushPrintQueue({ force: true });
+      await refreshPendingCount();
+      saveNotice = `Sinkronisasi selesai! ${outboxRes.processed} upload diproses.`;
+      setTimeout(() => {
+        saveNotice = null;
+      }, 3500);
+    } catch (err) {
+      saveNotice = `Sinkronisasi gagal: ${String(err)}`;
+      setTimeout(() => {
+        saveNotice = null;
+      }, 3500);
+    } finally {
+      isUploadingPending = false;
+    }
   }
 
   async function handleConnectDetected() {
@@ -176,7 +209,7 @@
       await boothConfig.init(boothId);
     }
     boothName = uiConfig.config.boothName || boothName;
-    pendingJobs = await countPendingOutboxJobs().catch(() => 0);
+    void refreshPendingCount();
     void handleSync();
     await cameraStore.checkDevMode();
     void cameraStore.detect();
@@ -1003,6 +1036,136 @@
 
             <div style="height: 1px; background: rgba(200,210,224,0.7);"></div>
 
+            <!-- Session Pending Softfile Upload (Sesuai Referensi Layout) -->
+            <div style="display: flex; flex-direction: column; gap: 6px;">
+              <div style="display: flex; align-items: center; justify-content: space-between;">
+                <h1 style="font-size: 10px; font-weight: 700; color: #334155; text-transform: uppercase; letter-spacing: 0.06em; margin: 0;">
+                  Session Pending Softfile Upload
+                </h1>
+                {#if pendingSoftfileSessions > 0}
+                  <span
+                    style="
+                      font-size: 10px;
+                      font-weight: 700;
+                      color: #b45309;
+                      background: #fef3c7;
+                      padding: 2px 8px;
+                      border-radius: 9999px;
+                    "
+                  >
+                    {pendingSoftfileSessions} antrean
+                  </span>
+                {/if}
+              </div>
+
+              <div style="display: flex; gap: 8px; align-items: center;">
+                <!-- Count Box / Display Input -->
+                <div
+                  style="
+                    flex: 1;
+                    background: {NEU_BG};
+                    box-shadow: {neuCfg.inset};
+                    border-radius: 12px;
+                    padding: 9px 14px;
+                    font-size: 13px;
+                    font-weight: 700;
+                    color: {pendingSoftfileSessions > 0 ? '#d97706' : '#64748b'};
+                    display: flex;
+                    align-items: center;
+                    justify-content: space-between;
+                  "
+                >
+                  <span>{pendingSoftfileSessions}</span>
+                  {#if pendingSoftfileSessions > 0}
+                    <span style="font-size: 10px; font-weight: 500; color: #94a3b8;">Tertunda</span>
+                  {:else}
+                    <span style="font-size: 10px; font-weight: 500; color: #16a34a;">Semua Terkirim</span>
+                  {/if}
+                </div>
+
+                <!-- Tombol Upload (Manual Trigger Upload Semua) -->
+                <button
+                  type="button"
+                  onclick={handleUploadAllPending}
+                  disabled={isUploadingPending || pendingSoftfileSessions === 0}
+                  style="
+                    padding: 9px 18px;
+                    border-radius: 12px;
+                    background: {NEU_BG};
+                    box-shadow: {neuCfg.btnSm};
+                    border: none;
+                    cursor: {isUploadingPending || pendingSoftfileSessions === 0 ? 'not-allowed' : 'pointer'};
+                    opacity: {isUploadingPending || pendingSoftfileSessions === 0 ? 0.6 : 1};
+                    font-family: 'Poppins', sans-serif;
+                    font-weight: 700;
+                    font-size: 12px;
+                    color: #1e293b;
+                    display: flex;
+                    align-items: center;
+                    gap: 6px;
+                    white-space: nowrap;
+                    transition: all 0.15s ease;
+                  "
+                  title="Upload antrean sesi yang tertunda ke server sekarang"
+                  onmousedown={(e) => {
+                    if (!isUploadingPending && pendingSoftfileSessions > 0) e.currentTarget.style.boxShadow = neuCfg.inset;
+                  }}
+                  onmouseup={(e) => {
+                    if (!isUploadingPending && pendingSoftfileSessions > 0) e.currentTarget.style.boxShadow = neuCfg.btnSm;
+                  }}
+                >
+                  <UploadCloud size={15} class={isUploadingPending ? 'animate-bounce text-indigo-600' : ''} />
+                  <span>{isUploadingPending ? 'Uploading...' : 'Upload'}</span>
+                </button>
+
+                <!-- Tombol Dialog Reupload Sesi Foto (Icon Refresh/List sesuai arrow referensi) -->
+                <button
+                  type="button"
+                  onclick={() => (isReuploadModalOpen = true)}
+                  style="
+                    width: 40px;
+                    height: 40px;
+                    border-radius: 12px;
+                    background: {NEU_BG};
+                    box-shadow: {neuCfg.btnSm};
+                    border: none;
+                    cursor: pointer;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    color: #2a2873;
+                    position: relative;
+                    transition: all 0.15s ease;
+                  "
+                  title="Buka Dialog Daftar Sesi Foto (Reupload & Print Manual)"
+                  onmousedown={(e) => (e.currentTarget.style.boxShadow = neuCfg.inset)}
+                  onmouseup={(e) => (e.currentTarget.style.boxShadow = neuCfg.btnSm)}
+                >
+                  <RotateCw size={17} />
+                  {#if pendingSoftfileSessions > 0}
+                    <span
+                      style="
+                        position: absolute;
+                        top: -2px;
+                        right: -2px;
+                        width: 8px;
+                        height: 8px;
+                        border-radius: 50%;
+                        background: #ef4444;
+                        box-shadow: 0 0 6px rgba(239, 68, 68, 0.8);
+                      "
+                    ></span>
+                  {/if}
+                </button>
+              </div>
+
+              <p style="font-size: 10px; color: #94a3b8; margin: 0;">
+                Klik tombol <strong>Upload</strong> untuk sinkronisasi otomatis, atau icon putar untuk memilih sesi yang ingin di-upload/print manual.
+              </p>
+            </div>
+
+            <div style="height: 1px; background: rgba(200,210,224,0.7);"></div>
+
             <!-- Rotasi Kamera -->
             <div style="display: flex; flex-direction: column; gap: 5px;">
               <h1 style="font-size: 10px; font-weight: 700; color: #334155; text-transform: uppercase; letter-spacing: 0.06em;">
@@ -1483,6 +1646,11 @@
   {/if}
 
   <UpdateModal />
+  <ReuploadSessionsModal
+    bind:open={isReuploadModalOpen}
+    onClose={() => (isReuploadModalOpen = false)}
+    onUpdated={refreshPendingCount}
+  />
 </div>
 
 <style>

@@ -164,7 +164,7 @@ class NetworkStatusStore {
         }
         this.isOnline = true;
         this.offlineSince = null;
-        await flushOutbox();
+        await flushOutbox({ force: false });
       } else {
         this.consecutiveFailures++;
         if (this.consecutiveFailures >= 2) {

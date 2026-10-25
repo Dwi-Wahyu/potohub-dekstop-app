@@ -49,6 +49,7 @@
 
   function handleTutorialNext() {
     if (boothConfig.config.skipPayment) {
+      boothFlow.paymentMethod = 'Cash';
       step = 'frame';
     } else if (boothConfig.config.earlyPaymentPage) {
       step = 'package';
@@ -64,8 +65,10 @@
 
   function handlePaymentSelectMethod(method: 'ticket' | 'cashless') {
     if (method === 'ticket') {
+      boothFlow.paymentMethod = 'Ticket';
       step = 'ticket';
     } else {
+      boothFlow.paymentMethod = 'Cashless';
       if (boothConfig.config.earlyPaymentPage) {
         step = 'frame';
       } else {
@@ -75,6 +78,7 @@
   }
 
   function handleTicketConfirm() {
+    boothFlow.paymentMethod = 'Ticket';
     if (boothConfig.config.earlyPaymentPage) {
       step = 'frame';
     } else {
@@ -85,6 +89,7 @@
   function handleSelectFrame(frameId: string) {
     selectedFrameId = frameId;
     if (boothConfig.config.skipPayment) {
+      boothFlow.paymentMethod = 'Cash';
       step = 'session';
     } else if (boothConfig.config.earlyPaymentPage) {
       step = 'session';

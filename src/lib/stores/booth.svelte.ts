@@ -39,6 +39,7 @@ class BoothFlowStore {
   selectedFrameId = $state<string | null>(null);
   selectedFilterId = $state<string>("none");
   printQty = $state(1);
+  paymentMethod = $state<'Cashless' | 'Ticket' | 'Cash' | 'Voucher'>('Cash');
   sessionCode = $state<string | null>(null);
   sessionId = $state<string | null>(null);
   stickersChoosen = $state<StickersChoosen[]>([]);
@@ -79,6 +80,7 @@ class BoothFlowStore {
     this.selectedFrameId = null;
     this.selectedFilterId = "none";
     this.printQty = 1;
+    this.paymentMethod = 'Cash';
     this.sessionCode = null;
     this.sessionId = null;
     this.stickersChoosen = [];

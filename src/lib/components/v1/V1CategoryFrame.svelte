@@ -7,7 +7,12 @@
   import { fetchCategories, fetchTemplates, requireActiveBoothId, type BoothCategory, type BoothTemplate } from '$lib/api/boothClient';
   import { cachedFetch } from '$lib/utils/offlineCache';
   import ProgressiveImage from '$lib/components/shared/ProgressiveImage.svelte';
-  import { getTemplateLayers, getLayerZIndex } from '$lib/utils/templateComposite';
+  import {
+    getTemplateLayers,
+    getLayerZIndex,
+    getTemplatePreviewBoxStyle,
+    preloadAndResolveTemplateAssets
+  } from '$lib/utils/templateComposite';
 
   interface Props {
     onNext: (price: number, frameConfigId: string) => void;
@@ -77,23 +82,6 @@
   let frameSrc = $state('');
   let videoEl = $state<HTMLVideoElement | null>(null);
 
-  function preloadTemplateAssets(templates: BoothTemplate[]) {
-    const urls = new Set<string>();
-    for (const t of templates) {
-      if (t.preview_image_url) urls.add(t.preview_image_url);
-      if (t.frame_image_url) urls.add(t.frame_image_url);
-      if (Array.isArray(t.design_data)) {
-        for (const l of t.design_data) {
-          if (l.imageUrl) urls.add(l.imageUrl);
-        }
-      }
-    }
-    for (const url of urls) {
-      const img = new Image();
-      img.src = url;
-    }
-  }
-
   function playStream(node: HTMLVideoElement, stream: MediaStream | null) {
     cameraStore.setVideoElement(node);
     if (stream && node.srcObject !== stream) {
@@ -132,14 +120,21 @@
       await cachedFetch(
         `categories:${boothId}`,
         () => fetchCategories(boothId),
-        (d) => { categoriesData = d; }
+        (d) => {
+          categoriesData = d;
+          preloadAndResolveTemplateAssets(templatesData, d);
+        }
       );
       await cachedFetch(
         `templates:${boothId}`,
         () => fetchTemplates(boothId),
         (d) => {
           templatesData = d;
-          preloadTemplateAssets(d);
+          preloadAndResolveTemplateAssets(d, categoriesData);
+          if (categoryId && !frameId) {
+            const vis = d.filter((t) => t.category_id === categoryId);
+            if (vis[0]) frameId = vis[0].id;
+          }
         }
       );
       if (categoriesData[0]) {
@@ -158,7 +153,6 @@
   }
 
   onMount(async () => {
-    void cameraStore.startLiveview(videoEl);
     await loadCatalog();
     timer = setInterval(() => {
       if (secs > 0) secs--;
@@ -168,11 +162,19 @@
       }
     }, 1000);
 
+    await cameraStore.startLiveview(videoEl);
     if (cameraStore.cameraMode === 'usb' || cameraStore.cameraMode === 'demo') {
+      let fetchingFrame = false;
       liveviewInterval = setInterval(async () => {
-        const url = await cameraStore.getLiveviewFrame();
-        if (url) {
-          frameSrc = url;
+        if (fetchingFrame) return;
+        fetchingFrame = true;
+        try {
+          const url = await cameraStore.getLiveviewFrame();
+          if (url) {
+            frameSrc = url;
+          }
+        } finally {
+          fetchingFrame = false;
         }
       }, 150);
     }
@@ -359,7 +361,7 @@
                           "
                         >
                           {#if layer.isBackground}
-                            {@const layerBgUrl = layer.imageUrl || bgUrl}
+                            {@const layerBgUrl = uiConfig.resolveAssetUrl(layer.imageUrl || bgUrl)}
                             {#if layerBgUrl}
                               <img src={layerBgUrl} alt="Template Frame" class="w-full h-full object-fill pointer-events-none block" />
                             {/if}
@@ -371,7 +373,7 @@
                         </div>
                       {/each}
                     {:else if bgUrl}
-                      <img src={bgUrl} alt="Template Frame" class="w-full h-full object-contain block" />
+                      <img src={uiConfig.resolveAssetUrl(bgUrl)} alt="Template Frame" class="w-full h-full object-contain block" />
                     {:else}
                       <div class="text-white/30 text-[10px]">No Preview</div>
                     {/if}
@@ -404,10 +406,10 @@
             {@const tWidth = selectedFrame.width || 1200}
             {@const tHeight = selectedFrame.height || 1800}
 
-            <div class="w-full flex-1 min-h-0 flex items-center justify-center p-1">
+            <div class="w-full flex-1 min-h-0 flex items-center justify-center p-1" style="container-type: size;">
               <div
-                class="relative max-h-full max-w-full overflow-hidden rounded-xl bg-black/40 shadow-xl"
-                style="aspect-ratio: {tWidth} / {tHeight}; width: auto; height: auto;"
+                class="relative overflow-hidden rounded-xl bg-black/40 shadow-xl"
+                style={getTemplatePreviewBoxStyle(tWidth, tHeight)}
               >
                 {#if templateLayers.length > 0}
                   {#each templateLayers.filter((l) => !l.isQr) as layer, idx (layer.isBackground ? 'bg-frame-layer' : `slot-${idx}`)}
@@ -426,7 +428,7 @@
                       "
                     >
                       {#if layer.isBackground}
-                        {@const layerBgUrl = layer.imageUrl || bgUrl}
+                        {@const layerBgUrl = uiConfig.resolveAssetUrl(layer.imageUrl || bgUrl)}
                         {#if layerBgUrl}
                           <img
                             src={layerBgUrl}

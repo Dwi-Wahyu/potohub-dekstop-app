@@ -119,6 +119,11 @@ class UIConfigStore {
     this.resolvedBackgrounds[url] = resolvedUrl;
   }
 
+  resolveAssetUrl(url: string | null | undefined): string {
+    if (!url) return '';
+    return this.resolvedBackgrounds[url] || url;
+  }
+
   async resolveCachedAssets() {
     for (const s of this.config.stepStyles ?? []) {
       if (

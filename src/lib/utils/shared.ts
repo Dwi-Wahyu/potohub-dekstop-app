@@ -1,3 +1,6 @@
+import { fetch as tauriFetch } from '@tauri-apps/plugin-http';
+import { info as logInfo, warn as logWarn } from '@tauri-apps/plugin-log';
+
 export const delay = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 export function formatTime(totalSecs: number): string {
@@ -18,6 +21,8 @@ const rawBase =
   "http://localhost:8080/api";
 const API_BASE = rawBase.replace(/\/+$/, "");
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export async function sendSoftfileEmail(
   email: string,
   onSent: (success?: boolean) => void,
@@ -28,12 +33,13 @@ export async function sendSoftfileEmail(
     onSent(false);
     return false;
   }
-  if (!sessionId || sessionId === '00000000-0000-0000-0000-000000000000') {
+  if (!sessionId || !UUID_REGEX.test(sessionId) || sessionId === '00000000-0000-0000-0000-000000000000') {
     console.warn('[sendSoftfileEmail] Invalid or missing sessionId:', sessionId);
+    await logWarn(`[sendSoftfileEmail] Invalid or missing sessionId: ${sessionId}`).catch(() => {});
     return false;
   }
   try {
-    const res = await fetch(`${API_BASE}/public/softfile/send-email`, {
+    const res = await tauriFetch(`${API_BASE}/public/softfile/send-email`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -44,18 +50,19 @@ export async function sendSoftfileEmail(
     if (res.ok) {
       const data = await res.json();
       if (data.email_sent || data.success) {
-        console.log('[sendSoftfileEmail] Softfile email request sent successfully');
+        await logInfo(`[sendSoftfileEmail] Softfile email sent successfully for session=${sessionId}`).catch(() => {});
         await delay(300);
         onSent(true);
         return true;
       } else {
-        console.warn('[sendSoftfileEmail] Server returned failure:', data.message);
+        await logWarn(`[sendSoftfileEmail] Server returned failure: ${data.message}`).catch(() => {});
       }
     } else {
-      console.warn('[sendSoftfileEmail] Request failed with status:', res.status);
+      const errBody = await res.text().catch(() => '');
+      await logWarn(`[sendSoftfileEmail] Request failed with status=${res.status}: ${errBody}`).catch(() => {});
     }
   } catch (err) {
-    console.warn('[sendSoftfileEmail] Request failed:', err);
+    await logWarn(`[sendSoftfileEmail] Request exception: ${String(err)}`).catch(() => {});
   }
   return false;
 }
@@ -70,12 +77,13 @@ export async function sendSoftfileWA(
     onSent(false);
     return false;
   }
-  if (!sessionId || sessionId === '00000000-0000-0000-0000-000000000000') {
+  if (!sessionId || !UUID_REGEX.test(sessionId) || sessionId === '00000000-0000-0000-0000-000000000000') {
     console.warn('[sendSoftfileWA] Invalid or missing sessionId:', sessionId);
+    await logWarn(`[sendSoftfileWA] Invalid or missing sessionId: ${sessionId}`).catch(() => {});
     return false;
   }
   try {
-    const res = await fetch(`${API_BASE}/public/softfile/send-wa`, {
+    const res = await tauriFetch(`${API_BASE}/public/softfile/send-wa`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -86,18 +94,19 @@ export async function sendSoftfileWA(
     if (res.ok) {
       const data = await res.json();
       if (data.wa_sent || data.success) {
-        console.log('[sendSoftfileWA] Softfile WhatsApp request sent successfully');
+        await logInfo(`[sendSoftfileWA] Softfile WhatsApp sent successfully for session=${sessionId}`).catch(() => {});
         await delay(300);
         onSent(true);
         return true;
       } else {
-        console.warn('[sendSoftfileWA] Server returned failure:', data.message);
+        await logWarn(`[sendSoftfileWA] Server returned failure: ${data.message}`).catch(() => {});
       }
     } else {
-      console.warn('[sendSoftfileWA] Request failed with status:', res.status);
+      const errBody = await res.text().catch(() => '');
+      await logWarn(`[sendSoftfileWA] Request failed with status=${res.status}: ${errBody}`).catch(() => {});
     }
   } catch (err) {
-    console.warn('[sendSoftfileWA] Request failed:', err);
+    await logWarn(`[sendSoftfileWA] Request exception: ${String(err)}`).catch(() => {});
   }
   return false;
 }

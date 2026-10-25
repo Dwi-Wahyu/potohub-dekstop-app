@@ -8,7 +8,12 @@
   import { formatTime, getLiveviewTransformStyle } from '$lib/utils/shared';
   import { fetchTemplates, requireActiveBoothId, type BoothTemplate } from '$lib/api/boothClient';
   import { cachedFetch } from '$lib/utils/offlineCache';
-  import { getSortedPhotoSlots, getTemplateLayers, getLayerZIndex } from '$lib/utils/templateComposite';
+  import {
+    getSortedPhotoSlots,
+    getTemplateLayers,
+    getLayerZIndex,
+    getTemplatePreviewBoxStyle
+  } from '$lib/utils/templateComposite';
   import { QrCode, Camera, RefreshCw, ArrowRight, Search, RotateCw, FlipHorizontal2 } from '@lucide/svelte';
 
   interface Props {
@@ -372,13 +377,13 @@
       </h3>
 
       <!-- Selected template preview with liveview & photos -->
-      <div class="flex-1 flex flex-col items-center justify-center min-h-0 py-2 overflow-hidden">
+      <div class="flex-1 flex flex-col items-center justify-center min-h-0 py-2 overflow-hidden" style="container-type: size;">
         {#if selectedTemplate}
           {@const tWidth = selectedTemplate.width || 1200}
           {@const tHeight = selectedTemplate.height || 1800}
           <div
-            class="relative h-full max-w-full overflow-hidden rounded-xl bg-black/40 shadow-[4px_4px_0_0_#000] border-[2.5px] border-black"
-            style="aspect-ratio: {tWidth} / {tHeight};"
+            class="relative overflow-hidden rounded-xl bg-black/40 shadow-[4px_4px_0_0_#000] border-[2.5px] border-black"
+            style={getTemplatePreviewBoxStyle(tWidth, tHeight)}
           >
             {#if templateLayers.length > 0}
               {#each templateLayers.filter((l) => !l.isQr) as layer, idx (layer.id ?? idx)}
@@ -399,7 +404,7 @@
                   "
                 >
                   {#if layer.isBackground}
-                    {@const layerBgUrl = layer.imageUrl || bgUrl}
+                    {@const layerBgUrl = uiConfig.resolveAssetUrl(layer.imageUrl || bgUrl)}
                     {#if layerBgUrl}
                       <img
                         src={layerBgUrl}

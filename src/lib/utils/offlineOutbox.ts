@@ -12,10 +12,13 @@ import {
   validateAndRedeemQrTicket,
   createTransactionSession,
   uploadGalleryAsset,
+  uploadSessionMedia,
   isNetworkTransportError,
+  isValidUUID,
 } from '$lib/api/boothClient';
 import { sendSoftfileEmail, sendSoftfileWA } from '$lib/utils/shared';
 import { invoke } from '@tauri-apps/api/core';
+import { info as logInfo, warn as logWarn, error as logError } from '@tauri-apps/plugin-log';
 
 let flushing = false;
 
@@ -29,12 +32,12 @@ export interface SessionSoftfilePayload {
   categoryId: string | null;
   frameId: string | null;
   printQty: number;
-  paymentMethod: 'Ticket' | 'Cashless';
+  paymentMethod: 'Ticket' | 'Cashless' | 'Cash' | 'Voucher';
   softfileTarget: string | null;
   localSessionCode: string;
   backendSessionId?: string;
   assetRelativePaths: {
-    role: 'composite' | 'gif' | 'video';
+    role: 'composite' | 'raw_photo' | 'gif' | 'video';
     path: string;
     contentType: string;
     width: number;
@@ -122,58 +125,98 @@ export async function processJob(job: OutboxJob): Promise<JobProcessOutcome> {
     if (job.jobType === 'session_softfile') {
       const payload: SessionSoftfilePayload = JSON.parse(job.payload);
 
-      let sessionId = payload.backendSessionId;
+      let sessionId = isValidUUID(payload.backendSessionId) ? payload.backendSessionId : undefined;
       if (!sessionId) {
         try {
+          // Gunakan 'Ticket' atau 'Cash' saat sinkronisasi sesi selesai agar backend langsung
+          // membuat sesi berstatus Paid tanpa memanggil API DOKU SNAP QRIS.
+          const syncMethod = payload.paymentMethod === 'Ticket' ? 'Ticket' : 'Cash';
           const session = await createTransactionSession(
             payload.boothId,
             payload.categoryId,
             payload.printQty,
-            payload.paymentMethod,
+            syncMethod,
             payload.frameId,
           );
-          sessionId = session.session_id || (session as any).id;
-          payload.backendSessionId = sessionId;
-          // Simpan backendSessionId kembali ke database agar percobaan ulang tidak menduplikasi transaksi
-          await updateOutboxJobPayload(job.id, JSON.stringify(payload)).catch(() => {});
+          const createdId = session.session_id || (session as any).id;
+          if (isValidUUID(createdId)) {
+            sessionId = createdId;
+            payload.backendSessionId = sessionId;
+            // Simpan backendSessionId kembali ke database agar percobaan ulang tidak menduplikasi transaksi
+            await updateOutboxJobPayload(job.id, JSON.stringify(payload)).catch(() => {});
+          }
         } catch (sessErr) {
           if (isNetworkTransportError(sessErr)) {
             await markOutboxJobFailedAttempt(job.id, String(sessErr));
             return { status: 'network_failure', error: sessErr };
           }
-          // Jika 400/401/404 bukan error jaringan, catat sebagai dead-letter agar tidak macet selamanya
-          console.error(`[offlineOutbox] createTransactionSession gagal permanen untuk Job #${job.id}:`, sessErr);
-          await markOutboxJobDeadLetter(job.id, `Session create failed: ${sessErr}`);
+          console.error(`[offlineOutbox] createTransactionSession gagal untuk Job #${job.id}:`, sessErr);
+          await logError(`[offlineOutbox] createTransactionSession gagal untuk Job #${job.id}: ${String(sessErr)}`).catch(() => {});
+          await markOutboxJobFailedAttempt(job.id, `Session create failed: ${sessErr}`);
           return { status: 'business_error', reason: String(sessErr) };
         }
       }
 
-      if (!sessionId) {
-        return { status: 'business_error', reason: 'Session ID tidak valid' };
+      if (!sessionId || !isValidUUID(sessionId)) {
+        const reason = 'Session ID tidak valid dari server';
+        await markOutboxJobFailedAttempt(job.id, reason);
+        return { status: 'business_error', reason };
       }
+
+      let compositeUploaded = false;
+      let firstRawUploaded = false;
+      let lastAssetError: string | null = null;
 
       // Upload file aset lokal yang tersimpan
       for (const asset of payload.assetRelativePaths) {
         try {
           const bytes = await invoke<number[]>('read_session_file', { relativePath: asset.path });
           const blob = new Blob([new Uint8Array(bytes)], { type: asset.contentType });
-          await uploadGalleryAsset(
+          const fileType = asset.role === 'composite' || asset.role === 'raw_photo' ? 'photo' : asset.role;
+          const uploaded = await uploadGalleryAsset(
             payload.boothId,
             sessionId,
-            asset.role === 'composite' ? 'photo' : asset.role,
+            fileType,
             blob,
             asset.contentType.split('/')[1] || 'jpg',
             asset.contentType,
             asset.width,
             asset.height,
           );
+          if (asset.role === 'composite') {
+            compositeUploaded = true;
+          } else if (asset.role === 'raw_photo' && !firstRawUploaded && uploaded?.file_url) {
+            firstRawUploaded = true;
+            await uploadSessionMedia(
+              payload.boothId,
+              sessionId,
+              uploaded.file_url,
+              'thumbnail',
+              asset.width || 1200,
+              asset.height || 1800,
+              uploaded.file_size || blob.size,
+            ).catch((e) => {
+              console.warn('[offlineOutbox] Gagal register thumbnail:', e);
+            });
+          }
         } catch (assetErr) {
           if (isNetworkTransportError(assetErr)) {
             await markOutboxJobFailedAttempt(job.id, String(assetErr));
             return { status: 'network_failure', error: assetErr };
           }
-          console.warn(`[offlineOutbox] Asset ${asset.path} gagal dibaca/diupload:`, assetErr);
+          const errStr = String(assetErr);
+          if (asset.role === 'composite') {
+            lastAssetError = errStr;
+          }
+          console.warn(`[offlineOutbox] Asset ${asset.path} (${asset.role}) gagal dibaca/diupload:`, assetErr);
+          await logWarn(`[offlineOutbox] Asset ${asset.path} (${asset.role}) gagal dibaca/diupload: ${errStr}`).catch(() => {});
         }
+      }
+
+      if (!compositeUploaded) {
+        const reason = lastAssetError || 'Gagal membaca atau mengunggah file composite strip utama';
+        await markOutboxJobFailedAttempt(job.id, reason);
+        return { status: 'business_error', reason };
       }
 
       // Kirim softfile jika ada target (jangan lempar fatal network error jika nomor/email gagal terkirim)
@@ -190,6 +233,7 @@ export async function processJob(job: OutboxJob): Promise<JobProcessOutcome> {
         }
       }
 
+      await logInfo(`[offlineOutbox] Job #${job.id} (${payload.localSessionCode} -> ${sessionId}) berhasil disinkronkan`).catch(() => {});
       await markOutboxJobDone(job.id);
       return { status: 'success' };
     }

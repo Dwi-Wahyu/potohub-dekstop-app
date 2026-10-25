@@ -8,12 +8,13 @@
   import { Delete, QrCode, Image, Film, Video } from '@lucide/svelte';
 
   import { compositeTemplateImage } from '$lib/utils/templateComposite';
-  import { saveSessionAssets } from '$lib/utils/sessionAssets';
+  import { saveSessionAssets, type SaveSessionAssetsResult } from '$lib/utils/sessionAssets';
   import { cachedFetch } from '$lib/utils/offlineCache';
   import {
     fetchTemplates,
     createTransactionSession,
     requireActiveBoothId,
+    isValidUUID,
     type BoothTemplate
   } from '$lib/api/boothClient';
   import { networkStatus } from '$lib/stores/networkStatus.svelte';
@@ -94,22 +95,35 @@
 
     let softfileUrl = `${ADMIN_DASHBOARD_PUBLIC_URL}/softfile/pending-${localSessionCode}`;
     let targetSessionIdentifier = localSessionCode;
+    let sessionCreateError: string | null = null;
+    const effectivePhotos = [...boothFlow.photosTaken];
 
-    if (networkStatus.isOnline) {
+    if (isValidUUID(boothFlow.sessionId)) {
+      const existingSessId = boothFlow.sessionId!;
+      softfileUrl = `${ADMIN_DASHBOARD_PUBLIC_URL}/softfile/${existingSessId}`;
+      targetSessionIdentifier = existingSessId;
+    } else if (networkStatus.isOnline && isValidUUID(boothId)) {
       isSaving = true;
       try {
+        const sessionMethod = boothFlow.paymentMethod === 'Ticket' ? 'Ticket' : 'Cash';
         const session = await createTransactionSession(
           boothId,
           selectedTemplate?.category_id,
           boothFlow.printQty,
-          'cashless',
+          sessionMethod,
           selectedFrame
         );
-        const sessId = session.session_id || session.id || 'demo-session';
-        boothFlow.sessionId = sessId;
-        softfileUrl = `${ADMIN_DASHBOARD_PUBLIC_URL}/softfile/${sessId}`;
-        targetSessionIdentifier = sessId;
+        const sessId = session.session_id || session.id;
+        if (isValidUUID(sessId)) {
+          boothFlow.sessionId = sessId;
+          softfileUrl = `${ADMIN_DASHBOARD_PUBLIC_URL}/softfile/${sessId}`;
+          targetSessionIdentifier = sessId;
+        } else {
+          sessionCreateError = `Session ID tidak valid: ${sessId}`;
+          boothFlow.sessionId = null;
+        }
       } catch (err) {
+        sessionCreateError = String(err);
         console.error('Failed to create session online in V2Download, using local code:', err);
         boothFlow.sessionId = null;
       }
@@ -123,7 +137,7 @@
       try {
         compositeUrl = await compositeTemplateImage(
           selectedTemplate,
-          boothFlow.photosTaken,
+          effectivePhotos,
           boothFlow.selectedFilterId,
           softfileUrl,
           boothFlow.stickers
@@ -134,9 +148,10 @@
       }
     }
 
+    let assetResult: SaveSessionAssetsResult | null = null;
     try {
       isSaving = true;
-      await saveSessionAssets(
+      assetResult = await saveSessionAssets(
         boothId,
         targetSessionIdentifier,
         compositeUrl,
@@ -144,7 +159,7 @@
         selectedTemplate?.height || 1800,
         (selectedTemplate?.design_data || []).filter((l) => !l.isBackground && !l.isQr),
         selectedTemplate?.frame_image_url || selectedTemplate?.design_data?.find((l) => l.isBackground)?.imageUrl,
-        [...boothFlow.photosTaken],
+        effectivePhotos,
         [...boothFlow.liveviewClips],
         boothFlow.sessionCode,
         selectedTemplate,
@@ -203,23 +218,38 @@
       console.error('Failed to save assets in V2Download:', err);
     } finally {
       isSaving = false;
-      if (!networkStatus.isOnline) {
-        void requireActiveBoothId().then((bId) => {
-          return upsertSessionOutboxJob(
-            boothFlow.sessionCode || localSessionCode,
-            {
-              boothId: bId,
-              categoryId: selectedTemplate?.category_id ?? null,
-              frameId: selectedFrame,
-              printQty: boothFlow.printQty,
-              paymentMethod: 'Cashless',
-              softfileTarget: null,
-              localSessionCode: boothFlow.sessionCode || localSessionCode,
-              assetRelativePaths: buildAssetRelativePaths(boothFlow.sessionCode || localSessionCode, uiConfig.config.boothName),
-            }
-          );
-        }).catch(console.warn);
-      }
+      const sCode = boothFlow.sessionCode || localSessionCode;
+      const isSyncedOnline = Boolean(isValidUUID(boothFlow.sessionId) && assetResult?.compositeUploaded);
+      const syncError = isSyncedOnline
+        ? null
+        : assetResult?.lastUploadError ||
+          sessionCreateError ||
+          (!networkStatus.isOnline ? 'Booth sedang offline saat sesi selesai' : 'Gagal unggah softfile ke server');
+
+      void upsertSessionOutboxJob(
+        sCode,
+        {
+          boothId,
+          categoryId: selectedTemplate?.category_id ?? null,
+          frameId: selectedFrame,
+          printQty: boothFlow.printQty,
+          paymentMethod: boothFlow.paymentMethod === 'Ticket' ? 'Ticket' : 'Cash',
+          softfileTarget: null,
+          localSessionCode: sCode,
+          backendSessionId: isValidUUID(boothFlow.sessionId) ? boothFlow.sessionId! : undefined,
+          assetRelativePaths: buildAssetRelativePaths(
+            sCode,
+            uiConfig.config.boothName,
+            effectivePhotos.length,
+            selectedTemplate?.width || 1200,
+            selectedTemplate?.height || 1800
+          ),
+        },
+        {
+          status: isSyncedOnline ? 'done' : 'pending',
+          lastError: syncError,
+        }
+      ).catch(console.warn);
     }
   });
 
@@ -242,11 +272,19 @@
         categoryId: selectedTemplate?.category_id ?? null,
         frameId: selectedFrame,
         printQty: boothFlow.printQty,
-        paymentMethod: 'Cashless',
+        paymentMethod: boothFlow.paymentMethod === 'Ticket' ? 'Ticket' : 'Cash',
         softfileTarget: target,
         localSessionCode: sCode,
-        assetRelativePaths: buildAssetRelativePaths(sCode, uiConfig.config.boothName),
+        backendSessionId: isValidUUID(boothFlow.sessionId) ? boothFlow.sessionId! : undefined,
+        assetRelativePaths: buildAssetRelativePaths(
+          sCode,
+          uiConfig.config.boothName,
+          boothFlow.photosTaken.length,
+          selectedTemplate?.width || 1200,
+          selectedTemplate?.height || 1800
+        ),
       },
+      { status: 'pending' }
     );
     softfileQueued = true;
     emailSent = target === email.trim();
@@ -262,7 +300,7 @@
     }
     sendErrMsg = '';
 
-    if (!networkStatus.isOnline) {
+    if (!networkStatus.isOnline || !isValidUUID(boothFlow.sessionId)) {
       await enqueueSoftfileJob(email.trim());
       return;
     }
@@ -293,7 +331,7 @@
     }
     sendErrMsg = '';
 
-    if (!networkStatus.isOnline) {
+    if (!networkStatus.isOnline || !isValidUUID(boothFlow.sessionId)) {
       await enqueueSoftfileJob(phone.trim().replace(/[\s-]/g, ''));
       return;
     }

@@ -486,9 +486,12 @@ export async function getOutboxJobByLocalRef(localRef: string): Promise<OutboxJo
 export async function upsertSessionOutboxJob(
   sessionCode: string,
   payload: any,
+  options?: { status?: 'pending' | 'done'; lastError?: string | null },
 ): Promise<number> {
   const conn = await db();
   const now = Date.now();
+  const targetStatus = options?.status ?? 'pending';
+  const targetError = options?.lastError ?? null;
   const existing = await getOutboxJobByLocalRef(sessionCode);
   if (existing) {
     let existingPayload: any = {};
@@ -498,16 +501,29 @@ export async function upsertSessionOutboxJob(
     const merged = { ...existingPayload, ...payload };
     if (payload.softfileTarget && !existingPayload.softfileTarget) {
       merged.softfileTarget = payload.softfileTarget;
+    } else if (!payload.softfileTarget && existingPayload.softfileTarget) {
+      merged.softfileTarget = existingPayload.softfileTarget;
     }
+    if (payload.backendSessionId && !existingPayload.backendSessionId) {
+      merged.backendSessionId = payload.backendSessionId;
+    } else if (!payload.backendSessionId && existingPayload.backendSessionId) {
+      merged.backendSessionId = existingPayload.backendSessionId;
+    }
+    const finalStatus = existingPayload.softfileTarget && existing.status === 'pending' ? 'pending' : targetStatus;
     await conn.execute(
       `UPDATE offline_outbox 
-       SET payload = $2, status = 'pending', attempts = 0, last_error = NULL, updated_at = $3
+       SET payload = $2, status = $3, attempts = 0, last_error = $4, updated_at = $5
        WHERE id = $1`,
-      [existing.id, JSON.stringify(merged), now],
+      [existing.id, JSON.stringify(merged), finalStatus, targetError, now],
     );
     return existing.id;
   } else {
-    return enqueueOutboxJob('session_softfile', payload, sessionCode);
+    const result = await conn.execute(
+      `INSERT INTO offline_outbox (job_type, local_ref, payload, status, attempts, last_error, created_at, updated_at)
+       VALUES ('session_softfile', $1, $2, $3, 0, $4, $5, $5)`,
+      [sessionCode, JSON.stringify(payload), targetStatus, targetError, now],
+    );
+    return Number(result.lastInsertId ?? 0);
   }
 }
 

@@ -14,7 +14,12 @@
   } from '$lib/api/boothClient';
   import { cachedFetch } from '$lib/utils/offlineCache';
   import ProgressiveImage from '$lib/components/shared/ProgressiveImage.svelte';
-  import { getTemplateLayers, getLayerZIndex } from '$lib/utils/templateComposite';
+  import {
+    getTemplateLayers,
+    getLayerZIndex,
+    getTemplatePreviewBoxStyle,
+    preloadAndResolveTemplateAssets
+  } from '$lib/utils/templateComposite';
 
   interface Props {
     onSelectFrame: (frameId: string) => void;
@@ -87,7 +92,10 @@
       await cachedFetch(
         `templates:${boothId}`,
         () => fetchTemplates(boothId),
-        (d) => { templatesData = d; }
+        (d) => {
+          templatesData = d;
+          preloadAndResolveTemplateAssets(d, categoriesData);
+        }
       );
       if (templatesData.length > 0) {
         selectedFrame = templatesData[0].id;
@@ -213,7 +221,7 @@
         {selectedTemplateObj?.name || 'Selected Frame'}
       </h3>
 
-      <div class="flex-1 flex items-center justify-center w-full min-h-0 p-1">
+      <div class="flex-1 flex items-center justify-center w-full min-h-0 p-1" style="container-type: size;">
         {#if selectedTemplateObj}
           {@const templateLayers = 'design_data' in selectedTemplateObj ? getTemplateLayers(selectedTemplateObj as BoothTemplate) : []}
           {@const bgLayer = templateLayers.find((l) => l.isBackground)}
@@ -222,8 +230,8 @@
           {@const tHeight = ('height' in selectedTemplateObj && selectedTemplateObj.height) || 1800}
 
           <div
-            class="relative h-full max-w-full overflow-hidden rounded-xl bg-black/40 shadow-[8px_8px_0_0_#000] border-[3px] border-black"
-            style="aspect-ratio: {tWidth} / {tHeight};"
+            class="relative overflow-hidden rounded-xl bg-black/40 shadow-[8px_8px_0_0_#000] border-[3px] border-black"
+            style={getTemplatePreviewBoxStyle(tWidth, tHeight)}
           >
             {#if templateLayers.length > 0}
               {#each templateLayers.filter((l: any) => !l.isQr) as layer, idx (layer.id ?? idx)}
@@ -241,7 +249,7 @@
                   "
                 >
                   {#if layer.isBackground}
-                    {@const layerBgUrl = layer.imageUrl || bgUrl}
+                    {@const layerBgUrl = uiConfig.resolveAssetUrl(layer.imageUrl || bgUrl)}
                     {#if layerBgUrl}
                       <img
                         src={layerBgUrl}

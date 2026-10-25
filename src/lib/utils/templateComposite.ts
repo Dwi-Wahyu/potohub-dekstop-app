@@ -1,10 +1,11 @@
-import type { BoothTemplate } from '$lib/api/boothClient';
+import type { BoothCategory, BoothTemplate } from '$lib/api/boothClient';
 import { boothFlow } from '$lib/stores/booth.svelte';
 import { boothConfig } from '$lib/stores/boothConfig.svelte';
+import { uiConfig } from '$lib/stores/uiConfig.svelte';
 import { STICKER_EMOJI_PX, STICKER_IMAGE_PX, type Sticker } from '$lib/utils/stickers';
 import { resolveFilterCss, applyFilterToCanvas } from '$lib/utils/filters';
 import { invoke } from '@tauri-apps/api/core';
-import { ensureAssetDataUrl } from '$lib/utils/offlineCache';
+import { ensureAsset, ensureAssetDataUrl } from '$lib/utils/offlineCache';
 import QRCode from 'qrcode';
 
 export interface TemplateDesignLayer {
@@ -142,6 +143,55 @@ export function getLayerZIndex(
 
   const idx = allLayers.findIndex((l) => (layer.id != null && l.id === layer.id) || l === layer);
   return idx >= 0 ? idx + 1 : 1;
+}
+
+/**
+ * Menghasilkan inline CSS style untuk kontainer preview frame template agar:
+ * 1. Memiliki ukuran eksplisit (tidak pernah collapse ke 0x0 meskipun seluruh anak berupa position: absolute).
+ * 2. Selalu proporsional sesuai aspect-ratio (width / height) baik untuk template portrait maupun landscape,
+ *    menyesuaikan batas lebar (100cqw) atau tinggi (100cqh) dari parent ber-container-type: size.
+ */
+export function getTemplatePreviewBoxStyle(
+  width?: number | null,
+  height?: number | null
+): string {
+  const w = width || 1200;
+  const h = height || 1800;
+  return `aspect-ratio: ${w} / ${h}; width: min(100cqw, calc(100cqh * ${w} / ${h})); height: min(100cqh, calc(100cqw * ${h} / ${w}));`;
+}
+
+/**
+ * Preload dan resolve URL aset template & kategori ke cache lokal Tauri Asset Protocol (convertFileSrc)
+ * dan menyimpannya ke uiConfig.resolvedBackgrounds agar komponen preview dapat merender instan secara offline/lokal.
+ */
+export function preloadAndResolveTemplateAssets(
+  templates: BoothTemplate[],
+  categories: BoothCategory[] = []
+): void {
+  if (typeof window === 'undefined') return;
+  const urls = new Set<string>();
+  for (const c of categories) {
+    if (c.banner_url) urls.add(c.banner_url);
+  }
+  for (const t of templates) {
+    if (t.preview_image_url) urls.add(t.preview_image_url);
+    if (t.frame_image_url) urls.add(t.frame_image_url);
+    if (Array.isArray(t.design_data)) {
+      for (const l of t.design_data) {
+        if (l.imageUrl) urls.add(l.imageUrl);
+      }
+    }
+  }
+  for (const url of urls) {
+    if (uiConfig.resolvedBackgrounds[url]) continue;
+    void ensureAsset(url)
+      .then((resolved) => {
+        if (resolved) {
+          uiConfig.setResolvedBackground(url, resolved);
+        }
+      })
+      .catch(() => {});
+  }
 }
 
 async function loadImage(src: string): Promise<HTMLImageElement | null> {

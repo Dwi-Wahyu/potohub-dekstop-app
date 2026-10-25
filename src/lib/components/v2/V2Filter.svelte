@@ -11,7 +11,14 @@
   import PhotoCropButton from '$lib/components/shared/PhotoCropButton.svelte';
   import { fetchEmots, fetchTemplates, requireActiveBoothId, type BoothEmot, type BoothTemplate } from '$lib/api/boothClient';
   import { cachedFetch } from '$lib/utils/offlineCache';
-  import { getSortedPhotoSlots, getTemplateLayers, getLayerZIndex, findPhotoSlotIndex } from '$lib/utils/templateComposite';
+  import {
+    getSortedPhotoSlots,
+    getTemplateLayers,
+    getLayerZIndex,
+    findPhotoSlotIndex,
+    getTemplatePreviewBoxStyle,
+    preloadAndResolveTemplateAssets
+  } from '$lib/utils/templateComposite';
   import { resolveFilterCss } from '$lib/utils/filters';
   import type { Sticker, StickerType } from '$lib/utils/stickers';
   import { QrCode, ChevronLeft, ChevronRight, ArrowRight, Camera } from '@lucide/svelte';
@@ -54,6 +61,7 @@
         `templates:${boothId}`,
         () => fetchTemplates(boothId),
         (templates) => {
+          preloadAndResolveTemplateAssets(templates);
           const matched = templates.find((t) => t.id === selectedFrame);
           if (matched) {
             selectedTemplate = matched;
@@ -201,7 +209,7 @@
                 ? 'border-black shadow-[8px_8px_0_0_rgba(0,0,0,1)] z-10 scale-100 cursor-default'
                 : 'border-gray-400 opacity-50 z-0 scale-[0.82] cursor-pointer'
             } ${isPrev ? '-translate-x-[200px]' : isNext ? 'translate-x-[200px]' : ''}`}
-            style="height: 100%; aspect-ratio: {selectedTemplate ? `${selectedTemplate.width || 1200} / ${selectedTemplate.height || 1800}` : '2/3'};"
+            style="height: 100%; aspect-ratio: {selectedTemplate ? `${selectedTemplate.width || 1200} / ${selectedTemplate.height || 1800}` : '2/3'}; container-type: size;"
           >
             {#if isActive}
               {#if selectedTemplate}
@@ -211,10 +219,10 @@
                   {stickers}
                   onMove={moveSticker}
                   onRemove={removeSticker}
-                  class="relative max-h-full max-w-full overflow-hidden rounded-xl shadow-md mx-auto"
-                  containerStyle="aspect-ratio: {tWidth} / {tHeight}; width: auto; height: auto;"
+                  class="relative overflow-hidden rounded-xl shadow-md mx-auto"
+                  containerStyle={getTemplatePreviewBoxStyle(tWidth, tHeight)}
                 >
-                  <div class="relative w-full h-full bg-black/40 overflow-hidden">
+                  <div class="relative w-full h-full bg-black/40 overflow-hidden isolate z-0">
                     {#if templateLayers.length > 0}
                       {#each (templateLayers || []).filter((l) => !l.isQr) as layer, idx (layer.isBackground ? 'bg-layer' : `slot-${idx}`)}
                         {@const layerZIndex = getLayerZIndex(layer, templateLayers)}
@@ -231,7 +239,7 @@
                           "
                         >
                           {#if layer.isBackground}
-                            {@const layerBgUrl = layer.imageUrl || bgUrl}
+                            {@const layerBgUrl = uiConfig.resolveAssetUrl(layer.imageUrl || bgUrl)}
                             {#if layerBgUrl}
                               <img
                                 src={layerBgUrl}
@@ -263,20 +271,20 @@
                   <div class="grid grid-cols-2 gap-2 flex-1 w-full h-full">
                     {#each boothFlow.photosTaken as photo, pIdx}
                       <div class="border-2 border-black bg-gray-300 overflow-hidden">
-                        <img src={photo} alt={`P ${pIdx+1}`} class="w-full h-full object-cover" style="filter: {resolveFilterCss(f.id)};" />
+                        <img src={photo} alt={`P ${pIdx+1}`} class="w-full h-full object-cover" style="filter: {resolveFilterCss(f.id)}; transform: {getPhotoSlotTransformStyle(boothFlow.getPhotoTransform(photo), getLiveviewTransformStyle(boothConfig.config, cameraStore.cameraMode))};" />
                       </div>
                     {/each}
                   </div>
                 </div>
               {/if}
             {:else}
-              <div class="w-full h-full flex flex-col items-center justify-center blur-[1px] opacity-70">
+              <div class="w-full h-full flex flex-col items-center justify-center blur-[1px] opacity-70" style="container-type: size;">
                 {#if selectedTemplate}
                   {@const tWidth = selectedTemplate.width || 1200}
                   {@const tHeight = selectedTemplate.height || 1800}
                   <div
-                    class="relative max-h-full max-w-full overflow-hidden rounded-xl bg-black/40 shadow-md mx-auto"
-                    style="aspect-ratio: {tWidth} / {tHeight}; width: auto; height: auto;"
+                    class="relative overflow-hidden rounded-xl bg-black/40 shadow-md mx-auto"
+                    style={getTemplatePreviewBoxStyle(tWidth, tHeight)}
                   >
                     {#if templateLayers.length > 0}
                       {#each (templateLayers || []).filter((l) => !l.isQr) as layer, idx (layer.isBackground ? 'bg-layer' : `slot-${idx}`)}
@@ -294,7 +302,7 @@
                           "
                         >
                           {#if layer.isBackground}
-                            {@const layerBgUrl = layer.imageUrl || bgUrl}
+                            {@const layerBgUrl = uiConfig.resolveAssetUrl(layer.imageUrl || bgUrl)}
                             {#if layerBgUrl}
                               <img
                                 src={layerBgUrl}
@@ -324,7 +332,7 @@
                   <div class="grid grid-cols-2 gap-2 flex-1 w-full h-full">
                     {#each boothFlow.photosTaken as photo, pIdx}
                       <div class="border-2 border-black bg-gray-300 overflow-hidden">
-                        <img src={photo} alt={`P ${pIdx+1}`} class="w-full h-full object-cover" style="filter: {resolveFilterCss(f.id)};" />
+                        <img src={photo} alt={`P ${pIdx+1}`} class="w-full h-full object-cover" style="filter: {resolveFilterCss(f.id)}; transform: {getPhotoSlotTransformStyle(boothFlow.getPhotoTransform(photo), getLiveviewTransformStyle(boothConfig.config, cameraStore.cameraMode))};" />
                       </div>
                     {/each}
                   </div>

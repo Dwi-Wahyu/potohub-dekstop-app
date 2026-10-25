@@ -107,12 +107,18 @@ export async function saveLocalSessionAssets(
   });
 }
 
-export function buildAssetRelativePaths(sessionCode: string | null, boothName: string) {
+export function buildAssetRelativePaths(
+  sessionCode: string | null,
+  boothName: string,
+  photoCount: number = boothFlow.photosTaken.length,
+  templateWidth: number = 1200,
+  templateHeight: number = 1800,
+) {
   if (!sessionCode) return [];
   const date = new Date().toISOString().slice(0, 10);
   const base = `${date}/${sessionCode}_${sanitize(boothName || 'booth')}`;
   const list: {
-    role: 'composite' | 'gif' | 'video';
+    role: 'composite' | 'raw_photo' | 'gif' | 'video';
     path: string;
     contentType: string;
     width: number;
@@ -122,10 +128,20 @@ export function buildAssetRelativePaths(sessionCode: string | null, boothName: s
       role: 'composite',
       path: `${base}/composite/print_strip.jpg`,
       contentType: 'image/jpeg',
-      width: 1200,
-      height: 1800,
+      width: templateWidth,
+      height: templateHeight,
     },
   ];
+
+  for (let i = 0; i < photoCount; i++) {
+    list.push({
+      role: 'raw_photo',
+      path: `${base}/raw/slot_${String(i + 1).padStart(2, '0')}.jpg`,
+      contentType: 'image/jpeg',
+      width: 1200,
+      height: 1800,
+    });
+  }
 
   if (boothConfig.config.enableSessionGif) {
     list.push({
@@ -142,8 +158,8 @@ export function buildAssetRelativePaths(sessionCode: string | null, boothName: s
       role: 'video',
       path: `${base}/video/composite.mp4`,
       contentType: 'video/mp4',
-      width: 1200,
-      height: 1800,
+      width: templateWidth,
+      height: templateHeight,
     });
   }
 

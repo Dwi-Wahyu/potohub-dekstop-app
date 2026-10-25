@@ -8,7 +8,12 @@
   import { formatTime, getLiveviewTransformStyle } from '$lib/utils/shared';
   import { fetchTemplates, requireActiveBoothId, type BoothTemplate } from '$lib/api/boothClient';
   import { cachedFetch } from '$lib/utils/offlineCache';
-  import { getSortedPhotoSlots, getTemplateLayers, getLayerZIndex } from '$lib/utils/templateComposite';
+  import {
+    getSortedPhotoSlots,
+    getTemplateLayers,
+    getLayerZIndex,
+    getTemplatePreviewBoxStyle
+  } from '$lib/utils/templateComposite';
   import { Check, Sparkles, ChevronRight, Search, RotateCw, Camera, FlipHorizontal2 } from '@lucide/svelte';
 
   interface Props {
@@ -244,14 +249,14 @@
     <div class="w-[34%] h-full bg-[#fdfdfd] flex flex-col items-center justify-center gap-5 p-8 border-r border-gray-100 shadow-[4px_0_16px_rgba(0,0,0,0.05)] z-10">
       <p class="text-[8px] font-bold text-gray-400 uppercase tracking-[0.3em] m-0">✦ Preview Strip ✦</p>
 
-      <div class="relative flex-1 max-h-[55vh] w-full flex items-center justify-center">
+      <div class="relative flex-1 max-h-[55vh] w-full flex items-center justify-center" style="container-type: size;">
         {#if selectedTemplate}
           {@const tWidth = selectedTemplate.width || 1200}
           {@const tHeight = selectedTemplate.height || 1800}
 
           <div
-            class="relative h-full max-w-full overflow-hidden rounded-xl bg-black/40 shadow-xl border-2 border-gray-200"
-            style="aspect-ratio: {tWidth} / {tHeight};"
+            class="relative overflow-hidden rounded-xl bg-black/40 shadow-xl border-2 border-gray-200"
+            style={getTemplatePreviewBoxStyle(tWidth, tHeight)}
           >
             {#if templateLayers.length > 0}
               {#each templateLayers.filter((l) => !l.isQr) as layer, idx (layer.id ?? idx)}
@@ -272,7 +277,7 @@
                   "
                 >
                   {#if layer.isBackground}
-                    {@const layerBgUrl = layer.imageUrl || bgUrl}
+                    {@const layerBgUrl = uiConfig.resolveAssetUrl(layer.imageUrl || bgUrl)}
                     {#if layerBgUrl}
                       <img
                         src={layerBgUrl}

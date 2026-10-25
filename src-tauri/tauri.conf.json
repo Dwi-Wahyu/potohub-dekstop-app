@@ -33,6 +33,7 @@
         "scope": [
           "$APPCACHE/**/*",
           "$APPDATA/**/*",
+          "$APPLOCALDATA/**/*",
           "$HOME/**/*"
         ]
       }

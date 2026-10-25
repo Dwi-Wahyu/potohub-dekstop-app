@@ -13,7 +13,14 @@
   import { formatTime, getLiveviewTransformStyle, getPhotoSlotTransformStyle } from '$lib/utils/shared';
   import { fetchTemplates, fetchEmots, requireActiveBoothId, type BoothTemplate, type BoothEmot } from '$lib/api/boothClient';
   import { cachedFetch } from '$lib/utils/offlineCache';
-  import { getSortedPhotoSlots, getTemplateLayers, getLayerZIndex, findPhotoSlotIndex } from '$lib/utils/templateComposite';
+  import {
+    getSortedPhotoSlots,
+    getTemplateLayers,
+    getLayerZIndex,
+    findPhotoSlotIndex,
+    getTemplatePreviewBoxStyle,
+    preloadAndResolveTemplateAssets
+  } from '$lib/utils/templateComposite';
 
   interface Props {
     photos: string[];
@@ -46,18 +53,12 @@
         `templates:${boothId}`,
         () => fetchTemplates(boothId),
         (templates) => {
+          preloadAndResolveTemplateAssets(templates);
           const matched = templates.find((t) => t.id === frameConfigId);
           if (matched) {
             selectedTemplate = matched;
           } else if (templates[0]) {
             selectedTemplate = templates[0];
-          }
-          if (selectedTemplate) {
-            const bg = selectedTemplate.design_data?.find((l) => l.isBackground)?.imageUrl || selectedTemplate.frame_image_url;
-            if (bg) {
-              const img = new Image();
-              img.src = bg;
-            }
           }
         }
       );
@@ -121,8 +122,17 @@
   let currentFilterCss = $derived(
     FILTERS.find((f) => f.id === boothFlow.selectedFilterId)?.css ?? ''
   );
+  let capturedThumbPhoto = $derived(photos[0] || boothFlow.photosTaken[0] || '');
   let thumbSrc = $derived(
-    photos[0] || 'https://images.unsplash.com/photo-1531746020798-e6953c6e8e04?w=400&h=400&fit=crop&auto=format'
+    capturedThumbPhoto || 'https://images.unsplash.com/photo-1531746020798-e6953c6e8e04?w=400&h=400&fit=crop&auto=format'
+  );
+  let thumbTransformStyle = $derived(
+    capturedThumbPhoto
+      ? getPhotoSlotTransformStyle(
+          boothFlow.getPhotoTransform(capturedThumbPhoto),
+          getLiveviewTransformStyle(boothConfig.config, cameraStore.cameraMode)
+        )
+      : getLiveviewTransformStyle(boothConfig.config, cameraStore.cameraMode)
   );
   const DEFAULT_BG = 'linear-gradient(135deg, #1e1b4b 0%, #2a2873 50%, #312e81 100%)';
   let effectiveBg = $derived(background ?? uiConfig.getStepStyle('filter').background ?? DEFAULT_BG);
@@ -162,7 +172,7 @@
                 src={thumbSrc}
                 alt={f.label}
                 class="w-full h-full object-cover block"
-                style="filter: {f.css === 'none' ? 'none' : f.css};"
+                style="filter: {f.css === 'none' ? 'none' : f.css}; transform: {thumbTransformStyle};"
               />
               {#if selected}
                 <div class="absolute top-2.5 right-2.5 w-7 h-7 rounded-full bg-white flex items-center justify-center shadow-md">
@@ -212,7 +222,10 @@
           <span class="text-[10px] font-semibold text-[#ccc] uppercase">Preview</span>
         </div>
 
-        <div class="flex-1 min-h-0 w-full bg-[#141412] rounded-xl flex items-center justify-center p-3 relative overflow-hidden">
+        <div
+          class="flex-1 min-h-0 w-full bg-[#141412] rounded-xl flex items-center justify-center p-3 relative overflow-hidden"
+          style="container-type: size;"
+        >
           {#if selectedTemplate}
             {@const tWidth = selectedTemplate.width || 1200}
             {@const tHeight = selectedTemplate.height || 1800}
@@ -220,10 +233,10 @@
               {stickers}
               onMove={moveSticker}
               onRemove={removeSticker}
-              class="relative max-h-full max-w-full overflow-hidden rounded-lg shadow-md"
-              containerStyle="aspect-ratio: {tWidth} / {tHeight}; width: auto; height: auto;"
+              class="relative overflow-hidden rounded-lg shadow-md"
+              containerStyle={getTemplatePreviewBoxStyle(tWidth, tHeight)}
             >
-              <div class="relative w-full h-full bg-black/40 overflow-hidden">
+              <div class="relative w-full h-full bg-black/40 overflow-hidden isolate z-0">
                 {#if templateLayers.length > 0}
                   {#each templateLayers.filter((l) => !l.isQr) as layer, idx (layer.id ?? idx)}
                     {@const layerZIndex = getLayerZIndex(layer, templateLayers)}
@@ -240,7 +253,7 @@
                       "
                     >
                       {#if layer.isBackground}
-                        {@const layerBgUrl = layer.imageUrl || bgUrl}
+                        {@const layerBgUrl = uiConfig.resolveAssetUrl(layer.imageUrl || bgUrl)}
                         {#if layerBgUrl}
                           <img
                             src={layerBgUrl}
@@ -296,7 +309,7 @@
       template={selectedTemplate}
       layers={templateLayers}
       {photoSlots}
-      {photos}
+      photos={photos.length > 0 ? photos : boothFlow.photosTaken}
       {bgUrl}
       {stickers}
       variant="v1"

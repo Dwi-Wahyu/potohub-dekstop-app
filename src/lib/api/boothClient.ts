@@ -164,7 +164,7 @@ function mapPublicConfigToBoothUIConfig(
   };
 }
 
-export function isValidUUID(str: string | null | undefined): boolean {
+export function isValidUUID(str: string | null | undefined): str is string {
   if (!str) return false;
   return /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(
     str,
@@ -702,12 +702,19 @@ export async function createTransactionSession(
     method = "Cashless";
   }
 
-  const res = await fetch(`${API_BASE}/booths/${boothId}/transactions`, {
+  const sanitizedCategoryId = isValidUUID(categoryId) ? categoryId : null;
+  const sanitizedFrameId = isValidUUID(frameId) ? frameId : null;
+
+  await logInfo(
+    `[createTransactionSession] boothId=${boothId} method=${method} totalPrint=${totalPrint} categoryId=${sanitizedCategoryId} frameId=${sanitizedFrameId} amount=${amount ?? "null"}`
+  ).catch(() => {});
+
+  const res = await tauriFetch(`${API_BASE}/booths/${boothId}/transactions`, {
     method: "POST",
     headers: await getAuthHeaders("application/json"),
     body: JSON.stringify({
-      category_id: categoryId || null,
-      frame_id: frameId || null,
+      category_id: sanitizedCategoryId,
+      frame_id: sanitizedFrameId,
       total_print: totalPrint,
       payment_method: method,
       amount: amount != null ? amount : null,
@@ -715,16 +722,23 @@ export async function createTransactionSession(
   });
   if (!res.ok) {
     const errText = await res.text().catch(() => "");
+    await logError(
+      `[createTransactionSession] Gagal status=${res.status} (${method}): ${errText}`
+    ).catch(() => {});
     console.error("createTransactionSession failed:", res.status, errText);
     throw new Error(
-      `Gagal membuat sesi transaksi: ${errText || res.statusText}`,
+      `Gagal membuat sesi transaksi (${res.status}): ${errText || res.statusText}`,
     );
   }
   const json = await res.json();
   const data = json.data ?? json;
+  const resolvedId = data.session_id || data.id;
+  await logInfo(
+    `[createTransactionSession] Sukses session_id=${resolvedId} status=${data.status}`
+  ).catch(() => {});
   return {
     ...data,
-    session_id: data.session_id || data.id,
+    session_id: resolvedId,
   };
 }
 
@@ -740,7 +754,7 @@ export async function checkPaymentStatus(
   boothId: string,
   orderId: string,
 ): Promise<PaymentStatusResponse> {
-  const res = await fetch(`${API_BASE}/booths/${boothId}/transactions/${orderId}/status`, {
+  const res = await tauriFetch(`${API_BASE}/booths/${boothId}/transactions/${orderId}/status`, {
     headers: await getAuthHeaders(),
   });
   if (!res.ok) {
@@ -834,8 +848,9 @@ export async function uploadGalleryAsset(
     typeof blobOrDataUrl === "string"
       ? await (await fetch(blobOrDataUrl)).blob()
       : blobOrDataUrl;
+  const bytes = new Uint8Array(await blob.arrayBuffer());
   await logInfo(
-    `[uploadGalleryAsset] ${fileType} size=${blob.size} bytes, session=${sessionId}`
+    `[uploadGalleryAsset] ${fileType} size=${bytes.byteLength} bytes, session=${sessionId}`
   ).catch(() => {});
 
   const { upload_url, file_url } = await requestUploadUrl(
@@ -849,10 +864,10 @@ export async function uploadGalleryAsset(
     `[uploadGalleryAsset] presigned URL diterima untuk ${fileType}: ${file_url}`
   ).catch(() => {});
 
-  const putRes = await fetch(upload_url, {
+  const putRes = await tauriFetch(upload_url, {
     method: "PUT",
     headers: { "Content-Type": contentType },
-    body: blob,
+    body: bytes,
   });
   if (!putRes.ok) {
     const errBody = await putRes.text().catch(() => "");
@@ -872,7 +887,7 @@ export async function uploadGalleryAsset(
     fileType,
     width,
     height,
-    blob.size,
+    bytes.byteLength,
     blurBase64,
   );
 }

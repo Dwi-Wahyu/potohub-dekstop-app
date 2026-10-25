@@ -31,7 +31,12 @@ async fn connect_camera(state: State<'_, AppState>) -> Result<DeviceInfo, Gphoto
                     });
                 }
                 Err(e) => {
-                    eprintln!("[connect_camera] EDSDK connect info: {}. Mencoba fallback gphoto2...", e);
+                    log::warn!("[connect_camera] EDSDK connect info: {}", e);
+                    // Jika error spesifik seperti port sibuk atau sesi terpakai, kembalikan langsung ke user
+                    if e.contains("digunakan aplikasi lain") || e.contains("sibuk") || e.contains("Gagal membuka sesi") {
+                        return Err(GphotoError::Connection(e));
+                    }
+                    log::info!("[connect_camera] Mencoba fallback gphoto2...");
                 }
             }
         }
@@ -194,7 +199,7 @@ async fn get_camera_setting(
         if canon_edsdk::platform::is_connected() {
             return Ok(serde_json::json!({
                 "value": "auto",
-                "choices": ["auto"]
+                "ability": ["auto"]
             }));
         }
     }

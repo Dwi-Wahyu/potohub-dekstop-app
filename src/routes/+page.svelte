@@ -16,32 +16,25 @@
 
   onMount(async () => {
     const activation = await getActivation();
-    if (!activation) {
+    if (!activation || !activation.boothId) {
       await goto('/onboarding');
       return;
     }
 
-    const urlParams = new URLSearchParams(window.location.search);
-    const isJourneyMode = urlParams.has('journey');
+    // Booth sudah aktif dan teraktivasi: langsung muat interface booth operasional
+    boothConfig.init(activation.boothId);
+    uiConfig.init(activation.boothId);
+    await fetchAndCacheUiConfig();
 
-    if (isJourneyMode) {
-      boothConfig.init(activation.boothId);
-      uiConfig.init(activation.boothId);
-      await fetchAndCacheUiConfig();
-      // Prefetch aset booth di background agar siap offline
-      void prefetchBoothAssets(activation.boothId).catch((e) =>
-        console.warn('Prefetch aset booth gagal:', e)
-      );
-      await cameraStore.checkDevMode();
-      if (boothConfig.config.cameraMode) {
-        await cameraStore.connect(boothConfig.config.cameraMode);
-      }
-      ready = true;
-      return;
+    // Prefetch aset booth di background agar siap offline
+    void prefetchBoothAssets(activation.boothId).catch((e) =>
+      console.warn('Prefetch aset booth gagal:', e)
+    );
+    await cameraStore.checkDevMode();
+    if (boothConfig.config.cameraMode) {
+      await cameraStore.connect(boothConfig.config.cameraMode);
     }
-
-    // Jika aplikasi dibuka tanpa query journey=1 -> Arahkan ke /onboarding
-    await goto('/onboarding');
+    ready = true;
   });
 </script>
 

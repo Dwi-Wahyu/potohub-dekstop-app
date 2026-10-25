@@ -38,6 +38,10 @@
     void setWindowDecorations(true);
     const activation = await getActivation();
     isActivated = Boolean(activation && activation.boothId);
+    if (isActivated) {
+      await goto('/');
+      return;
+    }
   });
 
   async function handleStart() {
@@ -45,9 +49,8 @@
     loading = true;
     try {
       const activation = await getActivation();
-      const tokenValid = await isTokenValid(activation?.token);
-      if (isActivated && tokenValid) {
-        await goto('/?journey=1');
+      if (activation && activation.boothId) {
+        await goto('/');
         return;
       }
       loginPurpose = 'journey';
@@ -68,8 +71,7 @@
     loading = true;
     try {
       const activation = await getActivation();
-      const tokenValid = await isTokenValid(activation?.token);
-      if (isActivated && tokenValid) {
+      if (activation && activation.boothId) {
         await goto('/settings');
         return;
       }
@@ -100,7 +102,7 @@
         if (loginPurpose === 'settings') {
           await goto('/settings');
         } else {
-          await goto('/?journey=1');
+          await goto('/');
         }
       } else {
         step = 'activation';
@@ -126,7 +128,7 @@
       void prefetchBoothAssets(data.booth_id ?? code.trim()).catch((e) =>
         console.warn('Prefetch aset booth gagal:', e)
       );
-      await goto('/?journey=1');
+      await goto('/');
     } catch (e) {
       console.error(e);
       error = e instanceof Error ? e.message : 'Aktivasi gagal.';

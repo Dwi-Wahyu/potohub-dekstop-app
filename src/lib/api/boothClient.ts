@@ -217,6 +217,7 @@ export async function getAuthHeaders(
 
 export interface LoginResponseData {
   token: string;
+  refresh_token?: string;
   user: {
     id: string;
     organization_id: string | null;
@@ -233,16 +234,31 @@ export async function refreshUserToken(): Promise<string | null> {
 
   refreshPromise = (async () => {
     try {
+      const storedRefresh =
+        typeof window !== "undefined"
+          ? localStorage.getItem("potohub_refresh_token")
+          : null;
+
       const res = await tauriFetch(`${API_BASE}/auth/refresh`, {
         method: "POST",
-        headers: { Accept: "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: storedRefresh ? JSON.stringify({ refresh_token: storedRefresh }) : undefined,
       });
       if (!res.ok) {
         await clearUserSession();
+        if (typeof window !== "undefined") {
+          localStorage.removeItem("potohub_refresh_token");
+        }
         return null;
       }
       const json = await res.json();
       const newToken = json.token;
+      if (json.refresh_token && typeof window !== "undefined") {
+        localStorage.setItem("potohub_refresh_token", json.refresh_token);
+      }
       const session = await getUserSession();
       if (session && newToken) {
         await saveUserSession({
@@ -255,6 +271,9 @@ export async function refreshUserToken(): Promise<string | null> {
       return newToken as string;
     } catch (e) {
       await clearUserSession();
+      if (typeof window !== "undefined") {
+        localStorage.removeItem("potohub_refresh_token");
+      }
       return null;
     } finally {
       refreshPromise = null;
@@ -284,6 +303,10 @@ export async function loginUser(
   }
   const json = await res.json();
   const data: LoginResponseData = json.data ?? json;
+
+  if (data.refresh_token && typeof window !== "undefined") {
+    localStorage.setItem("potohub_refresh_token", data.refresh_token);
+  }
 
   if (data.token && data.user) {
     await saveUserSession({
@@ -323,12 +346,21 @@ export async function isTokenValid(token: string | null | undefined): Promise<bo
           return false;
         }
       }
+
+      // Token operator booth berlaku 365 hari dan tidak disimpan di tabel users
+      if (
+        decoded.role === "operator" ||
+        decoded.role === "Operator" ||
+        (Array.isArray(decoded.assigned_booths) && decoded.assigned_booths.length > 0)
+      ) {
+        return true;
+      }
     }
   } catch (e) {
     console.warn("Gagal parse JWT payload di client-side:", e);
   }
 
-  // 2. API check against /api/auth/me
+  // 2. API check against /api/auth/me untuk user session
   try {
     const res = await fetch(`${API_BASE}/auth/me`, {
       method: "GET",
@@ -337,7 +369,7 @@ export async function isTokenValid(token: string | null | undefined): Promise<bo
     return res.ok;
   } catch (e) {
     console.warn("Periksa /auth/me ke API gagal (network offline):", e);
-    return true;
+    return true; // Jika offline, tetap izinkan jalan jika exp JWT valid
   }
 }
 

@@ -140,6 +140,9 @@ export async function saveUserSession(data: UserSession): Promise<void> {
 
 export async function clearUserSession(): Promise<void> {
   try {
+    if (typeof window !== "undefined") {
+      localStorage.removeItem("potohub_refresh_token");
+    }
     const conn = await db();
     await conn.execute("DELETE FROM user_session WHERE id = 1");
   } catch (e) {

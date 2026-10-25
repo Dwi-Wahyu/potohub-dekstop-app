@@ -4,7 +4,7 @@
   import { activateBooth, loginUser, isTokenValid } from '$lib/api/boothClient';
   import { prefetchBoothAssets } from '$lib/api/prefetch';
   import { getActivation, saveActivation } from '$lib/db/local';
-  import { Eye, EyeOff, Lock, ArrowRight, Keyboard, KeyboardOff } from '@lucide/svelte';
+  import { Eye, EyeOff, ArrowRight, Keyboard, KeyboardOff } from '@lucide/svelte';
   import { setWindowDecorations } from '$lib/utils/windowControl';
   import OnScreenKeyboard from '$lib/components/shared/OnScreenKeyboard.svelte';
 
@@ -59,28 +59,6 @@
     } catch (e) {
       console.error(e);
       loginPurpose = 'journey';
-      step = 'login';
-      activeField = 'email';
-    } finally {
-      loading = false;
-    }
-  }
-
-  async function handleLockClick() {
-    error = '';
-    loading = true;
-    try {
-      const activation = await getActivation();
-      if (activation && activation.boothId) {
-        await goto('/settings');
-        return;
-      }
-      loginPurpose = 'settings';
-      step = 'login';
-      activeField = 'email';
-    } catch (e) {
-      console.error(e);
-      loginPurpose = 'settings';
       step = 'login';
       activeField = 'email';
     } finally {
@@ -291,7 +269,7 @@
       z-index: 60;
     "
   >
-    <!-- Toggle keyboard di kiri logo gembok: muncul di halaman login & aktivasi -->
+    <!-- Toggle keyboard: muncul di halaman login & aktivasi -->
     {#if step === 'login' || step === 'activation'}
       <button
         type="button"
@@ -319,30 +297,6 @@
         {/if}
       </button>
     {/if}
-
-    <!-- Logo gembok (Pengaturan Booth) -->
-    <button
-      type="button"
-      onclick={handleLockClick}
-      disabled={loading}
-      title="Pengaturan Booth"
-      style="
-        width: 52px;
-        height: 52px;
-        border-radius: 16px;
-        background: {BG};
-        box-shadow: {neu.raisedSm};
-        border: none;
-        cursor: {loading ? 'not-allowed' : 'pointer'};
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        color: {NAVY};
-        transition: transform 0.15s, box-shadow 0.15s;
-      "
-    >
-      <Lock size={22} />
-    </button>
   </div>
 
   <!-- Center card panel -->

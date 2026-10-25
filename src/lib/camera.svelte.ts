@@ -420,7 +420,8 @@ class CameraStore {
         this.cleanupLiveviewUrl();
         this.currentLiveviewUrl = url;
         return url;
-      } catch {
+      } catch (err) {
+        console.warn("[getLiveviewFrame] error:", err);
         return null;
       }
     } else if (this.cameraMode === "webcam") {

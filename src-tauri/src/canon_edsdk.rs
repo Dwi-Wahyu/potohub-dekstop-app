@@ -618,33 +618,11 @@ pub mod platform {
     }
 
     pub fn is_connected() -> bool {
-        unsafe {
-            let mut cam_guard = CONNECTED_CAMERA.lock().unwrap();
-            if let Some(ref cam) = *cam_guard {
-                if let Ok(guard) = API.lock() {
-                    if let Some(ref api) = *guard {
-                        let mut dev_info: EdsDeviceInfo = std::mem::zeroed();
-                        if (api.GetDeviceInfo)(cam.0, &mut dev_info) == EDS_ERR_OK {
-                            return true;
-                        }
-                    }
-                }
-                println!("[Canon-EDSDK] Kamera fisik terputus (stale handle), mereset status koneksi.");
-                if let Some(stale) = cam_guard.take() {
-                    if let Ok(guard) = API.lock() {
-                        if let Some(ref api) = *guard {
-                            let _ = (api.CloseSession)(stale.0);
-                            let _ = (api.Release)(stale.0);
-                        }
-                    }
-                }
-                IS_LIVEVIEW_ACTIVE.store(false, Ordering::SeqCst);
-            }
-        }
-        false
+        CONNECTED_CAMERA.lock().unwrap().is_some()
     }
 
     pub fn start_liveview() -> Result<(), String> {
+        log::info!("[Canon-EDSDK] Memulai start_liveview...");
         unsafe {
             let guard = API.lock().unwrap();
             let api = guard.as_ref().ok_or_else(|| "EDSDK API belum dimuat".to_string())?;
@@ -688,6 +666,7 @@ pub mod platform {
             }
 
             if err != EDS_ERR_OK {
+                log::error!("[Canon-EDSDK] Gagal mengaktifkan EVF output PC (code: {:#X}).", err);
                 return Err(format!("Gagal mengaktifkan EVF output PC (code: {:#X}). Pastikan mode kamera Manual (M) atau Program (P) dan bukan mode Video.", err));
             }
 

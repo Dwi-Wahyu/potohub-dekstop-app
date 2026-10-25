@@ -23,7 +23,7 @@ async fn connect_camera(state: State<'_, AppState>) -> Result<DeviceInfo, Gphoto
     #[cfg(target_os = "windows")]
     {
         if canon_edsdk::platform::is_available() {
-            match canon_edsdk::platform::connect() {
+            match canon_edsdk::platform::connect().await {
                 Ok((model, port)) => {
                     return Ok(DeviceInfo {
                         manufacturer: Some("Canon (EDSDK Native)".into()),
@@ -52,7 +52,7 @@ async fn detect_camera() -> Result<Vec<gphoto::DetectedCamera>, GphotoError> {
     #[cfg(target_os = "windows")]
     {
         if canon_edsdk::platform::is_available() {
-            if let Ok(canon_cams) = canon_edsdk::platform::detect_cameras() {
+            if let Ok(canon_cams) = canon_edsdk::platform::detect_cameras().await {
                 if !canon_cams.is_empty() {
                     return Ok(canon_cams
                         .into_iter()
@@ -73,7 +73,7 @@ async fn detect_camera() -> Result<Vec<gphoto::DetectedCamera>, GphotoError> {
 async fn disconnect_camera(state: State<'_, AppState>) -> Result<(), GphotoError> {
     #[cfg(target_os = "windows")]
     {
-        let _ = canon_edsdk::platform::disconnect();
+        let _ = canon_edsdk::platform::disconnect().await;
     }
     *state.camera.lock().await = None;
     Ok(())
@@ -83,7 +83,7 @@ async fn disconnect_camera(state: State<'_, AppState>) -> Result<(), GphotoError
 async fn is_camera_connected(state: State<'_, AppState>) -> Result<bool, GphotoError> {
     #[cfg(target_os = "windows")]
     {
-        if canon_edsdk::platform::is_connected() {
+        if canon_edsdk::platform::is_connected().await {
             return Ok(true);
         }
     }
@@ -196,7 +196,7 @@ async fn get_camera_setting(
 ) -> Result<serde_json::Value, GphotoError> {
     #[cfg(target_os = "windows")]
     {
-        if canon_edsdk::platform::is_connected() {
+        if canon_edsdk::platform::is_connected().await {
             return Ok(serde_json::json!({
                 "value": "auto",
                 "ability": ["auto"]
@@ -216,7 +216,7 @@ async fn set_camera_setting(
 ) -> Result<(), GphotoError> {
     #[cfg(target_os = "windows")]
     {
-        if canon_edsdk::platform::is_connected() {
+        if canon_edsdk::platform::is_connected().await {
             return Ok(());
         }
     }
@@ -232,8 +232,8 @@ async fn capture_photo(
 ) -> Result<Vec<u8>, GphotoError> {
     #[cfg(target_os = "windows")]
     {
-        if canon_edsdk::platform::is_connected() {
-            let bytes = canon_edsdk::platform::capture_photo()
+        if canon_edsdk::platform::is_connected().await {
+            let bytes = canon_edsdk::platform::capture_photo().await
                 .map_err(|e| GphotoError::Operation(e))?;
             return Ok(bytes);
         }
@@ -251,8 +251,8 @@ async fn capture_photo(
 async fn start_liveview(state: State<'_, AppState>) -> Result<(), GphotoError> {
     #[cfg(target_os = "windows")]
     {
-        if canon_edsdk::platform::is_connected() {
-            canon_edsdk::platform::start_liveview()
+        if canon_edsdk::platform::is_connected().await {
+            canon_edsdk::platform::start_liveview().await
                 .map_err(|e| GphotoError::Operation(e))?;
             return Ok(());
         }
@@ -266,8 +266,8 @@ async fn start_liveview(state: State<'_, AppState>) -> Result<(), GphotoError> {
 async fn stop_liveview(state: State<'_, AppState>) -> Result<(), GphotoError> {
     #[cfg(target_os = "windows")]
     {
-        if canon_edsdk::platform::is_connected() {
-            let _ = canon_edsdk::platform::stop_liveview();
+        if canon_edsdk::platform::is_connected().await {
+            let _ = canon_edsdk::platform::stop_liveview().await;
             return Ok(());
         }
     }
@@ -280,8 +280,8 @@ async fn stop_liveview(state: State<'_, AppState>) -> Result<(), GphotoError> {
 async fn get_liveview_frame(state: State<'_, AppState>) -> Result<Vec<u8>, GphotoError> {
     #[cfg(target_os = "windows")]
     {
-        if canon_edsdk::platform::is_connected() {
-            let bytes = canon_edsdk::platform::get_liveview_frame()
+        if canon_edsdk::platform::is_connected().await {
+            let bytes = canon_edsdk::platform::get_liveview_frame().await
                 .map_err(|e| GphotoError::Operation(e))?;
             state.liveview_buffer.lock().await.push(bytes.clone());
             return Ok(bytes);
@@ -804,9 +804,10 @@ pub fn run() {
                 .build(),
         )
         .plugin(tauri_plugin_http::init())
-        .plugin(tauri_plugin_sql::Builder::new().build())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .plugin(
             tauri_plugin_sql::Builder::default()
                 .add_migrations(

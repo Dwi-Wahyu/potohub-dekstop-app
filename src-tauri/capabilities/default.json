@@ -22,6 +22,8 @@
     "shell:allow-execute",
     "log:default",
     "http:default",
+    "updater:default",
+    "process:default",
     {
       "identifier": "http:allow-fetch",
       "allow": [

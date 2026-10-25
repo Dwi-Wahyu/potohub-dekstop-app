@@ -4,12 +4,14 @@
   import { networkStatus } from '$lib/stores/networkStatus.svelte';
   import { printerStore } from '$lib/printer.svelte';
   import { syncBoothSettings } from '$lib/api/boothClient';
+  import { updaterStore } from '$lib/utils/updater.svelte';
 
   let { children } = $props();
 
   onMount(() => {
     networkStatus.init();
     void printerStore.loadPrinters();
+    void updaterStore.checkForUpdates(true);
 
     // Background sync periodik (tiap 10 menit) bila online
     const interval = setInterval(() => {

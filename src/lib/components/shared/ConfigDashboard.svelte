@@ -13,8 +13,12 @@
     Eye,
     Camera,
     X,
-    Settings
+    Settings,
+    RefreshCw,
+    Layers
   } from '@lucide/svelte';
+  import UpdateModal from '$lib/components/shared/UpdateModal.svelte';
+  import { updaterStore } from '$lib/utils/updater.svelte';
   import { goto } from '$app/navigation';
   import { boothConfig, type BoothCfg } from '$lib/stores/boothConfig.svelte';
   import { uiConfig } from '$lib/stores/uiConfig.svelte';
@@ -177,6 +181,7 @@
     await cameraStore.checkDevMode();
     void cameraStore.detect();
     void printerStore.loadPrinters();
+    void updaterStore.checkForUpdates(true);
   });
 
   onDestroy(() => {
@@ -347,6 +352,47 @@
           </div>
         </div>
 
+        <div style="width: 1px; height: 30px; background: rgba(200,210,224,0.7); flex-shrink: 0;"></div>
+
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <div
+            style="
+              width: 40px;
+              height: 40px;
+              border-radius: 12px;
+              background: {NEU_BG};
+              box-shadow: {neuCfg.btn};
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              color: {NEU_PRIMARY};
+              flex-shrink: 0;
+            "
+          >
+            <Layers size={17} />
+          </div>
+          <div>
+            <p style="font-size: 11px; font-weight: 700; color: #334155; margin: 0;">Version</p>
+            <p style="font-size: 11px; color: #64748b; margin: 0; display: flex; align-items: center; gap: 6px;">
+              v{updaterStore.currentVersion}
+              {#if updaterStore.hasUpdate}
+                <span
+                  style="
+                    padding: 1px 6px;
+                    border-radius: 999px;
+                    background: #f59e0b;
+                    color: white;
+                    font-size: 9px;
+                    font-weight: 700;
+                  "
+                >
+                  Update
+                </span>
+              {/if}
+            </p>
+          </div>
+        </div>
+
         <div style="flex: 1;"></div>
 
         {#if pendingJobs > 0}
@@ -367,6 +413,43 @@
             Pending Sync Offline: {pendingJobs}
           </div>
         {/if}
+
+        <button
+          onclick={() => updaterStore.checkForUpdates(false)}
+          style="
+            position: relative;
+            padding: 8px 18px;
+            border-radius: 12px;
+            background: {NEU_BG};
+            box-shadow: {neuCfg.btn};
+            border: none;
+            cursor: pointer;
+            font-family: 'Poppins', sans-serif;
+            font-weight: 700;
+            font-size: 13px;
+            color: #334155;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+          "
+        >
+          <RefreshCw size={15} class={updaterStore.isChecking ? 'animate-spin' : ''} />
+          Check Updates
+          {#if updaterStore.hasUpdate}
+            <span
+              style="
+                position: absolute;
+                top: 4px;
+                right: 4px;
+                width: 8px;
+                height: 8px;
+                border-radius: 50%;
+                background: #ef4444;
+                box-shadow: 0 0 6px rgba(239, 68, 68, 0.7);
+              "
+            ></span>
+          {/if}
+        </button>
 
         <button
           onclick={handleSync}
@@ -1398,6 +1481,8 @@
       </div>
     </div>
   {/if}
+
+  <UpdateModal />
 </div>
 
 <style>

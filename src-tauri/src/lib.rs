@@ -517,7 +517,7 @@ mod usbdk_hook {
         // Struktur jump x64:
         // FF 25 00 00 00 00 [8-byte address] -> jmp qword ptr [rip + 0]
         let target_addr = (hooked_libusb_init as usize).to_le_bytes();
-        let mut patch: [u8; 14] = [
+        let patch: [u8; 14] = [
             0xFF, 0x25, 0x00, 0x00, 0x00, 0x00,
             target_addr[0], target_addr[1], target_addr[2], target_addr[3],
             target_addr[4], target_addr[5], target_addr[6], target_addr[7],
@@ -820,10 +820,10 @@ pub fn run() {
             camera: Mutex::new(None),
             liveview_buffer: Mutex::new(gphoto::LiveviewBuffer::new(12000)),
         })
-        .setup(|app| {
+        .setup(|_app| {
             #[cfg(target_os = "linux")]
             {
-                if let Some(window) = app.get_webview_window("main") {
+                if let Some(window) = _app.get_webview_window("main") {
                     let _ = window.with_webview(|webview| {
                         use webkit2gtk::{PermissionRequestExt, WebViewExt};
                         let gtk_webview = webview.inner();

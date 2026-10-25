@@ -49,6 +49,7 @@ pub mod platform {
 pub mod platform {
     use super::*;
     use std::ffi::{c_char, c_void, CStr, CString};
+    use std::path::PathBuf;
     use std::ptr;
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::mpsc::{channel, Sender};
@@ -637,7 +638,7 @@ pub mod platform {
                             let _ = reply.send(Ok((model, port)));
                         }
                     }
-                    WorkerCmd::Disconnect => {
+                    WorkerCmd::Disconnect { reply } => {
                         unsafe {
                             if !camera.is_null() {
                                 let _ = (api.CloseSession)(camera);

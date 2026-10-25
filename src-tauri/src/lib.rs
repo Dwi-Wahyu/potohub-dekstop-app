@@ -516,7 +516,7 @@ mod usbdk_hook {
 
         // Struktur jump x64:
         // FF 25 00 00 00 00 [8-byte address] -> jmp qword ptr [rip + 0]
-        let target_addr = (hooked_libusb_init as usize).to_le_bytes();
+        let target_addr = (hooked_libusb_init as *const () as usize).to_le_bytes();
         let patch: [u8; 14] = [
             0xFF, 0x25, 0x00, 0x00, 0x00, 0x00,
             target_addr[0], target_addr[1], target_addr[2], target_addr[3],

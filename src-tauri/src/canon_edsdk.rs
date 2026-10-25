@@ -1,3 +1,5 @@
+#![allow(non_upper_case_globals, non_snake_case, dead_code)]
+
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub struct EdsCameraDevice {
     pub model: String,

@@ -86,6 +86,25 @@ async fn is_camera_connected(state: State<'_, AppState>) -> Result<bool, GphotoE
 }
 
 #[tauri::command]
+async fn open_log_dir(app: tauri::AppHandle) -> Result<String, String> {
+    let log_dir = app.path().app_log_dir().map_err(|e| e.to_string())?;
+    let log_file = log_dir.join("potohub.log");
+    #[cfg(target_os = "windows")]
+    {
+        let _ = std::process::Command::new("explorer.exe")
+            .arg(log_dir.to_string_lossy().as_ref())
+            .spawn();
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let _ = std::process::Command::new("xdg-open")
+            .arg(log_dir.to_string_lossy().as_ref())
+            .spawn();
+    }
+    Ok(log_file.to_string_lossy().to_string())
+}
+
+#[tauri::command]
 async fn is_usbdk_installed() -> bool {
     #[cfg(target_os = "windows")]
     {
@@ -767,7 +786,16 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(
             tauri_plugin_log::Builder::new()
-                .level(tauri_plugin_log::log::LevelFilter::Debug)
+                .targets([
+                    tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Stdout),
+                    tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::LogDir {
+                        file_name: Some("potohub.log".into()),
+                    }),
+                    tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Webview),
+                ])
+                .level(log::LevelFilter::Debug)
+                .max_file_size(10_000_000)
+                .rotation_strategy(tauri_plugin_log::RotationStrategy::KeepOne)
                 .build(),
         )
         .plugin(tauri_plugin_http::init())
@@ -841,6 +869,7 @@ pub fn run() {
             is_development_mode,
             is_usbdk_installed,
             install_usbdk,
+            open_log_dir,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

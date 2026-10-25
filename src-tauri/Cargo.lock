@@ -3568,6 +3568,7 @@ dependencies = [
  "gphoto2",
  "image",
  "libgphoto2_sys",
+ "log",
  "reqwest 0.12.28",
  "serde",
  "serde_json",

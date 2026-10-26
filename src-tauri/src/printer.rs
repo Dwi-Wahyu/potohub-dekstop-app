@@ -578,18 +578,84 @@ mod platform {
             return Err(PrinterError::PrinterNotFound("Nama printer kosong".into()));
         }
 
-        // Buka Printing Preferences (/e) yang langsung menampilkan tab Layout & tombol Advanced untuk mengaktifkan 2-inch cut
-        let res = std::process::Command::new("rundll32.exe")
-            .arg("printui.dll,PrintUIEntry")
-            .arg("/e")
-            .arg("/n")
-            .arg(printer_name)
+        // Buka Print Dialog standar Windows (seperti pada print-dialog.png)
+        // Dialog ini memungkinkan operator:
+        // 1. Memilih / memverifikasi printer yang terhubung
+        // 2. Mengakses tombol "Preferences" untuk mengatur 2-inch cut, ukuran kertas, & orientasi
+        // 3. Menjalankan test print & kalibrasi cutter jika tombol "Print" ditekan
+        let escaped_printer = printer_name.replace('\'', "''");
+        let script = format!(
+            concat!(
+                "Add-Type -AssemblyName System.Windows.Forms;\n",
+                "Add-Type -AssemblyName System.Drawing;\n",
+                "[System.Windows.Forms.Application]::EnableVisualStyles();\n",
+                "$dialog = New-Object System.Windows.Forms.PrintDialog;\n",
+                "$dialog.UseEXDialog = $true;\n",
+                "$dialog.PrinterSettings = New-Object System.Drawing.Printing.PrinterSettings;\n",
+                "if ('{printer}' -ne '') {{ $dialog.PrinterSettings.PrinterName = '{printer}'; }}\n",
+                "$doc = New-Object System.Drawing.Printing.PrintDocument;\n",
+                "$doc.DocumentName = 'PotoHub - Print Test & Calibration';\n",
+                "$doc.PrinterSettings = $dialog.PrinterSettings;\n",
+                "$doc.add_PrintPage({{\n",
+                "    param($sender, $ev)\n",
+                "    $g = $ev.Graphics;\n",
+                "    $fontTitle = New-Object System.Drawing.Font('Arial', 16, [System.Drawing.FontStyle]::Bold);\n",
+                "    $fontSub = New-Object System.Drawing.Font('Arial', 11, [System.Drawing.FontStyle]::Bold);\n",
+                "    $fontBody = New-Object System.Drawing.Font('Arial', 10);\n",
+                "    $brush = [System.Drawing.Brushes]::Black;\n",
+                "    $bounds = $ev.MarginBounds;\n",
+                "    $pen = New-Object System.Drawing.Pen([System.Drawing.Color]::Black, 2);\n",
+                "    $g.DrawRectangle($pen, $bounds.X, $bounds.Y, $bounds.Width, $bounds.Height);\n",
+                "    $g.DrawString('POTOHUB PHOTOBOOTH', $fontTitle, $brush, ($bounds.X + 25), ($bounds.Y + 30));\n",
+                "    $g.DrawString('Print Test & Cutter Calibration', $fontSub, $brush, ($bounds.X + 25), ($bounds.Y + 65));\n",
+                "    $g.DrawString('Printer     : ' + $sender.PrinterSettings.PrinterName, $fontBody, $brush, ($bounds.X + 25), ($bounds.Y + 105));\n",
+                "    $g.DrawString('Timestamp   : ' + (Get-Date).ToString('yyyy-MM-dd HH:mm:ss'), $fontBody, $brush, ($bounds.X + 25), ($bounds.Y + 130));\n",
+                "    $g.DrawString('Paper Size  : ' + $sender.DefaultPageSettings.PaperSize.PaperName, $fontBody, $brush, ($bounds.X + 25), ($bounds.Y + 155));\n",
+                "    $g.DrawString('Orientation : ' + $(if ($sender.DefaultPageSettings.Landscape) {{ 'Landscape' }} else {{ 'Portrait' }}), $fontBody, $brush, ($bounds.X + 25), ($bounds.Y + 180));\n",
+                "    $midX = $bounds.X + ($bounds.Width / 2);\n",
+                "    $penDash = New-Object System.Drawing.Pen([System.Drawing.Color]::Gray, 1);\n",
+                "    $penDash.DashStyle = [System.Drawing.Drawing2D.DashStyle]::Dash;\n",
+                "    $g.DrawLine($penDash, $midX, $bounds.Y, $midX, ($bounds.Y + $bounds.Height));\n",
+                "    $g.DrawString('<- 2-Inch Cut Center Line ->', New-Object System.Drawing.Font('Arial', 8), [System.Drawing.Brushes]::Gray, ($midX - 70), ($bounds.Y + ($bounds.Height / 2)));\n",
+                "}});\n",
+                "$dialog.Document = $doc;\n",
+                "$dialog.AllowSomePages = $false;\n",
+                "$dialog.AllowCurrentPage = $false;\n",
+                "$dialog.AllowSelection = $false;\n",
+                "$form = New-Object System.Windows.Forms.Form;\n",
+                "$form.TopMost = $true;\n",
+                "$form.Opacity = 0;\n",
+                "$form.ShowInTaskbar = $false;\n",
+                "$form.StartPosition = [System.Windows.Forms.FormStartPosition]::CenterScreen;\n",
+                "$form.Show();\n",
+                "$res = $dialog.ShowDialog($form);\n",
+                "$form.Close();\n",
+                "$form.Dispose();\n",
+                "if ($res -eq [System.Windows.Forms.DialogResult]::OK) {{\n",
+                "    $doc.Print();\n",
+                "}}\n",
+                "$doc.Dispose();\n",
+                "$dialog.Dispose();"
+            ),
+            printer = escaped_printer
+        );
+
+        let mut cmd = std::process::Command::new("powershell");
+        #[cfg(target_os = "windows")]
+        {
+            use std::os::windows::process::CommandExt;
+            const CREATE_NO_WINDOW: u32 = 0x08000000;
+            cmd.creation_flags(CREATE_NO_WINDOW);
+        }
+
+        let res = cmd
+            .args(["-NoProfile", "-NonInteractive", "-Sta", "-Command", &script])
             .spawn();
 
         match res {
             Ok(_) => Ok(()),
             Err(e) => {
-                // Fallback ke Printer Properties (/p) jika /e gagal dieksekusi
+                // Fallback: jika powershell bermasalah, gunakan rundll32 printer properties dialog
                 let res2 = std::process::Command::new("rundll32.exe")
                     .arg("printui.dll,PrintUIEntry")
                     .arg("/p")
@@ -599,7 +665,7 @@ mod platform {
 
                 res2.map(|_| ()).map_err(|e2| {
                     PrinterError::PrintFailed(format!(
-                        "Gagal membuka dialog printer properties/preferences: {} / {}",
+                        "Gagal membuka Print Dialog: {} / {}",
                         e, e2
                     ))
                 })
@@ -791,9 +857,12 @@ mod platform {
             return Err(PrinterError::PrinterNotFound("Nama printer kosong".into()));
         }
 
-        if std::process::Command::new("system-config-printer").spawn().is_err() {
-            let cups_url = format!("http://localhost:631/printers/{}", printer_name);
-            let _ = std::process::Command::new("xdg-open").arg(&cups_url).spawn();
+        // Coba buka dialog cetak GTK (gtklp) jika tersedia, fallback ke system-config-printer atau CUPS web
+        if std::process::Command::new("gtklp").arg("-P").arg(printer_name).spawn().is_err() {
+            if std::process::Command::new("system-config-printer").spawn().is_err() {
+                let cups_url = format!("http://localhost:631/printers/{}", printer_name);
+                let _ = std::process::Command::new("xdg-open").arg(&cups_url).spawn();
+            }
         }
 
         Ok(())

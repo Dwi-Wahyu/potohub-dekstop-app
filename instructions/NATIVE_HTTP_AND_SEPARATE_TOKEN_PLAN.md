@@ -8,7 +8,7 @@
 ## 1. Latar Belakang & Analisis Masalah
 
 1. **Keterbatasan WebView terhadap `SameSite=Strict`**:
-   Saat ini, `dekstop-app` menggunakan `window.fetch()` di lingkungan WebView (`tauri://localhost` atau `http://tauri.localhost`). Jika API backend menerapkan `SameSite=Strict`, WebView menganggap request ke `https://potohub.dwiwahyu.my.id/api` sebagai Cross-Site, sehingga cookie `potohub_refresh_token` ditolak.
+   Saat ini, `dekstop-app` menggunakan `window.fetch()` di lingkungan WebView (`tauri://localhost` atau `http://tauri.localhost`). Jika API backend menerapkan `SameSite=Strict`, WebView menganggap request ke `https://potohub.com/api` sebagai Cross-Site, sehingga cookie `potohub_refresh_token` ditolak.
    **Solusi:** Migrasi ke Tauri Native HTTP Client (`@tauri-apps/plugin-http`) yang dieksekusi di level OS oleh Rust (`reqwest`), kebal terhadap batasan CORS dan SameSite browser.
 
 2. **Masalah Penimpaan Token di `onboarding/+page.svelte`**:
@@ -105,7 +105,7 @@ Untuk memastikan cookie `potohub_refresh_token` (HttpOnly, SameSite=Strict) teta
 1. **Uji Kompilasi Rust (`cargo check` di `src-tauri`)**:
    Memastikan plugin HTTP dan migrasi database terkompilasi bersih.
 2. **Uji Panggilan API via `tauriFetch`**:
-   - Jalankan request ke `https://potohub.dwiwahyu.my.id/api/...`.
+   - Jalankan request ke `https://potohub.com/api/...`.
    - Pastikan request berhasil dan cookie `SameSite=Strict` dikirimkan tanpa blokir browser.
 3. **Uji Ketahanan Sesi (Session Persistence & Restart)**:
    - Login user di desktop.

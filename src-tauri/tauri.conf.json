@@ -7,7 +7,7 @@
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDRBOTM3OEYwMzY4ODg1MzMKUldTa0FRQVBzT2xNMXlFNTlRUkRkM3o5N2xYd1dKdmV4Y3U2Tnd3Z0V6VlI3a0lNRHhWVk9rTXFhMDF0Q3B4Tjlva3UK",
       "endpoints": [
-        "https://potohub.dwiwahyu.my.id/api/app/update/{{target}}/{{arch}}/{{current_version}}"
+        "https://potohub.com/api/app/update/{{target}}/{{arch}}/{{current_version}}"
       ]
     }
   },

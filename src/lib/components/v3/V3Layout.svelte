@@ -88,6 +88,7 @@
 
   function handleSelectFrame(frameId: string) {
     selectedFrameId = frameId;
+    boothFlow.selectedFrameId = frameId;
     if (boothConfig.config.skipPayment) {
       boothFlow.paymentMethod = 'Cash';
       step = 'session';

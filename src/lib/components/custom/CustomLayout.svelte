@@ -68,6 +68,7 @@
   function handleCategoryFrameNext(price: number, frameId: string) {
     selectedPrice = price;
     selectedFrameConfigId = frameId;
+    boothFlow.selectedFrameId = frameId;
     currentSubStep = 'print_qty';
   }
 

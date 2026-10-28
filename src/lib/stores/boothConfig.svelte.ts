@@ -36,6 +36,7 @@ export interface BoothCfg {
   whatsappEnabled: boolean;
   primaryPrinter: string;
   secondaryPrinter: string;
+  multiPrint: boolean;
 }
 
 export const DEFAULT_CFG: BoothCfg = {
@@ -74,6 +75,7 @@ export const DEFAULT_CFG: BoothCfg = {
   whatsappEnabled: true,
   primaryPrinter: '',
   secondaryPrinter: '',
+  multiPrint: false,
 };
 
 class BoothConfigStore {

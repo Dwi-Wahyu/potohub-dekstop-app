@@ -3,7 +3,7 @@
   import QRCode from 'qrcode';
   import { uiConfig } from '$lib/stores/uiConfig.svelte';
   import { boothFlow } from '$lib/stores/booth.svelte';
-  import { sendSoftfileEmail, sendSoftfileWA, generateSessionCode } from '$lib/utils/shared';
+  import { sendSoftfileEmail, sendSoftfileWA, generateSessionCode, resolvePrinterConfigForTemplate } from '$lib/utils/shared';
   import { boothConfig } from '$lib/stores/boothConfig.svelte';
   import { Delete, QrCode, Image, Film, Video } from '@lucide/svelte';
 
@@ -83,8 +83,9 @@
         `templates:${boothId}`,
         () => fetchTemplates(boothId),
         (templates) => {
+          const targetId = selectedFrame || boothFlow.selectedFrameId;
           selectedTemplate =
-            templates.find((t) => t.id === selectedFrame) || templates[0] || null;
+            templates.find((t) => t.id === targetId) || templates[0] || null;
         }
       );
     } catch (err) {
@@ -169,8 +170,7 @@
 
       // Programmatic Auto-Print Flow
       const copies = boothFlow.printQty || 1;
-      const paperSize = selectedTemplate?.paper_size || '4x6';
-      const useSecondary = Boolean(selectedTemplate?.use_secondary_printer);
+      const { useSecondary, paperSize } = resolvePrinterConfigForTemplate(selectedTemplate);
       const dateStr = new Date().toISOString().slice(0, 10);
       const boothSanitized = (uiConfig.config.boothName || 'booth')
         .toLowerCase()

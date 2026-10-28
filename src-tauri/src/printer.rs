@@ -70,71 +70,18 @@ mod platform {
 
     pub fn get_installed_printers() -> Result<Vec<String>, PrinterError> {
         let flags = PRINTER_ENUM_LOCAL | PRINTER_ENUM_CONNECTIONS;
+        let mut printers: Vec<String> = Vec::new();
 
-        // Stage 1: Level 4 (PRINTER_INFO_4W) — Sangat cepat & tidak butuh hak akses khusus
+        let mut push_unique = |name: String, list: &mut Vec<String>| {
+            let trimmed = name.trim().to_string();
+            if !trimmed.is_empty() && !list.iter().any(|existing| existing.eq_ignore_ascii_case(&trimmed)) {
+                list.push(trimmed);
+            }
+        };
+
+        // Stage 1: Level 2 (PRINTER_INFO_2W) — Komprehensif: mencakup semua printer queue lokal, salinan (copies), dan secondary printer
         let mut needed: DWORD = 0;
         let mut returned: DWORD = 0;
-        unsafe {
-            EnumPrintersW(
-                flags,
-                ptr::null_mut(),
-                4,
-                ptr::null_mut(),
-                0,
-                &mut needed,
-                &mut returned,
-            );
-        }
-
-        if needed > 0 {
-            let mut buffer: Vec<u8> = vec![0; needed as usize];
-            let res = unsafe {
-                EnumPrintersW(
-                    flags,
-                    ptr::null_mut(),
-                    4,
-                    buffer.as_mut_ptr(),
-                    needed,
-                    &mut needed,
-                    &mut returned,
-                )
-            };
-
-            if res != 0 && returned > 0 {
-                let info_slice = unsafe {
-                    std::slice::from_raw_parts(
-                        buffer.as_ptr() as *const PRINTER_INFO_4W,
-                        returned as usize,
-                    )
-                };
-
-                let mut printers = Vec::new();
-                for info in info_slice {
-                    if !info.pPrinterName.is_null() {
-                        let len = unsafe {
-                            (0..)
-                                .take_while(|&i| *info.pPrinterName.offset(i) != 0)
-                                .count()
-                        };
-                        let name_slice =
-                            unsafe { std::slice::from_raw_parts(info.pPrinterName, len) };
-                        let name = String::from_utf16_lossy(name_slice);
-                        let trimmed = name.trim().to_string();
-                        if !trimmed.is_empty() {
-                            printers.push(trimmed);
-                        }
-                    }
-                }
-
-                if !printers.is_empty() {
-                    return Ok(printers);
-                }
-            }
-        }
-
-        // Stage 2: Level 2 (PRINTER_INFO_2W)
-        needed = 0;
-        returned = 0;
         unsafe {
             EnumPrintersW(
                 flags,
@@ -169,7 +116,6 @@ mod platform {
                     )
                 };
 
-                let mut printers = Vec::new();
                 for info in info_slice {
                     if !info.pPrinterName.is_null() {
                         let len = unsafe {
@@ -180,38 +126,79 @@ mod platform {
                         let name_slice =
                             unsafe { std::slice::from_raw_parts(info.pPrinterName, len) };
                         let name = String::from_utf16_lossy(name_slice);
-                        let trimmed = name.trim().to_string();
-                        if !trimmed.is_empty() {
-                            printers.push(trimmed);
-                        }
+                        push_unique(name, &mut printers);
                     }
-                }
-
-                if !printers.is_empty() {
-                    return Ok(printers);
                 }
             }
         }
 
-        // Stage 3: PowerShell Fallback (Get-Printer)
+        // Stage 2: Level 4 (PRINTER_INFO_4W) — Sangat cepat untuk printer local & koneksi jaringan
+        needed = 0;
+        returned = 0;
+        unsafe {
+            EnumPrintersW(
+                flags,
+                ptr::null_mut(),
+                4,
+                ptr::null_mut(),
+                0,
+                &mut needed,
+                &mut returned,
+            );
+        }
+
+        if needed > 0 {
+            let mut buffer: Vec<u8> = vec![0; needed as usize];
+            let res = unsafe {
+                EnumPrintersW(
+                    flags,
+                    ptr::null_mut(),
+                    4,
+                    buffer.as_mut_ptr(),
+                    needed,
+                    &mut needed,
+                    &mut returned,
+                )
+            };
+
+            if res != 0 && returned > 0 {
+                let info_slice = unsafe {
+                    std::slice::from_raw_parts(
+                        buffer.as_ptr() as *const PRINTER_INFO_4W,
+                        returned as usize,
+                    )
+                };
+
+                for info in info_slice {
+                    if !info.pPrinterName.is_null() {
+                        let len = unsafe {
+                            (0..)
+                                .take_while(|&i| *info.pPrinterName.offset(i) != 0)
+                                .count()
+                        };
+                        let name_slice =
+                            unsafe { std::slice::from_raw_parts(info.pPrinterName, len) };
+                        let name = String::from_utf16_lossy(name_slice);
+                        push_unique(name, &mut printers);
+                    }
+                }
+            }
+        }
+
+        // Stage 3: PowerShell Fallback (Get-Printer) — Menangkap printer queue virtual, software driver, atau secondary copy queues
         if let Ok(output) = std::process::Command::new("powershell")
             .args(["-NoProfile", "-Command", "Get-Printer | Select-Object -ExpandProperty Name"])
             .output()
         {
             if output.status.success() {
                 let text = String::from_utf8_lossy(&output.stdout);
-                let list: Vec<String> = text
-                    .lines()
-                    .map(|l| l.trim().to_string())
-                    .filter(|l| !l.is_empty())
-                    .collect();
-                if !list.is_empty() {
-                    return Ok(list);
+                for line in text.lines() {
+                    push_unique(line.to_string(), &mut printers);
                 }
             }
         }
 
-        Ok(Vec::new())
+        Ok(printers)
     }
 
     pub fn get_printer_status(printer_name: &str) -> Result<PrinterStatus, PrinterError> {
@@ -806,20 +793,35 @@ mod platform {
     pub fn get_installed_printers() -> Result<Vec<String>, PrinterError> {
         let mut list = Vec::new();
 
-        // 1. Check added CUPS printer queues
+        // 1. Check added CUPS printer queues via lpstat -e
         if let Ok(out) = std::process::Command::new("lpstat").arg("-e").output() {
             if out.status.success() {
                 let stdout = String::from_utf8_lossy(&out.stdout);
                 for line in stdout.lines() {
                     let name = line.trim();
-                    if !name.is_empty() {
+                    if !name.is_empty() && !list.contains(&name.to_string()) {
                         list.push(name.to_string());
                     }
                 }
             }
         }
 
-        // 2. If no CUPS queue added yet, check raw connected USB printers via lpinfo -v
+        // 2. Also check lpstat -p in case queues are defined but not enumerated by -e
+        if let Ok(out) = std::process::Command::new("lpstat").arg("-p").output() {
+            if out.status.success() {
+                let stdout = String::from_utf8_lossy(&out.stdout);
+                for line in stdout.lines() {
+                    if let Some(rest) = line.strip_prefix("printer ") {
+                        let name = rest.split_whitespace().next().unwrap_or("").trim();
+                        if !name.is_empty() && !list.contains(&name.to_string()) {
+                            list.push(name.to_string());
+                        }
+                    }
+                }
+            }
+        }
+
+        // 3. If no CUPS queue added yet, check raw connected USB printers via lpinfo -v
         if list.is_empty() {
             list = get_usb_printers_from_lpinfo();
         }

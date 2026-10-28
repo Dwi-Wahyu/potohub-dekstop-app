@@ -111,12 +111,29 @@ class PrinterStore {
       }
 
       // Resolve secondary printer
-      if (
-        savedSecondary &&
-        this.printers.includes(savedSecondary) &&
-        savedSecondary !== this.selectedPrinter
-      ) {
+      if (savedSecondary && this.printers.includes(savedSecondary)) {
         this.secondaryPrinter = savedSecondary;
+      } else if (this.printers.length > 1) {
+        // Auto-detect secondary printer (e.g. queue dengan cut / strip / copy / 2x6, atau printer kedua)
+        const candidateSecondary =
+          this.printers.find((p) => {
+            if (p === this.selectedPrinter) return false;
+            const u = p.toUpperCase();
+            return (
+              u.includes("CUT") ||
+              u.includes("STRIP") ||
+              u.includes("COPY") ||
+              u.includes("2X6") ||
+              u.includes("SECONDARY")
+            );
+          }) || this.printers.find((p) => p !== this.selectedPrinter);
+
+        if (candidateSecondary) {
+          this.secondaryPrinter = candidateSecondary;
+          boothConfig.save({ secondaryPrinter: candidateSecondary });
+        } else {
+          this.secondaryPrinter = null;
+        }
       } else {
         this.secondaryPrinter = null;
         if (savedSecondary) {

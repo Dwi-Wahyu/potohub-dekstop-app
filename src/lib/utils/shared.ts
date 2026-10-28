@@ -1,5 +1,6 @@
 import { fetch as tauriFetch } from '@tauri-apps/plugin-http';
 import { info as logInfo, warn as logWarn } from '@tauri-apps/plugin-log';
+import { printerStore } from '$lib/printer.svelte';
 
 export const delay = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
@@ -169,4 +170,27 @@ export function getPhotoSlotTransformStyle(
     parts.push(liveviewTransform);
   }
   return parts.length > 0 ? parts.join(' ') : 'none';
+}
+
+export interface TemplatePrinterConfig {
+  useSecondary: boolean;
+  targetPrinter: string | null;
+  paperSize: string;
+}
+
+/**
+ * Shared function untuk menentukan konfigurasi printer yang tepat berdasarkan frame / template
+ * yang dipilih (otomatis memilih Primary Printer atau Secondary Printer untuk 2-inch cut strip).
+ */
+export function resolvePrinterConfigForTemplate(
+  template: { paper_size?: string; use_secondary_printer?: boolean } | null | undefined
+): TemplatePrinterConfig {
+  const paperSize = template?.paper_size || '4x6';
+  const useSecondary = Boolean(template?.use_secondary_printer);
+  const targetPrinter = printerStore.resolvePrinter(useSecondary);
+  return {
+    useSecondary,
+    targetPrinter,
+    paperSize,
+  };
 }

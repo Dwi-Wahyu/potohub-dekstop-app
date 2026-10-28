@@ -589,6 +589,8 @@ function applyRemoteSettings(settings: Record<string, any>) {
   const general = settings?.general ?? {};
   const timer = settings?.timer ?? {};
   const softfile = settings?.softfile ?? {};
+  const print = settings?.print ?? {};
+  const paperReminder = settings?.['paper-reminder'] ?? {};
 
   const isEarly = general.early_payment_page ?? general.payment_page ?? boothConfig.config.earlyPaymentPage;
   const rawBase = general.base_price ?? general.basePrice;
@@ -624,6 +626,9 @@ function applyRemoteSettings(settings: Record<string, any>) {
     endScreenTimeSecs: timer.end_screen_time ?? boothConfig.config.endScreenTimeSecs,
     emailEnabled: softfile.email_enabled ?? boothConfig.config.emailEnabled ?? true,
     whatsappEnabled: softfile.whatsapp_enabled ?? boothConfig.config.whatsappEnabled ?? true,
+    multiPrint: typeof print.multi_print === 'boolean' ? print.multi_print : boothConfig.config.multiPrint,
+    paperThreshold: typeof paperReminder.threshold === 'number' ? paperReminder.threshold : boothConfig.config.paperThreshold,
+    paperCount: typeof paperReminder.current_stock === 'number' ? paperReminder.current_stock : boothConfig.config.paperCount,
   });
 }
 

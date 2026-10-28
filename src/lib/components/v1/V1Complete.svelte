@@ -57,12 +57,15 @@
   let activePreviewTab = $state<'strip' | 'gif' | 'liveview'>('strip');
 
   const envs = import.meta.env as Record<string, string>;
-  const rawAdminDashboardUrl =
+  const rawSoftfileUrl =
+    envs.SOFTFILE_BASE_URL ||
+    envs.VITE_SOFTFILE_BASE_URL ||
     envs.ADMIN_DASHBOARD_URL ||
     envs.VITE_ADMIN_DASHBOARD_URL ||
     envs.PUBLIC_ADMIN_DASHBOARD_URL ||
     'http://localhost:3000';
-  const ADMIN_DASHBOARD_PUBLIC_URL = rawAdminDashboardUrl.replace(/\/+$/, '');
+  const SOFTFILE_PUBLIC_URL = rawSoftfileUrl.replace(/\/+$/, '');
+  const ADMIN_DASHBOARD_PUBLIC_URL = SOFTFILE_PUBLIC_URL;
 
   $effect(() => {
     if (sent && secs > (boothConfig.config.endScreenTimeSecs || 3)) {

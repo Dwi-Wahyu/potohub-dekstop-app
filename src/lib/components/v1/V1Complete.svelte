@@ -49,6 +49,7 @@
   let caps = $state(false);
   let numMode = $state(false);
   let timer: any = null;
+  let printAbortController: AbortController | null = null;
   let qrDataUrl = $state('');
   let compositeUrl = $state<string | null>(null);
   let isSavingSession = $state(false);
@@ -186,6 +187,7 @@
       const diskPath = `${dateStr}/${localSessionCode}_${boothSanitized}/composite/print_strip.jpg`;
 
       if (copies > 0 && compositeUrl) {
+        await printerStore.refreshStatus();
         const check = printerStore.canPrint(copies, useSecondary);
         if (check.ok) {
           printStatus = 'PRINTING';
@@ -198,7 +200,22 @@
               quality: 'standard',
               useSecondary,
             });
-            printStatus = 'SUCCESS';
+            printAbortController = new AbortController();
+            const activeSignal = printAbortController.signal;
+            void printerStore
+              .waitForPrintCompletion({
+                copies,
+                useSecondary,
+                signal: activeSignal,
+              })
+              .then((result) => {
+                if (activeSignal.aborted) return;
+                if (result.completed) {
+                  printStatus = 'SUCCESS';
+                } else {
+                  console.warn('[V1Complete] Print completion check reported issue:', result.error);
+                }
+              });
           } catch (err) {
             console.warn('[V1Complete] Direct print failed, fallback enqueueing:', err);
             await enqueuePrintJob({
@@ -263,6 +280,7 @@
 
   onDestroy(() => {
     if (timer) clearInterval(timer);
+    if (printAbortController) printAbortController.abort();
   });
 
   let sendError = $state('');

@@ -21,6 +21,8 @@ pub enum PrinterError {
 pub struct PrinterStatus {
     pub is_ready: bool,
     pub is_online: bool,
+    pub is_printing: bool,
+    pub active_jobs: u32,
     pub paper_remaining: Option<u32>,
     pub paper_limit_alert: Option<u32>,
     pub printer_name: String,
@@ -213,6 +215,20 @@ mod platform {
     }
 
     pub fn get_printer_status(printer_name: &str) -> Result<PrinterStatus, PrinterError> {
+        if printer_name.trim().is_empty() {
+            return Ok(PrinterStatus {
+                is_ready: false,
+                is_online: false,
+                is_printing: false,
+                active_jobs: 0,
+                paper_remaining: None,
+                paper_limit_alert: Some(50),
+                printer_name: printer_name.to_string(),
+                has_error: true,
+                error_message: Some("Printer offline / tidak terhubung".to_string()),
+            });
+        }
+
         let wide_name = to_wide(printer_name);
         let mut handle: winapi::shared::ntdef::HANDLE = ptr::null_mut();
 
@@ -223,6 +239,7 @@ mod platform {
         }
 
         let mut status_code: DWORD = 0;
+        let mut c_jobs: DWORD = 0;
         let mut is_attr_offline = false;
         let mut got_status = false;
 
@@ -239,6 +256,7 @@ mod platform {
             if get_res != 0 {
                 let info = unsafe { &*(buffer.as_ptr() as *const PRINTER_INFO_2W) };
                 status_code = info.Status;
+                c_jobs = info.cJobs;
                 is_attr_offline = (info.Attributes & PRINTER_ATTRIBUTE_WORK_OFFLINE) != 0;
                 got_status = true;
             }
@@ -263,6 +281,70 @@ mod platform {
             }
         }
 
+        // Inspect active print jobs in Windows Spooler queue (JOB_INFO_1W)
+        let mut enum_active_jobs: u32 = 0;
+        let mut job_is_printing = false;
+        let mut job_has_offline = false;
+        let mut job_has_paperout = false;
+        let mut job_has_error = false;
+
+        let mut job_needed: DWORD = 0;
+        let mut job_returned: DWORD = 0;
+        unsafe {
+            EnumJobsW(
+                handle,
+                0,
+                32,
+                1,
+                ptr::null_mut(),
+                0,
+                &mut job_needed,
+                &mut job_returned,
+            );
+        }
+
+        if job_needed > 0 {
+            let mut job_buf: Vec<u8> = vec![0; job_needed as usize];
+            let enum_res = unsafe {
+                EnumJobsW(
+                    handle,
+                    0,
+                    32,
+                    1,
+                    job_buf.as_mut_ptr(),
+                    job_needed,
+                    &mut job_needed,
+                    &mut job_returned,
+                )
+            };
+            if enum_res != 0 && job_returned > 0 {
+                let jobs = unsafe {
+                    std::slice::from_raw_parts(
+                        job_buf.as_ptr() as *const JOB_INFO_1W,
+                        job_returned as usize,
+                    )
+                };
+                for job in jobs {
+                    let jst = job.Status;
+                    if (jst & (JOB_STATUS_DELETED | JOB_STATUS_PRINTED)) == 0 {
+                        enum_active_jobs += 1;
+                    }
+                    if (jst & (JOB_STATUS_PRINTING | JOB_STATUS_SPOOLING)) != 0 {
+                        job_is_printing = true;
+                    }
+                    if (jst & JOB_STATUS_OFFLINE) != 0 {
+                        job_has_offline = true;
+                    }
+                    if (jst & JOB_STATUS_PAPEROUT) != 0 {
+                        job_has_paperout = true;
+                    }
+                    if (jst & (JOB_STATUS_ERROR | JOB_STATUS_BLOCKED_DEVQ)) != 0 {
+                        job_has_error = true;
+                    }
+                }
+            }
+        }
+
         unsafe { ClosePrinter(handle) };
 
         // Stage 3: PowerShell status fallback if WinSpool query was denied
@@ -282,23 +364,39 @@ mod platform {
             }
         }
 
+        let active_jobs = (c_jobs as u32).max(enum_active_jobs);
+        let is_status_printing = (status_code
+            & (PRINTER_STATUS_PRINTING
+                | PRINTER_STATUS_PROCESSING
+                | PRINTER_STATUS_WARMING_UP
+                | PRINTER_STATUS_BUSY
+                | PRINTER_STATUS_IO_ACTIVE
+                | PRINTER_STATUS_WAITING))
+            != 0;
+        let is_printing = active_jobs > 0 || is_status_printing || job_is_printing;
+
         let has_error = (status_code
             & (PRINTER_STATUS_ERROR
                 | PRINTER_STATUS_PAPER_JAM
                 | PRINTER_STATUS_PAPER_OUT
                 | PRINTER_STATUS_DOOR_OPEN
                 | PRINTER_STATUS_OFFLINE))
-            != 0;
-        let is_online = (status_code & PRINTER_STATUS_OFFLINE) == 0 && !is_attr_offline;
+            != 0
+            || job_has_offline
+            || job_has_paperout
+            || job_has_error;
+        let is_online = (status_code & PRINTER_STATUS_OFFLINE) == 0
+            && !is_attr_offline
+            && !job_has_offline;
         let is_ready = is_online && !has_error;
 
-        let error_message = if (status_code & PRINTER_STATUS_PAPER_OUT) != 0 {
+        let error_message = if (status_code & PRINTER_STATUS_PAPER_OUT) != 0 || job_has_paperout {
             Some("Kertas habis".to_string())
         } else if (status_code & PRINTER_STATUS_PAPER_JAM) != 0 {
             Some("Kertas tersangkut (Paper Jam)".to_string())
         } else if (status_code & PRINTER_STATUS_DOOR_OPEN) != 0 {
             Some("Pintu/Cover printer terbuka".to_string())
-        } else if (status_code & PRINTER_STATUS_OFFLINE) != 0 || is_attr_offline {
+        } else if (status_code & PRINTER_STATUS_OFFLINE) != 0 || is_attr_offline || job_has_offline {
             Some("Printer Offline".to_string())
         } else if has_error {
             Some(format!("Printer error status code: {}", status_code))
@@ -309,6 +407,8 @@ mod platform {
         Ok(PrinterStatus {
             is_ready,
             is_online,
+            is_printing,
+            active_jobs,
             paper_remaining: Some(200),
             paper_limit_alert: Some(50),
             printer_name: printer_name.to_string(),
@@ -666,6 +766,8 @@ mod platform {
             return Ok(PrinterStatus {
                 is_ready: false,
                 is_online: false,
+                is_printing: false,
+                active_jobs: 0,
                 paper_remaining: None,
                 paper_limit_alert: Some(50),
                 printer_name: printer_name.to_string(),
@@ -681,12 +783,26 @@ mod platform {
             return Ok(PrinterStatus {
                 is_ready: false,
                 is_online: false,
+                is_printing: false,
+                active_jobs: 0,
                 paper_remaining: None,
                 paper_limit_alert: Some(50),
                 printer_name: printer_name.to_string(),
                 has_error: true,
                 error_message: Some("Printer offline / tidak terhubung".to_string()),
             });
+        }
+
+        let mut active_jobs: u32 = 0;
+        if let Ok(job_out) = std::process::Command::new("lpstat")
+            .arg("-o")
+            .arg(printer_name)
+            .output()
+        {
+            if job_out.status.success() {
+                let job_stdout = String::from_utf8_lossy(&job_out.stdout);
+                active_jobs = job_stdout.lines().filter(|l| !l.trim().is_empty()).count() as u32;
+            }
         }
 
         let output = std::process::Command::new("lpstat")
@@ -698,9 +814,12 @@ mod platform {
             if out.status.success() {
                 let stdout = String::from_utf8_lossy(&out.stdout).to_lowercase();
                 let is_disabled = stdout.contains("disabled") || stdout.contains("offline") || stdout.contains("not accepting");
+                let is_printing = active_jobs > 0 || stdout.contains("now printing") || stdout.contains("processing");
                 return Ok(PrinterStatus {
                     is_ready: !is_disabled,
                     is_online: !is_disabled,
+                    is_printing,
+                    active_jobs,
                     paper_remaining: if !is_disabled { Some(200) } else { None },
                     paper_limit_alert: Some(50),
                     printer_name: printer_name.to_string(),
@@ -713,6 +832,8 @@ mod platform {
         Ok(PrinterStatus {
             is_ready: true,
             is_online: true,
+            is_printing: active_jobs > 0,
+            active_jobs,
             paper_remaining: Some(200),
             paper_limit_alert: Some(50),
             printer_name: printer_name.to_string(),
@@ -859,6 +980,8 @@ mod tests {
         let status = get_printer_status("").unwrap();
         assert!(!status.is_ready);
         assert!(!status.is_online);
+        assert!(!status.is_printing);
+        assert_eq!(status.active_jobs, 0);
         assert!(status.has_error);
     }
 

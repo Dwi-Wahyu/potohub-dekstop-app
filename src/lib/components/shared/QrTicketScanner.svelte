@@ -4,7 +4,11 @@
   import { cameraStore } from '$lib/camera.svelte';
   import { boothConfig } from '$lib/stores/boothConfig.svelte';
   import { getLiveviewTransformStyle } from '$lib/utils/shared';
-  import { detectQrFromImageUrl, detectQrFromVideo } from '$lib/utils/qrScanner';
+  import {
+    detectQrFromImageElement,
+    detectQrFromImageUrl,
+    detectQrFromVideo
+  } from '$lib/utils/qrScanner';
   import type { QrPoint, QrScanResult, QrScanStatus } from '$lib/types/qr';
 
   interface Props {
@@ -50,9 +54,12 @@
   }: Props = $props();
 
   let videoEl = $state<HTMLVideoElement | null>(null);
+  let imgEl = $state<HTMLImageElement | null>(null);
   let overlayCanvas = $state<HTMLCanvasElement | null>(null);
   let frameSrc = $state<string | null>(null);
   let liveviewInterval: any = null;
+  let autoScanInterval: any = null;
+  let isAutoScanning = false;
   let lastDetectedPoints = $state<QrPoint[] | null>(null);
 
   function playStream(node: HTMLVideoElement, stream: MediaStream | null) {
@@ -68,6 +75,56 @@
         }
       }
     };
+  }
+
+  function startAutoScanner() {
+    if (autoScanInterval) clearInterval(autoScanInterval);
+
+    // Auto-scan ringan setiap 260ms saat dalam status 'idle'
+    autoScanInterval = setInterval(async () => {
+      if (status !== 'idle' || isAutoScanning || !cameraStore.isLiveviewActive) return;
+
+      isAutoScanning = true;
+      try {
+        let result: QrScanResult | null = null;
+        if (cameraStore.cameraMode === 'webcam' && videoEl) {
+          result = await detectQrFromVideo(videoEl);
+        } else if (imgEl && imgEl.complete && imgEl.naturalWidth > 0) {
+          result = await detectQrFromImageElement(imgEl);
+        }
+
+        if (result && result.content && status === 'idle') {
+          lastDetectedPoints = result.cornerPoints;
+          if (overlayCanvas) {
+            overlayCanvas.width = overlayCanvas.clientWidth || 640;
+            overlayCanvas.height = overlayCanvas.clientHeight || 480;
+            drawBoundingBox(result.cornerPoints, result.sourceWidth, result.sourceHeight);
+          }
+
+          if (saveToBackend) {
+            invoke('save_qr_result', {
+              data: {
+                content: result.content,
+                corner_points: result.cornerPoints
+              }
+            }).catch(() => {});
+          }
+
+          onScan?.(result);
+        }
+      } catch {
+        // Abaikan error background auto-scan
+      } finally {
+        isAutoScanning = false;
+      }
+    }, 260);
+  }
+
+  function stopAutoScanner() {
+    if (autoScanInterval) {
+      clearInterval(autoScanInterval);
+      autoScanInterval = null;
+    }
   }
 
   async function startCameraLiveview() {
@@ -94,6 +151,7 @@
         }, 100);
       }
 
+      startAutoScanner();
       onReady?.();
     } catch (err) {
       console.error('[QrTicketScanner] Gagal memulai liveview kamera:', err);
@@ -103,6 +161,7 @@
   }
 
   function stopCameraLiveview() {
+    stopAutoScanner();
     if (liveviewInterval) {
       clearInterval(liveviewInterval);
       liveviewInterval = null;
@@ -156,7 +215,7 @@
     };
   }
 
-  export function drawBoundingBox(points: QrPoint[]) {
+  export function drawBoundingBox(points: QrPoint[], sourceW?: number, sourceH?: number) {
     if (!overlayCanvas || points.length < 4) return;
     const ctx = overlayCanvas.getContext('2d');
     if (!ctx) return;
@@ -164,11 +223,26 @@
     ctx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
     const colors = getThemeColors();
 
+    const canvasW = overlayCanvas.width;
+    const canvasH = overlayCanvas.height;
+
+    // Normalisasi skala koordinat jika resolusi native frame berbeda dengan resolusi tampilan canvas
+    const rawW = sourceW || (cameraStore.cameraMode === 'webcam' ? videoEl?.videoWidth : imgEl?.naturalWidth) || canvasW;
+    const rawH = sourceH || (cameraStore.cameraMode === 'webcam' ? videoEl?.videoHeight : imgEl?.naturalHeight) || canvasH;
+
+    const scaleX = canvasW / rawW;
+    const scaleY = canvasH / rawH;
+
+    const scaledPoints = points.map((p) => ({
+      x: p.x * scaleX,
+      y: p.y * scaleY
+    }));
+
     // 1. Draw polygon path
     ctx.beginPath();
-    ctx.moveTo(points[0].x, points[0].y);
-    for (let i = 1; i < points.length; i++) {
-      ctx.lineTo(points[i].x, points[i].y);
+    ctx.moveTo(scaledPoints[0].x, scaledPoints[0].y);
+    for (let i = 1; i < scaledPoints.length; i++) {
+      ctx.lineTo(scaledPoints[i].x, scaledPoints[i].y);
     }
     ctx.closePath();
 
@@ -187,9 +261,9 @@
     if (showCornerBrackets) {
       const bracketLen = 18;
       for (let i = 0; i < 4; i++) {
-        const curr = points[i];
-        const prev = points[(i + 3) % 4];
-        const next = points[(i + 1) % 4];
+        const curr = scaledPoints[i];
+        const prev = scaledPoints[(i + 3) % 4];
+        const next = scaledPoints[(i + 1) % 4];
 
         const vPrev = { x: prev.x - curr.x, y: prev.y - curr.y };
         const dPrev = Math.hypot(vPrev.x, vPrev.y) || 1;
@@ -215,7 +289,7 @@
 
     // 3. Corner Dots
     if (showCornerDots) {
-      points.forEach((p) => {
+      scaledPoints.forEach((p) => {
         ctx.beginPath();
         ctx.arc(p.x, p.y, 5, 0, 2 * Math.PI);
         ctx.fillStyle = colors.dot;
@@ -237,50 +311,63 @@
   }
 
   /**
-   * Mengambil snapshot liveview kamera saat ini dan memindai QR Code.
-   * Dipanggil saat pengguna menekan tombol "Cek Tiket".
+   * Mengambil frame liveview kamera dan memindai QR Code.
+   * Menggunakan strategi burst (multi-sampling hingga 4x dalam ~360ms)
+   * untuk mengatasi frame motion blur / noise saat tombol ditekan.
    */
-  export async function scanFrame(): Promise<QrScanResult | null> {
-    let result: QrScanResult | null = null;
+  export async function scanFrame(burstCount = 4, burstDelayMs = 110): Promise<QrScanResult | null> {
+    for (let attempt = 0; attempt < burstCount; attempt++) {
+      let result: QrScanResult | null = null;
 
-    if (cameraStore.cameraMode === 'webcam' && videoEl) {
-      result = await detectQrFromVideo(videoEl);
-    } else if (frameSrc) {
-      result = await detectQrFromImageUrl(frameSrc);
-    }
-
-    // Jika pada frame cache belum terdeteksi, coba ambil 1 frame langsung dari kamera
-    if (!result && (cameraStore.cameraMode === 'usb' || cameraStore.cameraMode === 'demo')) {
-      const freshUrl = await cameraStore.getLiveviewFrame();
-      if (freshUrl) {
-        frameSrc = freshUrl;
-        result = await detectQrFromImageUrl(freshUrl);
-      }
-    }
-
-    if (result) {
-      lastDetectedPoints = result.cornerPoints;
-      if (overlayCanvas) {
-        overlayCanvas.width = overlayCanvas.clientWidth || 640;
-        overlayCanvas.height = overlayCanvas.clientHeight || 480;
-        drawBoundingBox(result.cornerPoints);
+      if (cameraStore.cameraMode === 'webcam' && videoEl) {
+        result = await detectQrFromVideo(videoEl);
+      } else if (imgEl && imgEl.complete && imgEl.naturalWidth > 0) {
+        result = await detectQrFromImageElement(imgEl);
+      } else if (frameSrc) {
+        result = await detectQrFromImageUrl(frameSrc);
       }
 
-      if (saveToBackend) {
-        invoke('save_qr_result', {
-          data: {
-            content: result.content,
-            corner_points: result.cornerPoints
+      // Jika pada frame cache belum terdeteksi, coba ambil frame segar dari backend
+      if (!result && (cameraStore.cameraMode === 'usb' || cameraStore.cameraMode === 'demo')) {
+        const freshUrl = await cameraStore.getLiveviewFrame();
+        if (freshUrl) {
+          frameSrc = freshUrl;
+          if (imgEl && imgEl.complete && imgEl.naturalWidth > 0) {
+            result = await detectQrFromImageElement(imgEl);
+          } else {
+            result = await detectQrFromImageUrl(freshUrl);
           }
-        }).catch(() => {});
+        }
       }
 
-      onScan?.(result);
-    } else {
-      clearOverlay();
+      if (result && result.content) {
+        lastDetectedPoints = result.cornerPoints;
+        if (overlayCanvas) {
+          overlayCanvas.width = overlayCanvas.clientWidth || 640;
+          overlayCanvas.height = overlayCanvas.clientHeight || 480;
+          drawBoundingBox(result.cornerPoints, result.sourceWidth, result.sourceHeight);
+        }
+
+        if (saveToBackend) {
+          invoke('save_qr_result', {
+            data: {
+              content: result.content,
+              corner_points: result.cornerPoints
+            }
+          }).catch(() => {});
+        }
+
+        onScan?.(result);
+        return result;
+      }
+
+      if (attempt < burstCount - 1) {
+        await new Promise((r) => setTimeout(r, burstDelayMs));
+      }
     }
 
-    return result;
+    clearOverlay();
+    return null;
   }
 
   onMount(() => {
@@ -307,6 +394,7 @@
       ></video>
     {:else if frameSrc}
       <img
+        bind:this={imgEl}
         src={frameSrc}
         alt="Camera liveview"
         class="absolute inset-0 w-full h-full object-cover block"
@@ -331,7 +419,7 @@
     class="absolute inset-0 w-full h-full object-cover pointer-events-none z-10"
   ></canvas>
 
-  <!-- Central Guide Reticle -->
+  <!-- Central Guide Reticle (Clean, text removed) -->
   {#if showCenterGuide && !lastDetectedPoints}
     <div class="absolute inset-10 pointer-events-none z-10 flex items-center justify-center">
       <!-- Reticle corner markers -->
@@ -339,11 +427,6 @@
       <div class="absolute top-0 right-0 w-6 h-6 border-t-[3px] border-r-[3px] border-white/80 rounded-tr-sm"></div>
       <div class="absolute bottom-0 left-0 w-6 h-6 border-b-[3px] border-l-[3px] border-white/80 rounded-bl-sm"></div>
       <div class="absolute bottom-0 right-0 w-6 h-6 border-b-[3px] border-r-[3px] border-white/80 rounded-br-sm"></div>
-
-      <!-- Center Crosshair / Instruction -->
-      <div class="text-[11px] font-bold tracking-wider text-white/70 uppercase bg-black/40 px-3 py-1 rounded-full backdrop-blur-sm pointer-events-none">
-        Posisikan QR di sini
-      </div>
     </div>
   {/if}
 

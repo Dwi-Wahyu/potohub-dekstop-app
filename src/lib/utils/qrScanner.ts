@@ -4,7 +4,10 @@ import type { QrPoint, QrScanResult } from '$lib/types/qr';
 /**
  * Mendeteksi QR Code dari sebuah canvas 2D.
  * Mengutamakan native BarcodeDetector API jika tersedia di browser/webview,
- * lalu fallback ke jsQR dengan pemeriksaan orientasi normal dan mirrored.
+ * lalu fallback ke jsQR dengan pemeriksaan:
+ * 1. Orientasi normal
+ * 2. Orientasi horizontal mirrored
+ * 3. Crop area tengah (Center Region of Interest / ROI)
  */
 export async function detectQrFromCanvas(canvas: HTMLCanvasElement): Promise<QrScanResult | null> {
   const w = canvas.width;
@@ -24,7 +27,7 @@ export async function detectQrFromCanvas(canvas: HTMLCanvasElement): Promise<QrS
             x: Number(p.x),
             y: Number(p.y)
           }));
-          return { content: raw.trim(), cornerPoints: pts };
+          return { content: raw.trim(), cornerPoints: pts, sourceWidth: w, sourceHeight: h };
         }
       }
     } catch {
@@ -50,7 +53,7 @@ export async function detectQrFromCanvas(canvas: HTMLCanvasElement): Promise<QrS
         { x: loc.bottomRightCorner.x, y: loc.bottomRightCorner.y },
         { x: loc.bottomLeftCorner.x, y: loc.bottomLeftCorner.y }
       ];
-      return { content: code.data.trim(), cornerPoints: pts };
+      return { content: code.data.trim(), cornerPoints: pts, sourceWidth: w, sourceHeight: h };
     }
   } catch (e) {
     console.warn('[detectQrFromCanvas] jsQR normal pass error:', e);
@@ -82,14 +85,68 @@ export async function detectQrFromCanvas(canvas: HTMLCanvasElement): Promise<QrS
           { x: w - loc.bottomRightCorner.x, y: loc.bottomRightCorner.y },
           { x: w - loc.bottomLeftCorner.x, y: loc.bottomLeftCorner.y }
         ];
-        return { content: flipCode.data.trim(), cornerPoints: pts };
+        return { content: flipCode.data.trim(), cornerPoints: pts, sourceWidth: w, sourceHeight: h };
       }
     }
   } catch (e) {
     console.warn('[detectQrFromCanvas] jsQR mirrored pass error:', e);
   }
 
+  // 4. Center ROI crop pass (65% tengah frame)
+  // Membantu mengatasi noise lampu studio di pinggir frame atau gradien kontras latar belakang
+  if (w > 200 && h > 200) {
+    try {
+      const cropW = Math.round(w * 0.65);
+      const cropH = Math.round(h * 0.65);
+      const cropX = Math.round((w - cropW) / 2);
+      const cropY = Math.round((h - cropH) / 2);
+
+      const roiCanvas = document.createElement('canvas');
+      roiCanvas.width = cropW;
+      roiCanvas.height = cropH;
+      const roiCtx = roiCanvas.getContext('2d', { willReadFrequently: true });
+      if (roiCtx) {
+        roiCtx.drawImage(canvas, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
+        const roiData = roiCtx.getImageData(0, 0, cropW, cropH);
+        const roiCode = jsQR(roiData.data, roiData.width, roiData.height, {
+          inversionAttempts: 'attemptBoth'
+        });
+        if (roiCode && roiCode.data && roiCode.data.trim()) {
+          const loc = roiCode.location;
+          const pts: QrPoint[] = [
+            { x: cropX + loc.topLeftCorner.x, y: cropY + loc.topLeftCorner.y },
+            { x: cropX + loc.topRightCorner.x, y: cropY + loc.topRightCorner.y },
+            { x: cropX + loc.bottomRightCorner.x, y: cropY + loc.bottomRightCorner.y },
+            { x: cropX + loc.bottomLeftCorner.x, y: cropY + loc.bottomLeftCorner.y }
+          ];
+          return { content: roiCode.data.trim(), cornerPoints: pts, sourceWidth: w, sourceHeight: h };
+        }
+      }
+    } catch (e) {
+      console.warn('[detectQrFromCanvas] jsQR center ROI pass error:', e);
+    }
+  }
+
   return null;
+}
+
+/**
+ * Mendeteksi QR Code langsung dari elemen <img> yang sudah dimuat di DOM.
+ * Sangat cepat (0ms network) dan kebal terhadap pencabutan Blob URL.
+ */
+export async function detectQrFromImageElement(img: HTMLImageElement): Promise<QrScanResult | null> {
+  if (!img || !img.complete || img.naturalWidth === 0 || img.naturalHeight === 0) return null;
+  const w = img.naturalWidth;
+  const h = img.naturalHeight;
+
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  if (!ctx) return null;
+
+  ctx.drawImage(img, 0, 0, w, h);
+  return detectQrFromCanvas(canvas);
 }
 
 /**

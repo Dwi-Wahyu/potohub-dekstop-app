@@ -6,7 +6,7 @@
   import OnScreenKeyboard from '$lib/components/shared/OnScreenKeyboard.svelte';
   import OfflineBanner from '$lib/components/shared/OfflineBanner.svelte';
   import { Check, AlertCircle, Camera, ChevronLeft } from '@lucide/svelte';
-  import type { QrScanStatus } from '$lib/types/qr';
+  import type { QrScanResult, QrScanStatus } from '$lib/types/qr';
 
   interface Props {
     boothId?: string;
@@ -40,7 +40,7 @@
     successMsg = '';
 
     try {
-      const result = await scannerRef?.scanFrame?.();
+      const result = await scannerRef?.scanFrame?.(4, 110);
       if (!result || !result.content) {
         scanStatus = 'error';
         errorMsg = 'QR Code tidak terdeteksi. Posisikan QR code tiket di depan kamera dan coba lagi.';
@@ -75,6 +75,12 @@
         verifying = false;
         scanStatus = 'idle';
       }, 2500);
+    }
+  }
+
+  function handleAutoScan(result: QrScanResult) {
+    if (!verifying && scanStatus === 'idle' && result && result.content) {
+      handleCheckTicket();
     }
   }
 
@@ -223,6 +229,7 @@
             dotColor="#ffffff"
             status={scanStatus}
             class="w-full h-full"
+            onScan={handleAutoScan}
           />
         </div>
 

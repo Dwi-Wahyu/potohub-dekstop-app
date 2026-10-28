@@ -6,7 +6,7 @@
   import OnScreenKeyboard from '$lib/components/shared/OnScreenKeyboard.svelte';
   import OfflineBanner from '$lib/components/shared/OfflineBanner.svelte';
   import { QrCode, ArrowRight, Check, AlertCircle, Camera } from '@lucide/svelte';
-  import type { QrScanStatus } from '$lib/types/qr';
+  import type { QrScanResult, QrScanStatus } from '$lib/types/qr';
 
   interface Props {
     boothId?: string;
@@ -29,10 +29,9 @@
   let successMessage = $state('');
 
   /**
-   * Tombol "Cek Tiket": Memindai frame liveview dari kamera booth
-   * dan memvalidasi QR Code terhadap data tiket yang sudah sync atau online.
+   * Validasi token tiket ke backend/cache lokal
    */
-  async function handleCheckTicket() {
+  async function validateTicketContent(rawContent: string) {
     if (isVerifying) return;
     errorMessage = '';
     successMessage = '';
@@ -40,19 +39,7 @@
     scanStatus = 'verifying';
 
     try {
-      const result = await scannerRef?.scanFrame?.();
-      if (!result || !result.content) {
-        scanStatus = 'error';
-        errorMessage = 'QR Code tidak terdeteksi. Posisikan QR code tiket di depan kamera dan coba lagi.';
-        setTimeout(() => {
-          isVerifying = false;
-          scanStatus = 'idle';
-        }, 2200);
-        return;
-      }
-
-      // Validasi token QR Code
-      const res = await redeemTicket(result.content, effectiveBoothId);
+      const res = await redeemTicket(rawContent, effectiveBoothId);
       if (!res.valid) {
         throw new Error(res.message || 'Tiket QR tidak valid atau sudah digunakan.');
       }
@@ -78,35 +65,35 @@
     }
   }
 
-  async function handleManualSubmit() {
+  /**
+   * Tombol "Cek Tiket": Memindai frame liveview dari kamera booth
+   * dengan mekanisme multi-sampling burst.
+   */
+  async function handleCheckTicket() {
     if (isVerifying) return;
-    const clean = manualInput.trim();
-    if (!clean) {
-      errorMessage = 'Kode tiket tidak boleh kosong.';
-      return;
-    }
-
+    errorMessage = '';
+    successMessage = '';
     isVerifying = true;
     scanStatus = 'verifying';
-    errorMessage = '';
-    successMessage = 'Memverifikasi kode tiket…';
 
     try {
-      const res = await redeemTicket(clean, effectiveBoothId);
-      if (!res.valid) {
-        throw new Error(res.message || 'Kode tiket tidak valid atau sudah digunakan.');
+      const result = await scannerRef?.scanFrame?.(4, 110);
+      if (!result || !result.content) {
+        scanStatus = 'error';
+        errorMessage = 'QR Code tidak terdeteksi. Posisikan QR code tiket di depan kamera dan coba lagi.';
+        setTimeout(() => {
+          isVerifying = false;
+          scanStatus = 'idle';
+        }, 2200);
+        return;
       }
 
-      scanStatus = 'success';
-      successMessage = res.offline
-        ? 'Tiket Valid (mode offline)! Memulai sesi foto…'
-        : 'Tiket Valid! Memulai sesi foto…';
-
-      setTimeout(() => {
-        onSuccess();
-      }, 600);
+      // Validasi token QR Code yang ditemukan
+      isVerifying = false; // Reset agar validateTicketContent dapat melanjutkan
+      await validateTicketContent(result.content);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Kode tiket tidak valid atau sudah digunakan.';
+      console.error('QR Ticket verification failed:', err);
+      const msg = err instanceof Error ? err.message : 'Tiket QR tidak valid atau sudah digunakan.';
       scanStatus = 'error';
       errorMessage = msg;
       successMessage = '';
@@ -115,6 +102,23 @@
         scanStatus = 'idle';
       }, 2500);
     }
+  }
+
+  function handleAutoScan(result: QrScanResult) {
+    if (!isVerifying && scanStatus === 'idle' && result && result.content) {
+      validateTicketContent(result.content);
+    }
+  }
+
+  async function handleManualSubmit() {
+    if (isVerifying) return;
+    const clean = manualInput.trim();
+    if (!clean) {
+      errorMessage = 'Kode tiket tidak boleh kosong.';
+      return;
+    }
+
+    await validateTicketContent(clean);
   }
 
   function handleKeyboardPress(charOrAction: string) {
@@ -195,6 +199,7 @@
         dotColor="#ffffff"
         status={scanStatus}
         class="w-full h-full"
+        onScan={handleAutoScan}
       />
     </div>
 

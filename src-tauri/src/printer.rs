@@ -186,10 +186,15 @@ mod platform {
         }
 
         // Stage 3: PowerShell Fallback (Get-Printer) — Menangkap printer queue virtual, software driver, atau secondary copy queues
-        if let Ok(output) = std::process::Command::new("powershell")
-            .args(["-NoProfile", "-Command", "Get-Printer | Select-Object -ExpandProperty Name"])
-            .output()
+        let mut ps_cmd = std::process::Command::new("powershell");
+        ps_cmd.args(["-NoProfile", "-Command", "Get-Printer | Select-Object -ExpandProperty Name"]);
+        #[cfg(target_os = "windows")]
         {
+            use std::os::windows::process::CommandExt;
+            const CREATE_NO_WINDOW: u32 = 0x08000000;
+            ps_cmd.creation_flags(CREATE_NO_WINDOW);
+        }
+        if let Ok(output) = ps_cmd.output() {
             if output.status.success() {
                 let text = String::from_utf8_lossy(&output.stdout);
                 for line in text.lines() {
@@ -338,10 +343,15 @@ mod platform {
         if !got_status {
             let escaped = printer_name.replace('\'', "''");
             let cmd = format!("(Get-Printer -Name '{}').PrinterStatus", escaped);
-            if let Ok(output) = std::process::Command::new("powershell")
-                .args(["-NoProfile", "-Command", &cmd])
-                .output()
+            let mut ps_cmd = std::process::Command::new("powershell");
+            ps_cmd.args(["-NoProfile", "-Command", &cmd]);
+            #[cfg(target_os = "windows")]
             {
+                use std::os::windows::process::CommandExt;
+                const CREATE_NO_WINDOW: u32 = 0x08000000;
+                ps_cmd.creation_flags(CREATE_NO_WINDOW);
+            }
+            if let Ok(output) = ps_cmd.output() {
                 if output.status.success() {
                     let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
                     if let Ok(num) = text.parse::<u32>() {
@@ -609,9 +619,15 @@ mod platform {
             path = escaped_path
         );
 
-        let output = std::process::Command::new("powershell")
-            .args(["-NoProfile", "-NonInteractive", "-Command", &ps_script])
-            .output();
+        let mut ps_cmd = std::process::Command::new("powershell");
+        ps_cmd.args(["-NoProfile", "-NonInteractive", "-Command", &ps_script]);
+        #[cfg(target_os = "windows")]
+        {
+            use std::os::windows::process::CommandExt;
+            const CREATE_NO_WINDOW: u32 = 0x08000000;
+            ps_cmd.creation_flags(CREATE_NO_WINDOW);
+        }
+        let output = ps_cmd.output();
 
         let _ = std::fs::remove_file(&temp_file);
 

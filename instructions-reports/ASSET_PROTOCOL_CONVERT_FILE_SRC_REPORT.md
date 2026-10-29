@@ -93,7 +93,7 @@ Dengan **Tauri Asset Protocol (`convertFileSrc`)**:
 ### A. Verifikasi Kompilasi Rust
 ```bash
 $ cargo check --manifest-path src-tauri/Cargo.toml
-    Checking potohub-booth-client v0.1.0 (/home/dwiwahyu/Projects/PotoHub/source-code/dekstop-app/src-tauri)
+    Checking potohub-booth-client v0.1.0 (/home/potohub/Projects/PotoHub/source-code/dekstop-app/src-tauri)
     Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.88s
 ```
 Kompilasi Rust dengan fitur `protocol-asset` dan command baru berhasil tanpa error.
@@ -102,7 +102,7 @@ Kompilasi Rust dengan fitur `protocol-asset` dan command baru berhasil tanpa err
 ```bash
 $ pnpm check
 $ svelte-kit sync && svelte-check --tsconfig ./tsconfig.json
-Loading svelte-check in workspace: /home/dwiwahyu/Projects/PotoHub/source-code/dekstop-app
+Loading svelte-check in workspace: /home/potohub/Projects/PotoHub/source-code/dekstop-app
 Getting Svelte diagnostics...
 
 svelte-check found 0 errors and 0 warnings

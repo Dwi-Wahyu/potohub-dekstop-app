@@ -105,7 +105,7 @@ Laporan ini mendokumentasikan implementasi menyeluruh terhadap perbaikan masalah
   - Saat online: Polling setiap **30 detik** (`HEARTBEAT_ONLINE_MS = 30000`).
 
 ### 3.5. Environment Production Template — [`.env.production`](/.env.production)
-- Menyediakan berkas konfigurasi produksi dengan base URL API publik (`https://potohub-api.dwiwahyu.my.id/api`) dan dashboard publik untuk mencegah salah konfigurasi `localhost:8080` pada binary rilis.
+- Menyediakan berkas konfigurasi produksi dengan base URL API publik (`https://potohub.com/api`) dan dashboard publik untuk mencegah salah konfigurasi `localhost:8080` pada binary rilis.
 
 ---
 
@@ -114,7 +114,7 @@ Laporan ini mendokumentasikan implementasi menyeluruh terhadap perbaikan masalah
 ### 4.1. TypeScript & Svelte Diagnostics (`svelte-check`)
 ```bash
 $ svelte-kit sync && svelte-check --tsconfig ./tsconfig.json
-Loading svelte-check in workspace: /home/dwiwahyu/Projects/PotoHub/source-code/dekstop-app
+Loading svelte-check in workspace: /home/potohub/Projects/PotoHub/source-code/dekstop-app
 Getting Svelte diagnostics...
 
 svelte-check found 0 errors and 0 warnings

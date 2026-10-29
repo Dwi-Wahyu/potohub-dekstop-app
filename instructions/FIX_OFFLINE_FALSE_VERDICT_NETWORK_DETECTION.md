@@ -725,9 +725,9 @@ Buka [`.env`](/.env) di `dekstop-app`:
 2. **Untuk Mode Build / Production (`pnpm tauri build`):**
    Buat atau sesuaikan berkas `.env.production` (atau sesuaikan `.env` sebelum menjalankan build):
    ```env
-   PUBLIC_API_BASE_URL=https://potohub-api.dwiwahyu.my.id/api
+   PUBLIC_API_BASE_URL=https://potohub.com/api
    ADMIN_DASHBOARD_URL=https://potohub.com
-   R2_PUBLIC_URL=https://potohub-bucket.dwiwahyu.my.id
+   R2_PUBLIC_URL=https://bucket.potohub.com
    ```
    *Peringatan:* Jika binary diproduksi dengan `PUBLIC_API_BASE_URL=http://localhost:8080/api`, maka aplikasi yang diinstal di komputer booth klien akan selalu mencoba menghubungi `localhost:8080` dan divonis offline secara permanen!
 

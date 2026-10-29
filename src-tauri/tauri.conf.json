@@ -2,7 +2,7 @@
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "PotoHub Booth Client",
   "version": "0.1.0",
-  "identifier": "com.dwiwahyuilahi.potohub-dekstop-app",
+  "identifier": "com.potohub.boothclient",
   "plugins": {
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDRBOTM3OEYwMzY4ODg1MzMKUldTa0FRQVBzT2xNMXlFNTlRUkRkM3o5N2xYd1dKdmV4Y3U2Tnd3Z0V6VlI3a0lNRHhWVk9rTXFhMDF0Q3B4Tjlva3UK",

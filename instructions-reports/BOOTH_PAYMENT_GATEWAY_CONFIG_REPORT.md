@@ -15,7 +15,7 @@ Updated all payment step components in the desktop application (`V1`, `V2`, and 
 ## 2. Updated Components
 
 ### 2.1 V1 Flow (`dekstop-app/src/lib/components/v1/V1QRISPayment.svelte`)
-- Invokes [`createTransactionSession`](file:///home/dwiwahyu/Projects/PotoHub/source-code/dekstop-app/src/lib/api/boothClient.ts) on mount.
+- Invokes [`createTransactionSession`](file:///home/potohub/Projects/PotoHub/source-code/dekstop-app/src/lib/api/boothClient.ts) on mount.
 - Retrieves `qr_content` or `qris_url` from the backend session response (fallback to DOKU sandbox QRIS simulator URL if offline/error).
 - Generates a high-contrast QR code via `qrcode.toDataURL(...)`.
 - Displays prominent amber badge: **`SANDBOX MODE (DOKU QRIS)`**.
@@ -39,8 +39,8 @@ Updated all payment step components in the desktop application (`V1`, `V2`, and 
 
 ## 3. Client API Enhancements
 
-- **[`dekstop-app/src/lib/api/boothClient.ts`](file:///home/dwiwahyu/Projects/PotoHub/source-code/dekstop-app/src/lib/api/boothClient.ts)**:
-  - Enhanced [`CreateSessionResponse`](file:///home/dwiwahyu/Projects/PotoHub/source-code/dekstop-app/src/lib/api/boothClient.ts) interface with `qr_content?: string | null`.
+- **[`dekstop-app/src/lib/api/boothClient.ts`](file:///home/potohub/Projects/PotoHub/source-code/dekstop-app/src/lib/api/boothClient.ts)**:
+  - Enhanced [`CreateSessionResponse`](file:///home/potohub/Projects/PotoHub/source-code/dekstop-app/src/lib/api/boothClient.ts) interface with `qr_content?: string | null`.
 
 ---
 

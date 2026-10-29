@@ -16,7 +16,8 @@
     Settings,
     RefreshCw,
     Layers,
-    UploadCloud
+    UploadCloud,
+    FolderOpen
   } from '@lucide/svelte';
   import UpdateModal from '$lib/components/shared/UpdateModal.svelte';
   import ReuploadSessionsModal from '$lib/components/shared/ReuploadSessionsModal.svelte';
@@ -27,6 +28,7 @@
   import { syncBoothSettings, getActiveBoothId } from '$lib/api/boothClient';
   import { networkStatus } from '$lib/stores/networkStatus.svelte';
   import { countPendingOutboxJobs, countPendingSessionSoftfileJobs } from '$lib/db/local';
+  import { invoke } from '@tauri-apps/api/core';
   import { flushOutbox } from '$lib/utils/offlineOutbox';
   import { flushPrintQueue } from '$lib/utils/printQueue';
   import { cameraStore } from '$lib/camera.svelte';
@@ -1167,7 +1169,7 @@
                     position: relative;
                     transition: all 0.15s ease;
                   "
-                  title="Buka Dialog Daftar Sesi Foto (Reupload & Print Manual)"
+                  title="Buka Dialog Daftar Sesi Foto (7 Sesi Terakhir, Upload Ulang & Print Manual)"
                   onmousedown={(e) => (e.currentTarget.style.boxShadow = neuCfg.inset)}
                   onmouseup={(e) => (e.currentTarget.style.boxShadow = neuCfg.btnSm)}
                 >
@@ -1187,10 +1189,41 @@
                     ></span>
                   {/if}
                 </button>
+
+                <!-- Tombol Buka Folder Penyimpanan Sesi Lokal di Windows Explorer -->
+                <button
+                  type="button"
+                  onclick={async () => {
+                    try {
+                      await invoke('open_sessions_dir', { relativePath: null });
+                    } catch (e) {
+                      console.error('Gagal buka folder sesi:', e);
+                    }
+                  }}
+                  style="
+                    width: 40px;
+                    height: 40px;
+                    border-radius: 12px;
+                    background: {NEU_BG};
+                    box-shadow: {neuCfg.btnSm};
+                    border: none;
+                    cursor: pointer;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    color: #2a2873;
+                    transition: all 0.15s ease;
+                  "
+                  title="Buka Folder Penyimpanan Sesi Foto Lokal di Windows Explorer"
+                  onmousedown={(e) => (e.currentTarget.style.boxShadow = neuCfg.inset)}
+                  onmouseup={(e) => (e.currentTarget.style.boxShadow = neuCfg.btnSm)}
+                >
+                  <FolderOpen size={17} />
+                </button>
               </div>
 
               <p style="font-size: 10px; color: #94a3b8; margin: 0;">
-                Klik tombol <strong>Upload</strong> untuk sinkronisasi otomatis, atau icon putar untuk memilih sesi yang ingin di-upload/print manual.
+                Klik tombol <strong>Upload</strong> untuk sinkronisasi manual, icon putar untuk <strong>7 sesi terakhir</strong> (print/upload ulang), atau icon folder untuk membuka file foto lokal di Windows Explorer.
               </p>
             </div>
 

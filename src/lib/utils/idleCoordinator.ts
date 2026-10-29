@@ -23,30 +23,14 @@ export function isAppIdle(): boolean {
 }
 
 /**
- * Jalankan pengecekan dan flush antrean outbox & print queue HANYA jika aplikasi idle.
- * Tidak akan pernah menginterupsi interaksi user atau sesi foto yang sedang aktif.
+ * Pengecekan antrean idle.
+ * Sesuai preferensi operator, auto-sync push & auto-print latar belakang dinonaktifkan
+ * agar seluruh proses pengiriman softfile dan pencetakan fisik terverifikasi secara manual
+ * oleh operator melalui tombol Upload & Cetak di ConfigDashboard / Dialog Sesi.
  */
 export async function checkAndFlushQueuesIfIdle(): Promise<void> {
-  if (!isAppIdle()) {
-    console.log('[idleCoordinator] Aplikasi sedang aktif dengan pelanggan. Auto-sync & auto-print ditunda.');
-    return;
-  }
-
-  // Jika online, kuras outbox (upload aset & softfile yang tertunda)
-  if (networkStatus.isOnline) {
-    try {
-      await flushOutbox({ force: false });
-    } catch (e) {
-      console.warn('[idleCoordinator] Gagal menguras outbox saat idle:', e);
-    }
-  }
-
-  // Kuras print queue jika printer siap
-  try {
-    await flushPrintQueue({ force: false });
-  } catch (e) {
-    console.warn('[idleCoordinator] Gagal menguras print queue saat idle:', e);
-  }
+  // Auto-sync & auto-print dinonaktifkan per permintaan operator.
+  // Eksekusi print & upload tertunda hanya dilakukan manual via operator dashboard.
 }
 
 let watcherStarted = false;

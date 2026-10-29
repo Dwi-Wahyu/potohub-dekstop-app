@@ -18,7 +18,7 @@
     type BoothTemplate
   } from '$lib/api/boothClient';
   import { networkStatus } from '$lib/stores/networkStatus.svelte';
-  import { enqueueOutboxJob, enqueuePrintJob, upsertSessionOutboxJob } from '$lib/db/local';
+  import { enqueueOutboxJob, enqueuePrintJob, upsertSessionOutboxJob, updateSessionPrintStatus } from '$lib/db/local';
   import { printerStore } from '$lib/printer.svelte';
   import OfflineBanner from '$lib/components/shared/OfflineBanner.svelte';
   import { buildAssetRelativePaths } from '$lib/utils/localSessionStorage';
@@ -153,7 +153,7 @@
       }
     }
 
-    // 1. Programmatic Auto-Print Flow — Langsung trigger printer instan (< 1s) tanpa menunggu proses berat Video/GIF/Upload
+    // 1. Catat sesi ke database lokal dan picu cetak instan (< 1s)
     const copies = boothFlow.printQty || 1;
     const { useSecondary, paperSize } = resolvePrinterConfigForTemplate(selectedTemplate);
     const dateStr = new Date().toISOString().slice(0, 10);
@@ -162,6 +162,30 @@
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/^-+|-+$/g, '');
     const diskPath = `${dateStr}/${localSessionCode}_${boothSanitized}/composite/print_strip.jpg`;
+
+    const sessionPayload = {
+      boothId,
+      categoryId: selectedTemplate?.category_id ?? null,
+      frameId: selectedFrame,
+      printQty: copies,
+      paperSize,
+      useSecondary,
+      paymentMethod: (boothFlow.paymentMethod === 'Ticket' ? 'Ticket' : 'Cash') as 'Ticket' | 'Cash',
+      softfileTarget: null,
+      localSessionCode,
+      backendSessionId: isValidUUID(boothFlow.sessionId) ? boothFlow.sessionId! : undefined,
+      assetRelativePaths: buildAssetRelativePaths(
+        localSessionCode,
+        uiConfig.config.boothName,
+        effectivePhotos.length,
+        selectedTemplate?.width || 1200,
+        selectedTemplate?.height || 1800
+      ),
+      printStatus: 'pending' as const,
+    };
+
+    // Segera catat sesi ke database outbox lokal agar operator bisa melihatnya di dialog sesi
+    void upsertSessionOutboxJob(localSessionCode, sessionPayload, { status: 'pending' }).catch(console.warn);
 
     if (copies > 0 && compositeUrl) {
       void (async () => {
@@ -187,6 +211,7 @@
             });
             if (!activeSignal.aborted) {
               printStatus = 'SUCCESS';
+              void updateSessionPrintStatus(localSessionCode, 'printed').catch(console.warn);
               if (!result.completed && result.error) {
                 console.warn('[V3Download] Print completion check warning:', result.error);
               }
@@ -201,6 +226,7 @@
               useSecondary,
             });
             printStatus = 'QUEUED';
+            void updateSessionPrintStatus(localSessionCode, 'failed', String(err)).catch(console.warn);
           }
         } else {
           console.warn('[V3Download] Printer check failed, enqueueing job:', check.reason);
@@ -212,6 +238,7 @@
             useSecondary,
           });
           printStatus = 'QUEUED';
+          void updateSessionPrintStatus(localSessionCode, 'failed', check.reason).catch(console.warn);
         }
       })();
     }
@@ -248,23 +275,7 @@
 
       void upsertSessionOutboxJob(
         sCode,
-        {
-          boothId,
-          categoryId: selectedTemplate?.category_id ?? null,
-          frameId: selectedFrame,
-          printQty: boothFlow.printQty,
-          paymentMethod: boothFlow.paymentMethod === 'Ticket' ? 'Ticket' : 'Cash',
-          softfileTarget: null,
-          localSessionCode: sCode,
-          backendSessionId: isValidUUID(boothFlow.sessionId) ? boothFlow.sessionId! : undefined,
-          assetRelativePaths: buildAssetRelativePaths(
-            sCode,
-            uiConfig.config.boothName,
-            effectivePhotos.length,
-            selectedTemplate?.width || 1200,
-            selectedTemplate?.height || 1800
-          ),
-        },
+        sessionPayload,
         {
           status: isSyncedOnline ? 'done' : 'pending',
           lastError: syncError,

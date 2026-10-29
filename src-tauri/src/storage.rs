@@ -55,3 +55,63 @@ pub async fn read_session_file(app: AppHandle, relative_path: String) -> Result<
     let full = sessions_dir(&app).join(&rel);
     std::fs::read(&full).map_err(|e| e.to_string())
 }
+
+/// Dapatkan path absolut dari direktori penyimpanan sesi lokal
+#[tauri::command]
+pub async fn get_sessions_dir(app: AppHandle) -> Result<String, String> {
+    let dir = sessions_dir(&app);
+    if !dir.exists() {
+        let _ = std::fs::create_dir_all(&dir);
+    }
+    Ok(dir.to_string_lossy().to_string())
+}
+
+/// Buka direktori penyimpanan sesi (atau subdirektori sesi tertentu) di File Explorer OS
+#[tauri::command]
+pub async fn open_sessions_dir(app: AppHandle, relative_path: Option<String>) -> Result<(), String> {
+    let mut target = sessions_dir(&app);
+    if let Some(rel) = relative_path {
+        if let Ok(safe_rel) = safe_relative(&rel) {
+            let candidate = target.join(safe_rel);
+            if candidate.exists() {
+                if candidate.is_file() {
+                    if let Some(p) = candidate.parent() {
+                        target = p.to_path_buf();
+                    }
+                } else {
+                    target = candidate;
+                }
+            }
+        }
+    }
+
+    if !target.exists() {
+        let _ = std::fs::create_dir_all(&target);
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("explorer")
+            .arg(&target)
+            .spawn()
+            .map_err(|e| format!("Gagal membuka Windows Explorer: {}", e))?;
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        std::process::Command::new("xdg-open")
+            .arg(&target)
+            .spawn()
+            .map_err(|e| format!("Gagal membuka file manager: {}", e))?;
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg(&target)
+            .spawn()
+            .map_err(|e| format!("Gagal membuka Finder: {}", e))?;
+    }
+
+    Ok(())
+}

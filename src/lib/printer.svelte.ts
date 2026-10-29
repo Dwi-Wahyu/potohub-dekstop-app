@@ -143,9 +143,6 @@ class PrinterStore {
 
       if (this.selectedPrinter) {
         await this.refreshStatus();
-        flushPrintQueue({ force: false }).catch((err) =>
-          console.error("[PrinterStore] Initial queue flush error:", err)
-        );
       } else {
         this.status = {
           is_ready: false,
@@ -219,10 +216,7 @@ class PrinterStore {
     }
 
     if (anyTransitionedToOnline) {
-      console.log("[printerStore] Printer transitioned OFFLINE -> ONLINE! Triggering flushPrintQueue...");
-      flushPrintQueue({ force: false }).catch((err) =>
-        console.error("[PrinterStore] Auto queue flush error:", err)
-      );
+      console.log("[printerStore] Printer transitioned OFFLINE -> ONLINE (auto queue flush dinonaktifkan per preferensi operator).");
     }
   }
 

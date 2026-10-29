@@ -13,12 +13,14 @@
     Mail,
     Phone,
     Layers,
-    Filter
+    Filter,
+    FolderOpen
   } from '@lucide/svelte';
   import { invoke } from '@tauri-apps/api/core';
   import {
     listAllSessionOutboxJobs,
     resetOutboxJobForRetry,
+    updateSessionPrintStatus,
     type SessionHistoryItem,
   } from '$lib/db/local';
   import { processSingleJobById, type JobProcessOutcome } from '$lib/utils/offlineOutbox';
@@ -43,15 +45,19 @@
 
   let sessions = $state<SessionHistoryItem[]>([]);
   let isLoading = $state(false);
-  let activeFilter = $state<'all' | 'pending' | 'done'>('all');
+  let activeFilter = $state<'recent' | 'all' | 'pending' | 'done'>('recent');
+  let sessionsDirPath = $state<string>('');
   let previewUrls = $state<Record<number, string>>({});
   let uploadingMap = $state<Record<number, boolean>>({});
   let printingMap = $state<Record<number, boolean>>({});
   let feedbackMap = $state<Record<number, { type: 'success' | 'error'; text: string }>>({});
 
   let filteredSessions = $derived.by(() => {
+    if (activeFilter === 'recent') {
+      return sessions.slice(0, 7);
+    }
     if (activeFilter === 'pending') {
-      return sessions.filter((s) => s.status === 'pending' || s.status === 'dead_letter');
+      return sessions.filter((s) => s.status === 'pending' || s.status === 'dead_letter' || s.printStatus === 'failed');
     }
     if (activeFilter === 'done') {
       return sessions.filter((s) => s.status === 'done');
@@ -60,7 +66,7 @@
   });
 
   let pendingCount = $derived(
-    sessions.filter((s) => s.status === 'pending' || s.status === 'dead_letter').length
+    sessions.filter((s) => s.status === 'pending' || s.status === 'dead_letter' || s.printStatus === 'failed').length
   );
 
   async function loadSessions() {
@@ -73,10 +79,21 @@
           void loadThumbnail(item);
         }
       }
+      try {
+        sessionsDirPath = await invoke<string>('get_sessions_dir');
+      } catch {}
     } catch (err) {
       console.error('[ReuploadModal] Gagal memuat daftar sesi:', err);
     } finally {
       isLoading = false;
+    }
+  }
+
+  async function handleOpenSessionsFolder(relativePath?: string | null) {
+    try {
+      await invoke('open_sessions_dir', { relativePath: relativePath || null });
+    } catch (err) {
+      console.error('[ReuploadModal] Gagal membuka folder sesi:', err);
     }
   }
 
@@ -134,13 +151,24 @@
         item.sessionCode,
         item.compositePath,
         item.printQty || 1,
+        item.paperSize || '4x6',
+        item.useSecondary ?? false,
       );
       if (res.ok) {
+        item.printStatus = 'printed';
+        item.printError = null;
+        void updateSessionPrintStatus(item.sessionCode, 'printed').catch(console.warn);
         feedbackMap[item.id] = { type: 'success', text: res.message };
       } else {
+        item.printStatus = 'failed';
+        item.printError = res.message;
+        void updateSessionPrintStatus(item.sessionCode, 'failed', res.message).catch(console.warn);
         feedbackMap[item.id] = { type: 'error', text: res.message };
       }
     } catch (err) {
+      item.printStatus = 'failed';
+      item.printError = String(err);
+      void updateSessionPrintStatus(item.sessionCode, 'failed', String(err)).catch(console.warn);
       feedbackMap[item.id] = { type: 'error', text: String(err) };
     } finally {
       printingMap[item.id] = false;
@@ -313,9 +341,33 @@
           border-bottom: 1px solid rgba(200,210,224,0.6);
           flex-shrink: 0;
           gap: 12px;
+          flex-wrap: wrap;
         "
       >
-        <div style="display: flex; align-items: center; gap: 8px;">
+        <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+          <button
+            type="button"
+            onclick={() => (activeFilter = 'recent')}
+            style="
+              padding: 6px 14px;
+              border-radius: 9999px;
+              border: none;
+              cursor: pointer;
+              font-size: 11px;
+              font-weight: 700;
+              background: {NEU_BG};
+              box-shadow: {activeFilter === 'recent' ? neuCfg.inset : neuCfg.btnSm};
+              color: {activeFilter === 'recent' ? NEU_PRIMARY : '#64748b'};
+              display: flex;
+              align-items: center;
+              gap: 6px;
+              transition: all 0.15s ease;
+            "
+          >
+            <span>⏱️</span>
+            <span>7 Sesi Terakhir</span>
+          </button>
+
           <button
             type="button"
             onclick={() => (activeFilter = 'all')}
@@ -378,9 +430,31 @@
           </button>
         </div>
 
-        <p style="margin: 0; font-size: 11px; color: #94a3b8;">
-          💡 Klik icon <strong>⟳</strong> untuk upload ulang cloud &bull; Klik icon <strong>🖨️</strong> untuk cetak manual
-        </p>
+        <button
+          type="button"
+          onclick={() => handleOpenSessionsFolder(null)}
+          style="
+            padding: 6px 14px;
+            border-radius: 10px;
+            background: {NEU_BG};
+            box-shadow: {neuCfg.btnSm};
+            border: none;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 11px;
+            font-weight: 700;
+            color: #1e293b;
+            cursor: pointer;
+            transition: all 0.15s ease;
+          "
+          title={sessionsDirPath ? `Lokasi lokal: ${sessionsDirPath}` : 'Buka folder penyimpanan sesi lokal di Windows Explorer'}
+          onmousedown={(e) => (e.currentTarget.style.boxShadow = neuCfg.inset)}
+          onmouseup={(e) => (e.currentTarget.style.boxShadow = neuCfg.btnSm)}
+        >
+          <FolderOpen size={15} class="text-indigo-600" />
+          <span>Buka Folder Sesi Lokal</span>
+        </button>
       </div>
 
       <!-- Modal Body: Scrollable Session Grid / List -->
@@ -474,39 +548,81 @@
                     </div>
                   {/if}
 
-                  <!-- Status Overlay Badge -->
+                  <!-- Status Overlay Badges (Cloud Upload & Cetak Fisik) -->
                   <div
                     style="
                       position: absolute;
                       top: 8px;
                       right: 8px;
-                      padding: 3px 8px;
-                      border-radius: 9999px;
-                      font-size: 9px;
-                      font-weight: 700;
                       display: flex;
-                      align-items: center;
+                      flex-direction: column;
                       gap: 4px;
-                      backdrop-filter: blur(4px);
-                      box-shadow: 0 2px 6px rgba(0,0,0,0.3);
-                      background: {item.status === 'done'
-                        ? 'rgba(34, 197, 94, 0.9)'
-                        : item.status === 'dead_letter'
-                          ? 'rgba(239, 68, 68, 0.9)'
-                          : 'rgba(245, 158, 11, 0.9)'};
-                      color: white;
+                      align-items: flex-end;
                     "
                   >
-                    {#if item.status === 'done'}
-                      <CheckCircle2 size={10} />
-                      <span>Terkirim</span>
-                    {:else if item.status === 'dead_letter'}
-                      <AlertCircle size={10} />
-                      <span>Gagal ({item.attempts}x)</span>
-                    {:else}
-                      <Clock size={10} />
-                      <span>Pending Sync</span>
-                    {/if}
+                    <!-- Badge Cloud Upload -->
+                    <div
+                      style="
+                        padding: 3px 8px;
+                        border-radius: 9999px;
+                        font-size: 9px;
+                        font-weight: 700;
+                        display: flex;
+                        align-items: center;
+                        gap: 4px;
+                        backdrop-filter: blur(4px);
+                        box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+                        background: {item.status === 'done'
+                          ? 'rgba(34, 197, 94, 0.9)'
+                          : item.status === 'dead_letter'
+                            ? 'rgba(239, 68, 68, 0.9)'
+                            : 'rgba(245, 158, 11, 0.9)'};
+                        color: white;
+                      "
+                      title={item.lastError || ''}
+                    >
+                      {#if item.status === 'done'}
+                        <CheckCircle2 size={10} />
+                        <span>Cloud: Terkirim</span>
+                      {:else if item.status === 'dead_letter'}
+                        <AlertCircle size={10} />
+                        <span>Cloud: Gagal ({item.attempts}x)</span>
+                      {:else}
+                        <Clock size={10} />
+                        <span>Cloud: Pending</span>
+                      {/if}
+                    </div>
+
+                    <!-- Badge Print Status -->
+                    <div
+                      style="
+                        padding: 3px 8px;
+                        border-radius: 9999px;
+                        font-size: 9px;
+                        font-weight: 700;
+                        display: flex;
+                        align-items: center;
+                        gap: 4px;
+                        backdrop-filter: blur(4px);
+                        box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+                        background: {item.printStatus === 'printed'
+                          ? 'rgba(34, 197, 94, 0.9)'
+                          : item.printStatus === 'failed'
+                            ? 'rgba(239, 68, 68, 0.9)'
+                            : 'rgba(100, 116, 139, 0.85)'};
+                        color: white;
+                      "
+                      title={item.printError || ''}
+                    >
+                      <Printer size={10} />
+                      {#if item.printStatus === 'printed'}
+                        <span>Print: OK</span>
+                      {:else if item.printStatus === 'failed'}
+                        <span>Print: Gagal</span>
+                      {:else}
+                        <span>Print: Belum</span>
+                      {/if}
+                    </div>
                   </div>
                 </div>
 
@@ -568,8 +684,8 @@
                   {/if}
                 </div>
 
-                <!-- Bottom Action Buttons (Upload & Print) - Sesuai Referensi Gambar -->
-                <div style="display: flex; gap: 8px; margin-top: auto; padding-top: 4px;">
+                <!-- Bottom Action Buttons (Upload, Print, & Folder) -->
+                <div style="display: flex; gap: 6px; margin-top: auto; padding-top: 4px;">
                   <!-- Tombol Upload (Icon ⟳ / Refresh) -->
                   <button
                     type="button"
@@ -586,7 +702,7 @@
                       display: flex;
                       align-items: center;
                       justify-content: center;
-                      gap: 6px;
+                      gap: 4px;
                       color: #1e293b;
                       font-weight: 700;
                       font-size: 11px;
@@ -601,10 +717,10 @@
                     }}
                   >
                     <RefreshCw
-                      size={15}
+                      size={14}
                       class={uploadingMap[item.id] ? 'animate-spin text-indigo-600' : ''}
                     />
-                    <span>{uploadingMap[item.id] ? 'Upload...' : 'Upload'}</span>
+                    <span>{uploadingMap[item.id] ? '...' : 'Upload'}</span>
                   </button>
 
                   <!-- Tombol Cetak (Icon 🖨️ / Printer) -->
@@ -623,7 +739,7 @@
                       display: flex;
                       align-items: center;
                       justify-content: center;
-                      gap: 6px;
+                      gap: 4px;
                       color: #1e293b;
                       font-weight: 700;
                       font-size: 11px;
@@ -639,10 +755,35 @@
                     }}
                   >
                     <Printer
-                      size={15}
+                      size={14}
                       class={printingMap[item.id] ? 'animate-bounce text-emerald-600' : ''}
                     />
-                    <span>{printingMap[item.id] ? 'Mencetak...' : 'Print'}</span>
+                    <span>{printingMap[item.id] ? '...' : 'Print'}</span>
+                  </button>
+
+                  <!-- Tombol Buka Folder Sesi Lokal di Windows Explorer (Icon Folder) -->
+                  <button
+                    type="button"
+                    onclick={() => handleOpenSessionsFolder(item.compositePath)}
+                    style="
+                      width: 38px;
+                      height: 38px;
+                      border-radius: 10px;
+                      background: {NEU_BG};
+                      box-shadow: {neuCfg.btnSm};
+                      border: none;
+                      cursor: pointer;
+                      display: flex;
+                      align-items: center;
+                      justify-content: center;
+                      color: #475569;
+                      transition: transform 0.1s ease, box-shadow 0.1s ease;
+                    "
+                    title="Buka Folder File Foto Sesi Ini di Windows Explorer"
+                    onmousedown={(e) => (e.currentTarget.style.boxShadow = neuCfg.inset)}
+                    onmouseup={(e) => (e.currentTarget.style.boxShadow = neuCfg.btnSm)}
+                  >
+                    <FolderOpen size={16} />
                   </button>
                 </div>
               </div>

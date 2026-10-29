@@ -160,11 +160,10 @@ class NetworkStatusStore {
       if (ok) {
         this.consecutiveFailures = 0;
         if (wasOffline) {
-          console.log('[NetworkStatus] Koneksi pulih! Mengonfirmasi recovery ke server & menguras outbox...');
+          console.log('[NetworkStatus] Koneksi pulih! Mode online aktif (auto-flush outbox dinonaktifkan per preferensi operator).');
         }
         this.isOnline = true;
         this.offlineSince = null;
-        await flushOutbox({ force: false });
       } else {
         this.consecutiveFailures++;
         if (this.consecutiveFailures >= 2) {

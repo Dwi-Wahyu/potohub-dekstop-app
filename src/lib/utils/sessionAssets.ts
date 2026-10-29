@@ -6,7 +6,7 @@ import { uiConfig } from '$lib/stores/uiConfig.svelte';
 import { uploadGalleryAsset, uploadSessionMedia, isValidUUID, type BoothTemplate } from '$lib/api/boothClient';
 import { generateBlurPlaceholder } from './imagePlaceholder';
 import { buildSessionGif } from './gif';
-import { saveLocalSessionAssets } from './localSessionStorage';
+import { saveLocalSessionAssets, saveInitialSessionPhotos } from './localSessionStorage';
 import {
   compositeTemplateVideoOverlay,
   getSortedPhotoSlots,
@@ -163,6 +163,14 @@ export async function saveSessionAssets(
       processedPhotoUrls.push(photos[i]);
     }
   }
+
+  // Simpan foto mentah & strip foto ke lokal seawal mungkin (< 1 detik) ke disk Windows
+  void saveInitialSessionPhotos(
+    uiConfig.config.boothName,
+    sessionCode,
+    compositeUrl,
+    processedPhotoBlobs.length > 0 ? processedPhotoBlobs : photos
+  ).catch((e) => warn(`[saveSessionAssets] Gagal simpan foto awal ke disk: ${String(e)}`));
 
   // 2. Mulai pembuatan GIF lokal secara paralel agar user segera bisa preview
   let gifPromise: Promise<{ blob: Blob; width: number; height: number } | null> = Promise.resolve(null);

@@ -462,6 +462,8 @@ export interface SessionHistoryItem {
   printQty: number;
   paperSize?: string;
   useSecondary?: boolean;
+  printStatus?: 'printed' | 'pending' | 'failed';
+  printError?: string | null;
 }
 
 export async function getOutboxJobByLocalRef(localRef: string): Promise<OutboxJob | null> {
@@ -552,8 +554,32 @@ export async function listAllSessionOutboxJobs(limit = 60): Promise<SessionHisto
       softfileTarget: payloadObj.softfileTarget || null,
       compositePath,
       printQty: payloadObj.printQty || 1,
+      paperSize: payloadObj.paperSize || '4x6',
+      useSecondary: payloadObj.useSecondary ?? false,
+      printStatus: payloadObj.printStatus || (r.status === 'done' ? 'printed' : 'pending'),
+      printError: payloadObj.printError || null,
     };
   });
+}
+
+export async function updateSessionPrintStatus(
+  sessionCode: string,
+  printStatus: 'printed' | 'pending' | 'failed',
+  printError?: string | null,
+): Promise<void> {
+  const conn = await db();
+  const existing = await getOutboxJobByLocalRef(sessionCode);
+  if (!existing) return;
+  let payloadObj: any = {};
+  try {
+    payloadObj = JSON.parse(existing.payload);
+  } catch {}
+  payloadObj.printStatus = printStatus;
+  payloadObj.printError = printError || null;
+  await conn.execute(
+    `UPDATE offline_outbox SET payload = $2, updated_at = $3 WHERE id = $1`,
+    [existing.id, JSON.stringify(payloadObj), Date.now()],
+  );
 }
 
 export async function countPendingSessionSoftfileJobs(): Promise<number> {

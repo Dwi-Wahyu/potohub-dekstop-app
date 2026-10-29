@@ -12,6 +12,60 @@ async function blobToBytes(blobOrUrl: Blob | string): Promise<Uint8Array> {
 }
 
 /**
+ * Simpan foto mentah dan foto strip hasil sesi secara instan (< 1 detik)
+ * ke folder lokal sehingga selalu aman tersimpan di disk Windows
+ * tanpa perlu menunggu proses rendering GIF/Video yang berat.
+ */
+export async function saveInitialSessionPhotos(
+  boothName: string,
+  sessionCode: string,
+  compositeUrl: string | null,
+  photos: (Blob | string)[] = [...boothFlow.photosTaken],
+): Promise<void> {
+  const date = new Date().toISOString().slice(0, 10);
+  const base = `${date}/${sessionCode}_${sanitize(boothName || 'booth')}`;
+  const manifest: any = {
+    boothName,
+    sessionCode,
+    createdAt: new Date().toISOString(),
+    files: [],
+  };
+
+  const writes: Promise<void>[] = [];
+  const photoList = photos.length > 0 ? photos : boothFlow.photosTaken;
+
+  photoList.forEach((photoUrl, i) => {
+    writes.push(
+      blobToBytes(photoUrl)
+        .then(async (bytes) => {
+          const rel = `${base}/raw/slot_${String(i + 1).padStart(2, '0')}.jpg`;
+          await invoke('save_session_file', { relativePath: rel, bytes: Array.from(bytes) });
+          manifest.files.push({ path: rel, role: 'raw_photo', slot: i + 1 });
+        })
+        .catch(console.warn)
+    );
+  });
+
+  if (compositeUrl) {
+    writes.push(
+      blobToBytes(compositeUrl)
+        .then(async (bytes) => {
+          const rel = `${base}/composite/print_strip.jpg`;
+          await invoke('save_session_file', { relativePath: rel, bytes: Array.from(bytes) });
+          manifest.files.push({ path: rel, role: 'composite' });
+        })
+        .catch(console.warn)
+    );
+  }
+
+  await Promise.allSettled(writes);
+  await invoke('save_session_manifest', {
+    relativePath: `${base}/manifest.json`,
+    json: JSON.stringify(manifest, null, 2),
+  }).catch(console.warn);
+}
+
+/**
  * Simpan hasil sesi ke folder lokal:
  *   <app_data_dir>/sessions/<YYYY-MM-DD>/<sessionCode>_<boothNameSanitized>/
  *     raw/ composite/ gif/ video/ manifest.json

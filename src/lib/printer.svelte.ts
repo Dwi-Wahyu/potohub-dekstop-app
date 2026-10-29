@@ -344,17 +344,24 @@ class PrinterStore {
         }
 
         if (currentStatus) {
-          if (!currentStatus.is_online || currentStatus.has_error) {
-            lastErrorMsg =
-              currentStatus.error_message ||
-              `Printer '${targetPrinter}' belum siap atau sedang inisialisasi`;
-          } else {
-            const jobStillActive =
-              Boolean(currentStatus.is_printing) || (currentStatus.active_jobs ?? 0) > 0;
-            if (!jobStillActive) {
-              spoolCleared = true;
-              break;
-            }
+          const jobStillActive =
+            Boolean(currentStatus.is_printing) || (currentStatus.active_jobs ?? 0) > 0;
+          if (!jobStillActive) {
+            spoolCleared = true;
+            break;
+          }
+
+          if (
+            currentStatus.has_error &&
+            currentStatus.error_message &&
+            (currentStatus.error_message.toLowerCase().includes("habis") ||
+              currentStatus.error_message.toLowerCase().includes("jam") ||
+              currentStatus.error_message.toLowerCase().includes("tersangkut"))
+          ) {
+            return {
+              completed: false,
+              error: currentStatus.error_message,
+            };
           }
         }
 
@@ -363,10 +370,9 @@ class PrinterStore {
 
       if (signal?.aborted) return { completed: false };
       if (!spoolCleared) {
-        return {
-          completed: false,
-          error: lastErrorMsg || `Waktu tunggu cetak pada printer '${targetPrinter}' habis`,
-        };
+        // Jika batas waktu spooler habis tapi tidak ada error fatal, anggap data sudah terkirim ke printer
+        console.warn("[printerStore] Spool wait timeout tercapai, beralih ke fase mekanis...");
+        spoolCleared = true;
       }
 
       // Fase 2: Setelah data keluar dari OS Spooler (masuk ke RAM buffer printer),
@@ -397,16 +403,21 @@ class PrinterStore {
             this.status = currentStatus;
           }
 
-          if (!currentStatus.is_online || currentStatus.has_error) {
+          // Cek HANYA jika ada error fatal mekanik seperti kertas habis atau tersangkut
+          if (
+            currentStatus.has_error &&
+            currentStatus.error_message &&
+            (currentStatus.error_message.toLowerCase().includes("habis") ||
+              currentStatus.error_message.toLowerCase().includes("jam") ||
+              currentStatus.error_message.toLowerCase().includes("tersangkut"))
+          ) {
             return {
               completed: false,
-              error:
-                currentStatus.error_message ||
-                `Printer '${targetPrinter}' mengalami kendala saat mencetak`,
+              error: currentStatus.error_message,
             };
           }
         } catch {
-          // Abaikan error transien saat polling fase mekanis
+          // Abaikan error transien saat polling fase mekanis (misal USB re-enumeration saat pisau cutter aktif)
         }
       }
 

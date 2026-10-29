@@ -161,41 +161,24 @@
       }
     }
 
-    let assetResult: SaveSessionAssetsResult | null = null;
-    try {
-      isSavingSession = true;
-      assetResult = await saveSessionAssets(
-        boothId,
-        targetSessionIdentifier,
-        compositeUrl,
-        selectedTemplate?.width || 1200,
-        selectedTemplate?.height || 1800,
-        (selectedTemplate?.design_data || []).filter((l) => !l.isBackground && !l.isQr),
-        selectedTemplate?.frame_image_url || selectedTemplate?.design_data?.find((l) => l.isBackground)?.imageUrl,
-        effectivePhotos,
-        [...boothFlow.liveviewClips],
-        boothFlow.sessionCode,
-        selectedTemplate,
-        softfileUrl
-      );
+    // 1. Programmatic Auto-Print Flow — Langsung trigger printer instan (< 1s) tanpa menunggu proses berat Video/GIF/Upload
+    const copies = boothFlow.printQty || 1;
+    const { useSecondary, paperSize } = resolvePrinterConfigForTemplate(selectedTemplate);
+    const dateStr = new Date().toISOString().slice(0, 10);
+    const boothSanitized = (uiConfig.config.boothName || 'booth')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '');
+    const diskPath = `${dateStr}/${localSessionCode}_${boothSanitized}/composite/print_strip.jpg`;
 
-      // Programmatic Auto-Print Flow
-      const copies = boothFlow.printQty || 1;
-      const { useSecondary, paperSize } = resolvePrinterConfigForTemplate(selectedTemplate);
-      const dateStr = new Date().toISOString().slice(0, 10);
-      const boothSanitized = (uiConfig.config.boothName || 'booth')
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, '-')
-        .replace(/^-+|-+$/g, '');
-      const diskPath = `${dateStr}/${localSessionCode}_${boothSanitized}/composite/print_strip.jpg`;
-
-      if (copies > 0 && compositeUrl) {
+    if (copies > 0 && compositeUrl) {
+      void (async () => {
         await printerStore.refreshStatus();
         const check = printerStore.canPrint(copies, useSecondary);
         if (check.ok) {
           printStatus = 'PRINTING';
           try {
-            const res = await fetch(compositeUrl);
+            const res = await fetch(compositeUrl!);
             const buf = new Uint8Array(await res.arrayBuffer());
             await printerStore.printFromBuffer(buf, {
               copies,
@@ -205,20 +188,17 @@
             });
             printAbortController = new AbortController();
             const activeSignal = printAbortController.signal;
-            void printerStore
-              .waitForPrintCompletion({
-                copies,
-                useSecondary,
-                signal: activeSignal,
-              })
-              .then((result) => {
-                if (activeSignal.aborted) return;
-                if (result.completed) {
-                  printStatus = 'SUCCESS';
-                } else {
-                  console.warn('[V1Complete] Print completion check reported issue:', result.error);
-                }
-              });
+            const result = await printerStore.waitForPrintCompletion({
+              copies,
+              useSecondary,
+              signal: activeSignal,
+            });
+            if (!activeSignal.aborted) {
+              printStatus = 'SUCCESS';
+              if (!result.completed && result.error) {
+                console.warn('[V1Complete] Print completion check warning:', result.error);
+              }
+            }
           } catch (err) {
             console.warn('[V1Complete] Direct print failed, fallback enqueueing:', err);
             await enqueuePrintJob({
@@ -241,7 +221,27 @@
           });
           printStatus = 'QUEUED';
         }
-      }
+      })();
+    }
+
+    // 2. Pembuatan Aset Sesi (Liveview Video, GIF, dan Upload R2) berjalan di Latar Belakang (Non-blocking)
+    let assetResult: SaveSessionAssetsResult | null = null;
+    try {
+      isSavingSession = true;
+      assetResult = await saveSessionAssets(
+        boothId,
+        targetSessionIdentifier,
+        compositeUrl,
+        selectedTemplate?.width || 1200,
+        selectedTemplate?.height || 1800,
+        (selectedTemplate?.design_data || []).filter((l) => !l.isBackground && !l.isQr),
+        selectedTemplate?.frame_image_url || selectedTemplate?.design_data?.find((l) => l.isBackground)?.imageUrl,
+        effectivePhotos,
+        [...boothFlow.liveviewClips],
+        boothFlow.sessionCode,
+        selectedTemplate,
+        softfileUrl
+      );
     } catch (err) {
       console.error('Failed to save session assets:', err);
     } finally {

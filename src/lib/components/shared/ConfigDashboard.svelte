@@ -154,6 +154,18 @@
     goto('/camera-manual-settings');
   }
 
+  async function handleOpenPrinterProperties(printerName: string | null) {
+    if (!printerName) return;
+    try {
+      await printerStore.openPrinterProperties(printerName);
+    } catch (err) {
+      saveNotice = `Gagal membuka preferensi printer: ${String(err)}`;
+      setTimeout(() => {
+        saveNotice = null;
+      }, 4000);
+    }
+  }
+
   // State & Handlers untuk Dialog Live Preview Kamera
   let isPreviewOpen = $state(false);
   let previewFrameSrc = $state<string | null>(null);
@@ -919,7 +931,7 @@
                       type="button"
                       title="Buka Pengaturan Printer Properties & Preferences (Aktifkan 2-Inch Cut)"
                       disabled={!printerStore.selectedPrinter}
-                      onclick={() => printerStore.openPrinterProperties(printerStore.selectedPrinter)}
+                      onclick={() => handleOpenPrinterProperties(printerStore.selectedPrinter)}
                       style="
                         display: flex;
                         align-items: center;
@@ -992,7 +1004,7 @@
                       type="button"
                       title="Buka Pengaturan Printer Properties & Preferences (Aktifkan 2-Inch Cut)"
                       disabled={!printerStore.secondaryPrinter}
-                      onclick={() => printerStore.openPrinterProperties(printerStore.secondaryPrinter)}
+                      onclick={() => handleOpenPrinterProperties(printerStore.secondaryPrinter)}
                       style="
                         display: flex;
                         align-items: center;

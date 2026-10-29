@@ -429,6 +429,34 @@ class PrinterStore {
       throw err;
     }
   }
+
+  /**
+   * Buka Printing Preferences untuk Secondary Printer.
+   * Jika hanya ada 1 printer fisik dan antrean kloning belum dibuat,
+   * secara otomatis membuat antrean kloning di Windows (misal: "DS-RX1 (Cut 2x6)"),
+   * memilihnya sebagai secondary printer, dan langsung membuka dialog setting 2-inch cut-nya.
+   */
+  async openSecondaryPrinterProperties() {
+    if (!this.selectedPrinter) {
+      throw new Error("Pilih Primary Printer terlebih dahulu");
+    }
+    try {
+      const target = await invoke<string>("open_secondary_printer_properties", {
+        primaryPrinter: this.selectedPrinter,
+        currentSecondary: this.secondaryPrinter,
+      });
+      if (target && target !== this.secondaryPrinter) {
+        this.secondaryPrinter = target;
+        boothConfig.save({ secondaryPrinter: target });
+        await this.loadPrinters();
+      }
+      return target;
+    } catch (err) {
+      console.error("[printerStore] Failed to open secondary printer properties:", err);
+      this.errorMessage = String(err);
+      throw err;
+    }
+  }
 }
 
 export const printerStore = new PrinterStore();

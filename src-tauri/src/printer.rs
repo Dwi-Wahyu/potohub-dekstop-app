@@ -687,6 +687,78 @@ mod platform {
             }
         }
     }
+
+    pub fn ensure_or_clone_secondary_printer(primary_printer: &str) -> Result<String, PrinterError> {
+        let clean_primary = primary_printer.trim().trim_matches('"');
+        if clean_primary.is_empty() {
+            return Err(PrinterError::PrinterNotFound(
+                "Primary printer belum dipilih".into(),
+            ));
+        }
+
+        // Nama antrean kloning standar
+        let clone_name = format!("{} (Cut 2x6)", clean_primary);
+
+        // Periksa apakah antrean kloning sudah ada di daftar printer Windows
+        let current_printers = get_installed_printers()?;
+        if let Some(existing) = current_printers.iter().find(|p| p.eq_ignore_ascii_case(&clone_name)) {
+            return Ok(existing.clone());
+        }
+
+        // Cek juga apakah sudah ada printer dengan kata CUT / STRIP / 2X6 untuk driver/printer ini
+        if let Some(existing_cut) = current_printers.iter().find(|p| {
+            let u = p.to_uppercase();
+            (u.contains("CUT") || u.contains("STRIP") || u.contains("2X6"))
+                && p.to_lowercase().contains(&clean_primary.to_lowercase())
+        }) {
+            return Ok(existing_cut.clone());
+        }
+
+        log::info!(
+            "[PRINTER CLONE] Membuat antrean printer kloning '{}' dari '{}'...",
+            clone_name, clean_primary
+        );
+
+        let ps_script = format!(
+            r#"$base = Get-Printer -Name '{primary}' -ErrorAction Stop;
+$clone = '{clone}';
+$existing = Get-Printer -Name $clone -ErrorAction SilentlyContinue;
+if (-not $existing) {{
+    Add-Printer -Name $clone -DriverName $base.DriverName -PortName $base.PortName -ErrorAction Stop;
+}}"#,
+            primary = clean_primary.replace('\'', "''"),
+            clone = clone_name.replace('\'', "''"),
+        );
+
+        let mut ps_cmd = std::process::Command::new("powershell");
+        ps_cmd.args(["-NoProfile", "-NonInteractive", "-Command", &ps_script]);
+        {
+            use std::os::windows::process::CommandExt;
+            const CREATE_NO_WINDOW: u32 = 0x08000000;
+            ps_cmd.creation_flags(CREATE_NO_WINDOW);
+        }
+
+        match ps_cmd.output() {
+            Ok(output) => {
+                if !output.status.success() {
+                    let err = String::from_utf8_lossy(&output.stderr);
+                    log::warn!("[PRINTER CLONE] PowerShell Add-Printer gagal: {}", err);
+                    return Err(PrinterError::PrintFailed(format!(
+                        "Gagal membuat antrean kloning printer: {}",
+                        err.trim()
+                    )));
+                }
+                log::info!("[PRINTER CLONE] Berhasil membuat antrean kloning '{}'", clone_name);
+                Ok(clone_name)
+            }
+            Err(e) => {
+                Err(PrinterError::PrintFailed(format!(
+                    "Gagal menjalankan PowerShell untuk kloning printer: {}",
+                    e
+                )))
+            }
+        }
+    }
 }
 
 // ============================================================================
@@ -918,6 +990,15 @@ mod platform {
 
         Ok(())
     }
+
+    pub fn ensure_or_clone_secondary_printer(primary_printer: &str) -> Result<String, PrinterError> {
+        let clean = primary_printer.trim();
+        if clean.is_empty() {
+            return Err(PrinterError::PrinterNotFound("Primary printer belum dipilih".into()));
+        }
+        let clone_name = format!("{} (Cut 2x6)", clean);
+        Ok(clone_name)
+    }
 }
 
 // ============================================================================
@@ -934,6 +1015,10 @@ pub fn get_printer_status(printer_name: &str) -> Result<PrinterStatus, PrinterEr
 
 pub fn open_printer_properties(printer_name: &str) -> Result<(), PrinterError> {
     platform::open_printer_properties(printer_name)
+}
+
+pub fn ensure_or_clone_secondary_printer(primary_printer: &str) -> Result<String, PrinterError> {
+    platform::ensure_or_clone_secondary_printer(primary_printer)
 }
 
 pub fn print_image(

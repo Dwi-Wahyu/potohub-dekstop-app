@@ -166,6 +166,24 @@
     }
   }
 
+  async function handleOpenSecondaryPrinterProperties() {
+    if (!printerStore.selectedPrinter) {
+      saveNotice = 'Pilih Primary Printer terlebih dahulu sebelum mengatur Secondary Printer';
+      setTimeout(() => {
+        saveNotice = null;
+      }, 4000);
+      return;
+    }
+    try {
+      await printerStore.openSecondaryPrinterProperties();
+    } catch (err) {
+      saveNotice = `Gagal membuka preferensi secondary printer: ${String(err)}`;
+      setTimeout(() => {
+        saveNotice = null;
+      }, 4000);
+    }
+  }
+
   // State & Handlers untuk Dialog Live Preview Kamera
   let isPreviewOpen = $state(false);
   let previewFrameSrc = $state<string | null>(null);
@@ -1002,9 +1020,9 @@
                     <!-- Tombol Pengaturan Printer (Gear) -->
                     <button
                       type="button"
-                      title="Buka Pengaturan Printer Properties & Preferences (Aktifkan 2-Inch Cut)"
-                      disabled={!printerStore.secondaryPrinter}
-                      onclick={() => handleOpenPrinterProperties(printerStore.secondaryPrinter)}
+                      title="Buka Pengaturan Secondary Printer Preferences (Aktifkan 2-Inch Cut)"
+                      disabled={!printerStore.selectedPrinter}
+                      onclick={() => handleOpenSecondaryPrinterProperties()}
                       style="
                         display: flex;
                         align-items: center;
@@ -1015,17 +1033,17 @@
                         background: {NEU_BG};
                         box-shadow: {neuCfg.btnSm};
                         border: none;
-                        cursor: {printerStore.secondaryPrinter ? 'pointer' : 'not-allowed'};
-                        color: {printerStore.secondaryPrinter ? '#334155' : '#94a3b8'};
-                        opacity: {printerStore.secondaryPrinter ? 1 : 0.5};
+                        cursor: {printerStore.selectedPrinter ? 'pointer' : 'not-allowed'};
+                        color: {printerStore.selectedPrinter ? '#334155' : '#94a3b8'};
+                        opacity: {printerStore.selectedPrinter ? 1 : 0.5};
                         flex-shrink: 0;
                         transition: all 0.15s ease;
                       "
                       onmousedown={(e) => {
-                        if (printerStore.secondaryPrinter) e.currentTarget.style.boxShadow = neuCfg.inset;
+                        if (printerStore.selectedPrinter) e.currentTarget.style.boxShadow = neuCfg.inset;
                       }}
                       onmouseup={(e) => {
-                        if (printerStore.secondaryPrinter) e.currentTarget.style.boxShadow = neuCfg.btnSm;
+                        if (printerStore.selectedPrinter) e.currentTarget.style.boxShadow = neuCfg.btnSm;
                       }}
                     >
                       <Settings size={16} />

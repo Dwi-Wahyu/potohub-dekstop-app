@@ -370,6 +370,33 @@ async fn open_printer_properties(printer_name: String) -> Result<(), PrinterErro
 }
 
 #[tauri::command]
+async fn open_secondary_printer_properties(
+    primary_printer: String,
+    current_secondary: Option<String>,
+) -> Result<String, PrinterError> {
+    let clean_primary = primary_printer.trim();
+    if clean_primary.is_empty() {
+        return Err(PrinterError::PrinterNotFound(
+            "Primary printer belum dipilih".into(),
+        ));
+    }
+
+    let target_printer = if let Some(ref sec) = current_secondary {
+        let trimmed = sec.trim();
+        if !trimmed.is_empty() && !trimmed.eq_ignore_ascii_case(clean_primary) {
+            trimmed.to_string()
+        } else {
+            printer::ensure_or_clone_secondary_printer(clean_primary)?
+        }
+    } else {
+        printer::ensure_or_clone_secondary_printer(clean_primary)?
+    };
+
+    printer::open_printer_properties(&target_printer)?;
+    Ok(target_printer)
+}
+
+#[tauri::command]
 async fn print_photo(
     printer_name: String,
     image_path: String,
@@ -757,6 +784,7 @@ pub fn run() {
             get_printer_list,
             get_printer_status,
             open_printer_properties,
+            open_secondary_printer_properties,
             print_photo,
             print_photo_from_buffer,
             save_qr_result,

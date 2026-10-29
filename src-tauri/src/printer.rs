@@ -185,24 +185,6 @@ mod platform {
             }
         }
 
-        // Stage 3: PowerShell Fallback (Get-Printer) — Menangkap printer queue virtual, software driver, atau secondary copy queues
-        let mut ps_cmd = std::process::Command::new("powershell");
-        ps_cmd.args(["-NoProfile", "-Command", "Get-Printer | Select-Object -ExpandProperty Name"]);
-        #[cfg(target_os = "windows")]
-        {
-            use std::os::windows::process::CommandExt;
-            const CREATE_NO_WINDOW: u32 = 0x08000000;
-            ps_cmd.creation_flags(CREATE_NO_WINDOW);
-        }
-        if let Ok(output) = ps_cmd.output() {
-            if output.status.success() {
-                let text = String::from_utf8_lossy(&output.stdout);
-                for line in text.lines() {
-                    push_unique(line.to_string(), &mut printers);
-                }
-            }
-        }
-
         Ok(printers)
     }
 
@@ -338,28 +320,6 @@ mod platform {
         }
 
         unsafe { ClosePrinter(handle) };
-
-        // Stage 3: PowerShell status fallback if WinSpool query was denied
-        if !got_status {
-            let escaped = printer_name.replace('\'', "''");
-            let cmd = format!("(Get-Printer -Name '{}').PrinterStatus", escaped);
-            let mut ps_cmd = std::process::Command::new("powershell");
-            ps_cmd.args(["-NoProfile", "-Command", &cmd]);
-            #[cfg(target_os = "windows")]
-            {
-                use std::os::windows::process::CommandExt;
-                const CREATE_NO_WINDOW: u32 = 0x08000000;
-                ps_cmd.creation_flags(CREATE_NO_WINDOW);
-            }
-            if let Ok(output) = ps_cmd.output() {
-                if output.status.success() {
-                    let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
-                    if let Ok(num) = text.parse::<u32>() {
-                        status_code = num;
-                    }
-                }
-            }
-        }
 
         let active_jobs = (c_jobs as u32).max(enum_active_jobs);
         let is_status_printing = (status_code

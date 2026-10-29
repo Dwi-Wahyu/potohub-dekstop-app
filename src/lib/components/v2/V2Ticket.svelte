@@ -29,10 +29,11 @@
   let scanStatus = $state<QrScanStatus>('idle');
 
   /**
-   * Tombol "Cek Tiket": Memindai frame liveview dari kamera booth
-   * dan memvalidasi QR Code terhadap tiket yang sudah sync atau online.
+   * Tombol "Cek Tiket" atau auto-scan:
+   * Jika preScannedContent tersedia (dari auto-scan), langsung gunakan tanpa re-scan ulang.
+   * Jika tidak ada, panggil scannerRef.scanFrame untuk menangkap frame segar.
    */
-  async function handleCheckTicket() {
+  async function handleCheckTicket(preScannedContent?: string | MouseEvent) {
     if (verifying) return;
     verifying = true;
     scanStatus = 'verifying';
@@ -40,8 +41,13 @@
     successMsg = '';
 
     try {
-      const result = await scannerRef?.scanFrame?.(4, 110);
-      if (!result || !result.content) {
+      let content = typeof preScannedContent === 'string' ? preScannedContent.trim() : undefined;
+      if (!content) {
+        const result = await scannerRef?.scanFrame?.(4, 110);
+        content = result?.content?.trim();
+      }
+
+      if (!content) {
         scanStatus = 'error';
         errorMsg = 'QR Code tidak terdeteksi. Posisikan QR code tiket di depan kamera dan coba lagi.';
         setTimeout(() => {
@@ -52,7 +58,7 @@
       }
 
       successMsg = 'QR Code Terdeteksi! Memverifikasi tiket…';
-      const res = await redeemTicket(result.content, effectiveBoothId);
+      const res = await redeemTicket(content, effectiveBoothId);
       if (!res.valid) {
         throw new Error(res.message || 'Kode tiket tidak valid atau telah digunakan');
       }
@@ -80,7 +86,7 @@
 
   function handleAutoScan(result: QrScanResult) {
     if (!verifying && scanStatus === 'idle' && result && result.content) {
-      handleCheckTicket();
+      handleCheckTicket(result.content);
     }
   }
 

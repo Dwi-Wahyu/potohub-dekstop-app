@@ -2,12 +2,57 @@ import jsQR from 'jsqr';
 import type { QrPoint, QrScanResult } from '$lib/types/qr';
 
 /**
+ * Helper untuk memetakan koordinat titik sudut jsQR kembali ke ukuran asli frame canvas.
+ */
+function mapQrResult(
+  code: NonNullable<ReturnType<typeof jsQR>>,
+  sourceW: number,
+  sourceH: number,
+  offsetX = 0,
+  offsetY = 0,
+  isMirrored = false
+): QrScanResult {
+  const loc = code.location;
+  let pts: QrPoint[];
+
+  if (!isMirrored) {
+    pts = [
+      { x: offsetX + loc.topLeftCorner.x, y: offsetY + loc.topLeftCorner.y },
+      { x: offsetX + loc.topRightCorner.x, y: offsetY + loc.topRightCorner.y },
+      { x: offsetX + loc.bottomRightCorner.x, y: offsetY + loc.bottomRightCorner.y },
+      { x: offsetX + loc.bottomLeftCorner.x, y: offsetY + loc.bottomLeftCorner.y }
+    ];
+  } else {
+    pts = [
+      { x: sourceW - (offsetX + loc.topLeftCorner.x), y: offsetY + loc.topLeftCorner.y },
+      { x: sourceW - (offsetX + loc.topRightCorner.x), y: offsetY + loc.topRightCorner.y },
+      { x: sourceW - (offsetX + loc.bottomRightCorner.x), y: offsetY + loc.bottomRightCorner.y },
+      { x: sourceW - (offsetX + loc.bottomLeftCorner.x), y: offsetY + loc.bottomLeftCorner.y }
+    ];
+  }
+
+  return {
+    content: code.data.trim(),
+    cornerPoints: pts,
+    sourceWidth: sourceW,
+    sourceHeight: sourceH
+  };
+}
+
+/**
  * Mendeteksi QR Code dari sebuah canvas 2D.
- * Mengutamakan native BarcodeDetector API jika tersedia di browser/webview,
- * lalu fallback ke jsQR dengan pemeriksaan:
- * 1. Orientasi normal
- * 2. Orientasi horizontal mirrored
- * 3. Crop area tengah (Center Region of Interest / ROI)
+ * Dilengkapi dengan Anti-Glare & Screen Bloom Filter untuk mengatasi pantulan lampu
+ * dan backlight layar HP yang overexposed pada kamera DSLR/Mirrorless.
+ *
+ * Alur pemeriksaan multi-pass:
+ * 1. Native BarcodeDetector API (jika didukung webview)
+ * 2. jsQR Normal Full Frame
+ * 3. jsQR Center ROI (65% area tengah)
+ * 4. jsQR Center ROI + Anti-Glare Gamma Compression (gamma ~2.3 - memulihkan modul QR yang silau)
+ * 5. jsQR Center ROI + Aggressive Anti-Glare (gamma ~2.8)
+ * 6. jsQR Center ROI + Contrast Stretch (memperbaiki layar HP yang washed out)
+ * 7. jsQR Full Frame + Anti-Glare Gamma Compression
+ * 8. Mirrored / Flipped Horizontal (Normal & Anti-Glare)
  */
 export async function detectQrFromCanvas(canvas: HTMLCanvasElement): Promise<QrScanResult | null> {
   const w = canvas.width;
@@ -31,36 +76,158 @@ export async function detectQrFromCanvas(canvas: HTMLCanvasElement): Promise<QrS
         }
       }
     } catch {
-      // Abaikan dan lanjutkan ke jsQR
+      // Abaikan dan lanjutkan ke pipeline jsQR
     }
   }
 
-  // 2. jsQR pada orientasi normal
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
   if (!ctx) return null;
 
+  let fullImgData: ImageData | null = null;
   try {
-    const imgData = ctx.getImageData(0, 0, w, h);
-    const code = jsQR(imgData.data, imgData.width, imgData.height, {
-      inversionAttempts: 'attemptBoth'
-    });
+    fullImgData = ctx.getImageData(0, 0, w, h);
+  } catch (e) {
+    console.warn('[detectQrFromCanvas] Gagal mengambil getImageData:', e);
+    return null;
+  }
 
+  const rawPixels = fullImgData.data;
+
+  // 2. jsQR pada orientasi normal (Full frame standar)
+  try {
+    const code = jsQR(rawPixels, w, h, { inversionAttempts: 'attemptBoth' });
     if (code && code.data && code.data.trim()) {
-      const loc = code.location;
-      const pts: QrPoint[] = [
-        { x: loc.topLeftCorner.x, y: loc.topLeftCorner.y },
-        { x: loc.topRightCorner.x, y: loc.topRightCorner.y },
-        { x: loc.bottomRightCorner.x, y: loc.bottomRightCorner.y },
-        { x: loc.bottomLeftCorner.x, y: loc.bottomLeftCorner.y }
-      ];
-      return { content: code.data.trim(), cornerPoints: pts, sourceWidth: w, sourceHeight: h };
+      return mapQrResult(code, w, h, 0, 0, false);
     }
   } catch (e) {
     console.warn('[detectQrFromCanvas] jsQR normal pass error:', e);
   }
 
-  // 3. Jika kamera booth sedang di-mirror (scaleX(-1)), teks/QR pada frame fisik mungkin terbalik.
-  // Coba scan versi flipped horizontal.
+  // 3. Multi-Pass Center ROI & Anti-Glare Preprocessing
+  // Layar HP biasanya diarahkan ke tengah frame. Membatasi scanning ke 65% area tengah
+  // mengisolasi layar HP dari bayangan atau lighting background ruangan booth.
+  if (w > 160 && h > 160) {
+    const cropW = Math.round(w * 0.65);
+    const cropH = Math.round(h * 0.65);
+    const cropX = Math.round((w - cropW) / 2);
+    const cropY = Math.round((h - cropH) / 2);
+    const roiPixelCount = cropW * cropH;
+
+    const roiRaw = new Uint8ClampedArray(roiPixelCount * 4);
+    const roiGrays = new Uint8Array(roiPixelCount);
+    let minGray = 255;
+    let maxGray = 0;
+
+    for (let y = 0; y < cropH; y++) {
+      const srcRowOffset = (cropY + y) * w;
+      const dstRowOffset = y * cropW;
+      for (let x = 0; x < cropW; x++) {
+        const srcIdx = (srcRowOffset + (cropX + x)) * 4;
+        const dstIdx = (dstRowOffset + x) * 4;
+
+        const r = rawPixels[srcIdx];
+        const g = rawPixels[srcIdx + 1];
+        const b = rawPixels[srcIdx + 2];
+
+        roiRaw[dstIdx] = r;
+        roiRaw[dstIdx + 1] = g;
+        roiRaw[dstIdx + 2] = b;
+        roiRaw[dstIdx + 3] = 255;
+
+        const gray = Math.round(0.299 * r + 0.587 * g + 0.114 * b);
+        roiGrays[dstRowOffset + x] = gray;
+
+        if (gray < minGray) minGray = gray;
+        if (gray > maxGray) maxGray = gray;
+      }
+    }
+
+    // 3a. Center ROI Raw
+    try {
+      const codeRoi = jsQR(roiRaw, cropW, cropH, { inversionAttempts: 'attemptBoth' });
+      if (codeRoi && codeRoi.data && codeRoi.data.trim()) {
+        return mapQrResult(codeRoi, w, h, cropX, cropY, false);
+      }
+    } catch {}
+
+    // 3b. Center ROI + Anti-Glare Gamma Compression (Gamma = 2.3)
+    // Gamma > 1 mengkompresi highlight/glare putih layar HP dan memperlebar kontras modul hitam
+    const roiGamma = new Uint8ClampedArray(roiPixelCount * 4);
+    for (let i = 0; i < roiPixelCount; i++) {
+      const g = roiGrays[i];
+      const val = Math.min(255, Math.max(0, Math.round(Math.pow(g / 255, 2.3) * 255)));
+      const idx = i * 4;
+      roiGamma[idx] = val;
+      roiGamma[idx + 1] = val;
+      roiGamma[idx + 2] = val;
+      roiGamma[idx + 3] = 255;
+    }
+
+    try {
+      const codeGamma = jsQR(roiGamma, cropW, cropH, { inversionAttempts: 'attemptBoth' });
+      if (codeGamma && codeGamma.data && codeGamma.data.trim()) {
+        return mapQrResult(codeGamma, w, h, cropX, cropY, false);
+      }
+    } catch {}
+
+    // 3c. Center ROI + Aggressive Anti-Glare (Gamma = 2.8) untuk glare lampu kuat
+    for (let i = 0; i < roiPixelCount; i++) {
+      const g = roiGrays[i];
+      const val = Math.min(255, Math.max(0, Math.round(Math.pow(g / 255, 2.8) * 255)));
+      const idx = i * 4;
+      roiGamma[idx] = val;
+      roiGamma[idx + 1] = val;
+      roiGamma[idx + 2] = val;
+      roiGamma[idx + 3] = 255;
+    }
+
+    try {
+      const codeAggressive = jsQR(roiGamma, cropW, cropH, { inversionAttempts: 'attemptBoth' });
+      if (codeAggressive && codeAggressive.data && codeAggressive.data.trim()) {
+        return mapQrResult(codeAggressive, w, h, cropX, cropY, false);
+      }
+    } catch {}
+
+    // 3d. Center ROI + Contrast Stretching (jika layar HP redup / washed out)
+    if (maxGray - minGray > 20 && (minGray > 25 || maxGray < 230)) {
+      const roiStretched = new Uint8ClampedArray(roiPixelCount * 4);
+      const span = (maxGray - minGray) || 1;
+      for (let i = 0; i < roiPixelCount; i++) {
+        const val = Math.min(255, Math.max(0, Math.round(((roiGrays[i] - minGray) / span) * 255)));
+        const idx = i * 4;
+        roiStretched[idx] = val;
+        roiStretched[idx + 1] = val;
+        roiStretched[idx + 2] = val;
+        roiStretched[idx + 3] = 255;
+      }
+
+      try {
+        const codeStretched = jsQR(roiStretched, cropW, cropH, { inversionAttempts: 'attemptBoth' });
+        if (codeStretched && codeStretched.data && codeStretched.data.trim()) {
+          return mapQrResult(codeStretched, w, h, cropX, cropY, false);
+        }
+      } catch {}
+    }
+  }
+
+  // 4. Anti-Glare Gamma Compression pada Full Frame (jika tiket berada di luar area tengah)
+  try {
+    const fullGamma = new Uint8ClampedArray(w * h * 4);
+    for (let i = 0; i < rawPixels.length; i += 4) {
+      const g = 0.299 * rawPixels[i] + 0.587 * rawPixels[i + 1] + 0.114 * rawPixels[i + 2];
+      const val = Math.min(255, Math.max(0, Math.round(Math.pow(g / 255, 2.3) * 255)));
+      fullGamma[i] = val;
+      fullGamma[i + 1] = val;
+      fullGamma[i + 2] = val;
+      fullGamma[i + 3] = 255;
+    }
+    const codeFullGamma = jsQR(fullGamma, w, h, { inversionAttempts: 'attemptBoth' });
+    if (codeFullGamma && codeFullGamma.data && codeFullGamma.data.trim()) {
+      return mapQrResult(codeFullGamma, w, h, 0, 0, false);
+    }
+  } catch {}
+
+  // 5. Cek orientasi flipped horizontal (jika kamera di-mirror)
   try {
     const flipCanvas = document.createElement('canvas');
     flipCanvas.width = w;
@@ -78,53 +245,26 @@ export async function detectQrFromCanvas(canvas: HTMLCanvasElement): Promise<QrS
         inversionAttempts: 'attemptBoth'
       });
       if (flipCode && flipCode.data && flipCode.data.trim()) {
-        const loc = flipCode.location;
-        const pts: QrPoint[] = [
-          { x: w - loc.topLeftCorner.x, y: loc.topLeftCorner.y },
-          { x: w - loc.topRightCorner.x, y: loc.topRightCorner.y },
-          { x: w - loc.bottomRightCorner.x, y: loc.bottomRightCorner.y },
-          { x: w - loc.bottomLeftCorner.x, y: loc.bottomLeftCorner.y }
-        ];
-        return { content: flipCode.data.trim(), cornerPoints: pts, sourceWidth: w, sourceHeight: h };
+        return mapQrResult(flipCode, w, h, 0, 0, true);
+      }
+
+      // Flipped horizontal + Anti-Glare Gamma pass
+      const flipGamma = new Uint8ClampedArray(w * h * 4);
+      for (let i = 0; i < flipData.data.length; i += 4) {
+        const g = 0.299 * flipData.data[i] + 0.587 * flipData.data[i + 1] + 0.114 * flipData.data[i + 2];
+        const val = Math.min(255, Math.max(0, Math.round(Math.pow(g / 255, 2.3) * 255)));
+        flipGamma[i] = val;
+        flipGamma[i + 1] = val;
+        flipGamma[i + 2] = val;
+        flipGamma[i + 3] = 255;
+      }
+      const flipCodeGamma = jsQR(flipGamma, w, h, { inversionAttempts: 'attemptBoth' });
+      if (flipCodeGamma && flipCodeGamma.data && flipCodeGamma.data.trim()) {
+        return mapQrResult(flipCodeGamma, w, h, 0, 0, true);
       }
     }
   } catch (e) {
     console.warn('[detectQrFromCanvas] jsQR mirrored pass error:', e);
-  }
-
-  // 4. Center ROI crop pass (65% tengah frame)
-  // Membantu mengatasi noise lampu studio di pinggir frame atau gradien kontras latar belakang
-  if (w > 200 && h > 200) {
-    try {
-      const cropW = Math.round(w * 0.65);
-      const cropH = Math.round(h * 0.65);
-      const cropX = Math.round((w - cropW) / 2);
-      const cropY = Math.round((h - cropH) / 2);
-
-      const roiCanvas = document.createElement('canvas');
-      roiCanvas.width = cropW;
-      roiCanvas.height = cropH;
-      const roiCtx = roiCanvas.getContext('2d', { willReadFrequently: true });
-      if (roiCtx) {
-        roiCtx.drawImage(canvas, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
-        const roiData = roiCtx.getImageData(0, 0, cropW, cropH);
-        const roiCode = jsQR(roiData.data, roiData.width, roiData.height, {
-          inversionAttempts: 'attemptBoth'
-        });
-        if (roiCode && roiCode.data && roiCode.data.trim()) {
-          const loc = roiCode.location;
-          const pts: QrPoint[] = [
-            { x: cropX + loc.topLeftCorner.x, y: cropY + loc.topLeftCorner.y },
-            { x: cropX + loc.topRightCorner.x, y: cropY + loc.topRightCorner.y },
-            { x: cropX + loc.bottomRightCorner.x, y: cropY + loc.bottomRightCorner.y },
-            { x: cropX + loc.bottomLeftCorner.x, y: cropY + loc.bottomLeftCorner.y }
-          ];
-          return { content: roiCode.data.trim(), cornerPoints: pts, sourceWidth: w, sourceHeight: h };
-        }
-      }
-    } catch (e) {
-      console.warn('[detectQrFromCanvas] jsQR center ROI pass error:', e);
-    }
   }
 
   return null;

@@ -419,14 +419,21 @@
     class="absolute inset-0 w-full h-full object-cover pointer-events-none z-10"
   ></canvas>
 
-  <!-- Central Guide Reticle (Clean, text removed) -->
+  <!-- Central Guide Reticle with Anti-Glare Hint -->
   {#if showCenterGuide && !lastDetectedPoints}
-    <div class="absolute inset-10 pointer-events-none z-10 flex items-center justify-center">
+    <div class="absolute inset-8 pointer-events-none z-10 flex flex-col items-center justify-between">
       <!-- Reticle corner markers -->
-      <div class="absolute top-0 left-0 w-6 h-6 border-t-[3px] border-l-[3px] border-white/80 rounded-tl-sm"></div>
-      <div class="absolute top-0 right-0 w-6 h-6 border-t-[3px] border-r-[3px] border-white/80 rounded-tr-sm"></div>
-      <div class="absolute bottom-0 left-0 w-6 h-6 border-b-[3px] border-l-[3px] border-white/80 rounded-bl-sm"></div>
-      <div class="absolute bottom-0 right-0 w-6 h-6 border-b-[3px] border-r-[3px] border-white/80 rounded-br-sm"></div>
+      <div class="relative w-full h-full flex items-center justify-center">
+        <div class="absolute top-0 left-0 w-6 h-6 border-t-[3px] border-l-[3px] border-white/80 rounded-tl-sm"></div>
+        <div class="absolute top-0 right-0 w-6 h-6 border-t-[3px] border-r-[3px] border-white/80 rounded-tr-sm"></div>
+        <div class="absolute bottom-0 left-0 w-6 h-6 border-b-[3px] border-l-[3px] border-white/80 rounded-bl-sm"></div>
+        <div class="absolute bottom-0 right-0 w-6 h-6 border-b-[3px] border-r-[3px] border-white/80 rounded-br-sm"></div>
+      </div>
+
+      <!-- Anti-Glare UX Guidance -->
+      <div class="mb-1 px-3 py-1 bg-black/60 backdrop-blur-md rounded-full border border-white/10 text-[11px] text-white/75 font-medium tracking-wide text-center select-none shadow-sm">
+        💡 Tips: Miringkan sedikit layar HP (~15°) jika silau lampu
+      </div>
     </div>
   {/if}
 

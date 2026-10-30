@@ -42,7 +42,19 @@ log = "0.4"
 webkit2gtk = "2.0"
 
 [target.'cfg(windows)'.dependencies]
-winapi = { version = "0.3", features = ["winspool", "wingdi", "winuser"] }
+winapi = { version = "0.3", features = [
+    "winspool",
+    "wingdi",
+    "winuser",
+    "shellapi",
+    "propsys",
+    "propidl",
+    "objbase",
+    "winreg",
+    "guiddef",
+    "wtypes",
+    "libloaderapi",
+] }
 
 [profile.release]
 opt-level = 3

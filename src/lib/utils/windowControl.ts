@@ -4,11 +4,11 @@ import { invoke } from '@tauri-apps/api/core';
 /**
  * Mengatur mode Kiosk Terkunci (Locked) vs Terbuka (Operator Unlocked) pada aplikasi Desktop.
  * - Saat locked = true:
- *   1. Memanggil Win32 native lock di Rust untuk menyembunyikan & menonaktifkan Taskbar Windows (Shell_TrayWnd).
- *   2. Fullscreen penuh dan Always On Top (HWND_TOPMOST) sehingga swipe dari bawah layar tidak memicu taskbar.
+ *   1. Memanggil Win32 native lock di Rust (DisableTouchWhenFullscreen, Registry EdgeUI, Keyboard Hook, Hide Taskbar).
+ *   2. Fullscreen penuh dan Always On Top (HWND_TOPMOST) sehingga swipe dari bawah layar tidak memicu taskbar/Start Menu.
  *   3. Tanpa dekorasi titlebar dan tombol minimize dinonaktifkan.
  * - Saat locked = false:
- *   1. Memulihkan Taskbar Windows normal via Win32 di Rust.
+ *   1. Memulihkan Taskbar & input sistem Windows normal via Win32 di Rust.
  *   2. Melepas status Always On Top & Fullscreen agar operator leluasa mengakses taskbar/desktop/Windows+L.
  */
 export async function setKioskLockedMode(locked: boolean): Promise<void> {
@@ -38,7 +38,7 @@ export async function setKioskLockedMode(locked: boolean): Promise<void> {
         }
       }
 
-      // Panggil penguncian native Win32 (Hide & Disable Taskbar Shell_TrayWnd pada Windows)
+      // Panggil penguncian native Win32 (DisableTouchWhenFullscreen, Keyboard Lock & Taskbar Shell_TrayWnd)
       try {
         await invoke('set_kiosk_system_lock', { locked });
       } catch (err) {
@@ -59,6 +59,9 @@ export async function setWindowDecorations(enable: boolean): Promise<void> {
     if (typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window) {
       const appWindow = getCurrentWindow();
       if (enable) {
+        try {
+          await invoke('set_kiosk_system_lock', { locked: false });
+        } catch {}
         await appWindow.setFullscreen(false);
         await appWindow.setDecorations(true);
         if ('setMinimizable' in appWindow && typeof appWindow.setMinimizable === 'function') {
@@ -70,6 +73,9 @@ export async function setWindowDecorations(enable: boolean): Promise<void> {
       } else {
         await appWindow.setDecorations(false);
         await appWindow.setFullscreen(true);
+        try {
+          await invoke('set_kiosk_system_lock', { locked: true });
+        } catch {}
       }
     }
   } catch (e) {
@@ -99,6 +105,9 @@ export async function setWindowMinimizable(enable: boolean): Promise<void> {
 export async function minimizeWindow(): Promise<void> {
   try {
     if (typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window) {
+      try {
+        await invoke('set_kiosk_system_lock', { locked: false });
+      } catch {}
       const appWindow = getCurrentWindow();
       await appWindow.setFullscreen(false);
       if ('setMinimizable' in appWindow && typeof appWindow.setMinimizable === 'function') {

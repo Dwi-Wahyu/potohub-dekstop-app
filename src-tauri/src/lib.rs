@@ -1,4 +1,5 @@
 pub mod canon_edsdk;
+pub mod kiosk;
 mod cache;
 mod gphoto;
 mod media;
@@ -794,7 +795,13 @@ pub fn run() {
             is_usbdk_installed,
             install_usbdk,
             open_log_dir,
+            kiosk::set_kiosk_system_lock,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|_app_handle, event| {
+            if let tauri::RunEvent::Exit = event {
+                kiosk::restore_taskbar();
+            }
+        });
 }

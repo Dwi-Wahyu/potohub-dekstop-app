@@ -17,7 +17,8 @@
     RefreshCw,
     Layers,
     UploadCloud,
-    FolderOpen
+    FolderOpen,
+    Trash2
   } from '@lucide/svelte';
   import UpdateModal from '$lib/components/shared/UpdateModal.svelte';
   import ReuploadSessionsModal from '$lib/components/shared/ReuploadSessionsModal.svelte';
@@ -27,7 +28,12 @@
   import { uiConfig } from '$lib/stores/uiConfig.svelte';
   import { syncBoothSettings, getActiveBoothId } from '$lib/api/boothClient';
   import { networkStatus } from '$lib/stores/networkStatus.svelte';
-  import { countPendingOutboxJobs, countPendingSessionSoftfileJobs } from '$lib/db/local';
+  import {
+    countPendingOutboxJobs,
+    countPendingSessionSoftfileJobs,
+    countPendingPrintJobs,
+    clearAllPendingPrintJobs,
+  } from '$lib/db/local';
   import { invoke } from '@tauri-apps/api/core';
   import { flushOutbox } from '$lib/utils/offlineOutbox';
   import { flushPrintQueue } from '$lib/utils/printQueue';
@@ -49,8 +55,11 @@
   let saveNotice = $state<string | null>(null);
   let pendingJobs = $state(0);
   let pendingSoftfileSessions = $state(0);
+  let pendingPrintJobs = $state(0);
   let isReuploadModalOpen = $state(false);
   let isUploadingPending = $state(false);
+  let isPrintingQueue = $state(false);
+  let isClearingPrintQueue = $state(false);
 
   const NEU_BG = '#ebf0f7';
   const NEU_PRIMARY = '#2a2873';
@@ -109,6 +118,50 @@
   async function refreshPendingCount() {
     pendingJobs = await countPendingOutboxJobs().catch(() => 0);
     pendingSoftfileSessions = await countPendingSessionSoftfileJobs().catch(() => 0);
+    pendingPrintJobs = await countPendingPrintJobs().catch(() => 0);
+  }
+
+  async function handleFlushPrintQueue() {
+    if (isPrintingQueue || pendingPrintJobs === 0) return;
+    isPrintingQueue = true;
+    try {
+      const res = await flushPrintQueue({ force: true });
+      await refreshPendingCount();
+      saveNotice = `Proses cetak selesai! ${res.processed} lembar dicetak${res.errors > 0 ? `, ${res.errors} gagal` : ''}.`;
+      setTimeout(() => {
+        saveNotice = null;
+      }, 3500);
+    } catch (err) {
+      saveNotice = `Cetak antrean gagal: ${String(err)}`;
+      setTimeout(() => {
+        saveNotice = null;
+      }, 3500);
+    } finally {
+      isPrintingQueue = false;
+    }
+  }
+
+  async function handleClearPrintQueue() {
+    if (isClearingPrintQueue || pendingPrintJobs === 0) return;
+    const ok = confirm(`Batalkan dan hapus ${pendingPrintJobs} antrean cetak foto yang tertunda?`);
+    if (!ok) return;
+
+    isClearingPrintQueue = true;
+    try {
+      const cleared = await clearAllPendingPrintJobs();
+      await refreshPendingCount();
+      saveNotice = `Berhasil membatalkan ${cleared} antrean cetak foto!`;
+      setTimeout(() => {
+        saveNotice = null;
+      }, 3500);
+    } catch (err) {
+      saveNotice = `Gagal membatalkan antrean: ${String(err)}`;
+      setTimeout(() => {
+        saveNotice = null;
+      }, 3500);
+    } finally {
+      isClearingPrintQueue = false;
+    }
   }
 
   async function handleUploadAllPending() {
@@ -476,6 +529,25 @@
           >
             <span style="width: 8px; height: 8px; border-radius: 9999px; background: #f59e0b;"></span>
             Pending Sync Offline: {pendingJobs}
+          </div>
+        {/if}
+
+        {#if pendingPrintJobs > 0}
+          <div
+            style="
+              padding: 6px 14px;
+              border-radius: 9999px;
+              background: #ede9fe;
+              color: #5b21b6;
+              font-size: 11px;
+              font-weight: 700;
+              display: flex;
+              align-items: center;
+              gap: 6px;
+            "
+          >
+            <Printer size={12} />
+            Pending Cetak: {pendingPrintJobs}
           </div>
         {/if}
 
@@ -1224,6 +1296,131 @@
 
               <p style="font-size: 10px; color: #94a3b8; margin: 0;">
                 Klik tombol <strong>Upload</strong> untuk sinkronisasi manual, icon putar untuk <strong>7 sesi terakhir</strong> (print/upload ulang), atau icon folder untuk membuka file foto lokal di Windows Explorer.
+              </p>
+            </div>
+
+            <div style="height: 1px; background: rgba(200,210,224,0.7);"></div>
+
+            <!-- Antrean Cetak Foto Offline (Print Queue) -->
+            <div style="display: flex; flex-direction: column; gap: 6px;">
+              <div style="display: flex; align-items: center; justify-content: space-between;">
+                <h1 style="font-size: 10px; font-weight: 700; color: #334155; text-transform: uppercase; letter-spacing: 0.06em; margin: 0;">
+                  Antrean Cetak Foto Offline
+                </h1>
+                {#if pendingPrintJobs > 0}
+                  <span
+                    style="
+                      font-size: 10px;
+                      font-weight: 700;
+                      color: #7c2d12;
+                      background: #ffedd5;
+                      padding: 2px 8px;
+                      border-radius: 9999px;
+                    "
+                  >
+                    {pendingPrintJobs} lembar antre
+                  </span>
+                {/if}
+              </div>
+
+              <div style="display: flex; gap: 8px; align-items: center;">
+                <!-- Count Box -->
+                <div
+                  style="
+                    flex: 1;
+                    background: {NEU_BG};
+                    box-shadow: {neuCfg.inset};
+                    border-radius: 12px;
+                    padding: 9px 14px;
+                    font-size: 13px;
+                    font-weight: 700;
+                    color: {pendingPrintJobs > 0 ? '#ea580c' : '#64748b'};
+                    display: flex;
+                    align-items: center;
+                    justify-content: space-between;
+                  "
+                >
+                  <span>{pendingPrintJobs} lembar</span>
+                  {#if pendingPrintJobs > 0}
+                    <span style="font-size: 10px; font-weight: 500; color: #ea580c;">Tertunda</span>
+                  {:else}
+                    <span style="font-size: 10px; font-weight: 500; color: #16a34a;">Antrean Bersih</span>
+                  {/if}
+                </div>
+
+                <!-- Tombol Cetak Antrean Manual -->
+                <button
+                  type="button"
+                  onclick={handleFlushPrintQueue}
+                  disabled={isPrintingQueue || pendingPrintJobs === 0}
+                  style="
+                    padding: 9px 14px;
+                    border-radius: 12px;
+                    background: {NEU_BG};
+                    box-shadow: {neuCfg.btnSm};
+                    border: none;
+                    cursor: {isPrintingQueue || pendingPrintJobs === 0 ? 'not-allowed' : 'pointer'};
+                    opacity: {isPrintingQueue || pendingPrintJobs === 0 ? 0.6 : 1};
+                    font-family: 'Poppins', sans-serif;
+                    font-weight: 700;
+                    font-size: 12px;
+                    color: #1e293b;
+                    display: flex;
+                    align-items: center;
+                    gap: 6px;
+                    white-space: nowrap;
+                    transition: all 0.15s ease;
+                  "
+                  title="Cetak semua antrean foto sekarang"
+                  onmousedown={(e) => {
+                    if (!isPrintingQueue && pendingPrintJobs > 0) e.currentTarget.style.boxShadow = neuCfg.inset;
+                  }}
+                  onmouseup={(e) => {
+                    if (!isPrintingQueue && pendingPrintJobs > 0) e.currentTarget.style.boxShadow = neuCfg.btnSm;
+                  }}
+                >
+                  <Printer size={15} class={isPrintingQueue ? 'animate-bounce text-indigo-600' : ''} />
+                  <span>{isPrintingQueue ? 'Mencetak...' : 'Cetak'}</span>
+                </button>
+
+                <!-- Tombol Kosongkan / Batalkan Antrean -->
+                <button
+                  type="button"
+                  onclick={handleClearPrintQueue}
+                  disabled={isClearingPrintQueue || pendingPrintJobs === 0}
+                  style="
+                    padding: 9px 14px;
+                    border-radius: 12px;
+                    background: {NEU_BG};
+                    box-shadow: {neuCfg.btnSm};
+                    border: none;
+                    cursor: {isClearingPrintQueue || pendingPrintJobs === 0 ? 'not-allowed' : 'pointer'};
+                    opacity: {isClearingPrintQueue || pendingPrintJobs === 0 ? 0.6 : 1};
+                    font-family: 'Poppins', sans-serif;
+                    font-weight: 700;
+                    font-size: 12px;
+                    color: #dc2626;
+                    display: flex;
+                    align-items: center;
+                    gap: 6px;
+                    white-space: nowrap;
+                    transition: all 0.15s ease;
+                  "
+                  title="Kosongkan antrean cetak agar foto lama tidak tercetak otomatis"
+                  onmousedown={(e) => {
+                    if (!isClearingPrintQueue && pendingPrintJobs > 0) e.currentTarget.style.boxShadow = neuCfg.inset;
+                  }}
+                  onmouseup={(e) => {
+                    if (!isClearingPrintQueue && pendingPrintJobs > 0) e.currentTarget.style.boxShadow = neuCfg.btnSm;
+                  }}
+                >
+                  <Trash2 size={15} />
+                  <span>Kosongkan Antrean</span>
+                </button>
+              </div>
+
+              <p style="font-size: 10px; color: #94a3b8; margin: 0;">
+                Gunakan <strong>Kosongkan Antrean</strong> untuk membatalkan seluruh print tertunda dari sesi sebelumnya agar tidak menghabiskan kertas foto.
               </p>
             </div>
 

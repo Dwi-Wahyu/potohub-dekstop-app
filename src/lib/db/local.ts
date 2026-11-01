@@ -734,6 +734,33 @@ export async function markPrintJobFailedAttempt(id: number, error: string): Prom
   );
 }
 
+export async function cancelPrintJob(id: number): Promise<void> {
+  const conn = await db();
+  await conn.execute(
+    `UPDATE print_queue SET status = 'cancelled', updated_at = $1 WHERE id = $2`,
+    [Date.now(), id]
+  );
+}
+
+export async function clearAllPendingPrintJobs(): Promise<number> {
+  const conn = await db();
+  const res = await conn.execute(
+    `UPDATE print_queue SET status = 'cancelled', updated_at = $1 WHERE status = 'pending'`,
+    [Date.now()]
+  );
+  return Number(res.rowsAffected ?? 0);
+}
+
+export async function cancelPendingPrintJobsBySessionCode(sessionCode: string): Promise<number> {
+  const conn = await db();
+  const res = await conn.execute(
+    `UPDATE print_queue SET status = 'cancelled', updated_at = $1 WHERE session_code = $2 AND status = 'pending'`,
+    [Date.now(), sessionCode]
+  );
+  await updateSessionPrintStatus(sessionCode, 'failed', 'Dibatalkan oleh operator');
+  return Number(res.rowsAffected ?? 0);
+}
+
 export async function countPendingPrintJobs(): Promise<number> {
   const conn = await db();
   const rows = await conn.select<any[]>(

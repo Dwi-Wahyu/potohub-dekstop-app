@@ -3,6 +3,10 @@ import {
   markPrintJobDone,
   markPrintJobFailedAttempt,
   enqueuePrintJob,
+  cancelPrintJob,
+  clearAllPendingPrintJobs,
+  cancelPendingPrintJobsBySessionCode,
+  updateSessionPrintStatus,
   type PrintJob,
 } from '$lib/db/local';
 import { printerStore } from '$lib/printer.svelte';
@@ -10,9 +14,25 @@ import { invoke } from '@tauri-apps/api/core';
 
 let isFlushing = false;
 
+// Expose helper ke window agar operator/developer bisa membatalkan antrean dari console DevTools kapan saja
+if (typeof window !== 'undefined') {
+  (window as any).potohubClearPrintQueue = clearAllPendingPrintJobs;
+}
+
+export {
+  clearAllPendingPrintJobs,
+  cancelPrintJob,
+  cancelPendingPrintJobsBySessionCode,
+};
+
 export interface FlushPrintOptions {
   force?: boolean;
 }
+
+// Batas waktu maksimal sebuah antrean cetak boleh dicetak otomatis saat idle (2 jam).
+// Job yang lebih tua dari batas ini (misal hasil test kemarin atau sesi yang sudah lewat berjam-jam)
+// akan otomatis diabaikan & dibatalkan agar tidak membuang kertas foto booth yang mahal.
+const MAX_AUTO_PRINT_AGE_MS = 2 * 60 * 60 * 1000;
 
 export async function flushPrintQueue(options?: FlushPrintOptions): Promise<{ processed: number; errors: number }> {
   if (isFlushing) return { processed: 0, errors: 0 };
@@ -39,6 +59,13 @@ export async function flushPrintQueue(options?: FlushPrintOptions): Promise<{ pr
   try {
     const jobs = await listPendingPrintJobs();
     for (const job of jobs) {
+      // Keamanan hemat kertas: Jangan auto-print job yang sudah kadaluarsa (> 2 jam) saat idle
+      if (!options?.force && Date.now() - job.createdAt > MAX_AUTO_PRINT_AGE_MS) {
+        console.log(`[printQueue] Job #${job.id} (sesi ${job.sessionCode}) kadaluarsa (> 2 jam). Auto-print dibatalkan untuk menghemat kertas.`);
+        await cancelPrintJob(job.id);
+        continue;
+      }
+
       await printerStore.refreshStatus();
 
       const targetPrinter = printerStore.resolvePrinter(job.useSecondary);
@@ -61,6 +88,7 @@ export async function flushPrintQueue(options?: FlushPrintOptions): Promise<{ pr
         });
 
         await markPrintJobDone(job.id);
+        void updateSessionPrintStatus(job.sessionCode, 'printed').catch(console.warn);
         processed++;
 
         // Update software paper counter jika ada

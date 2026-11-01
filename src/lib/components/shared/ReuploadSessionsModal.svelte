@@ -14,13 +14,17 @@
     Phone,
     Layers,
     Filter,
-    FolderOpen
+    FolderOpen,
+    Trash2
   } from '@lucide/svelte';
   import { invoke } from '@tauri-apps/api/core';
   import {
     listAllSessionOutboxJobs,
     resetOutboxJobForRetry,
     updateSessionPrintStatus,
+    countPendingPrintJobs,
+    clearAllPendingPrintJobs,
+    cancelPendingPrintJobsBySessionCode,
     type SessionHistoryItem,
   } from '$lib/db/local';
   import { processSingleJobById, type JobProcessOutcome } from '$lib/utils/offlineOutbox';
@@ -68,11 +72,13 @@
   let pendingCount = $derived(
     sessions.filter((s) => s.status === 'pending' || s.status === 'dead_letter' || s.printStatus === 'failed').length
   );
+  let pendingPrintCount = $state(0);
 
   async function loadSessions() {
     isLoading = true;
     try {
       sessions = await listAllSessionOutboxJobs(50);
+      pendingPrintCount = await countPendingPrintJobs().catch(() => 0);
       // Muat preview thumbnail untuk sesi yang ada
       for (const item of sessions) {
         if (item.compositePath && !previewUrls[item.id]) {
@@ -86,6 +92,38 @@
       console.error('[ReuploadModal] Gagal memuat daftar sesi:', err);
     } finally {
       isLoading = false;
+    }
+  }
+
+  async function handleClearAllPrints() {
+    if (pendingPrintCount === 0) return;
+    const ok = confirm(`Batalkan seluruh ${pendingPrintCount} antrean cetak foto yang tertunda?`);
+    if (!ok) return;
+
+    try {
+      await clearAllPendingPrintJobs();
+      pendingPrintCount = 0;
+      await loadSessions();
+      onUpdated?.();
+    } catch (err) {
+      console.error('[ReuploadModal] Gagal membatalkan semua antrean cetak:', err);
+    }
+  }
+
+  async function handleCancelSessionPrint(item: SessionHistoryItem) {
+    try {
+      await cancelPendingPrintJobsBySessionCode(item.sessionCode);
+      item.printStatus = 'failed';
+      item.printError = 'Dibatalkan oleh operator';
+      feedbackMap[item.id] = { type: 'success', text: 'Cetak dibatalkan' };
+      pendingPrintCount = await countPendingPrintJobs().catch(() => 0);
+      onUpdated?.();
+    } catch (err) {
+      feedbackMap[item.id] = { type: 'error', text: String(err) };
+    } finally {
+      setTimeout(() => {
+        delete feedbackMap[item.id];
+      }, 3500);
     }
   }
 
@@ -283,6 +321,31 @@
         </div>
 
         <div style="display: flex; align-items: center; gap: 10px;">
+          {#if pendingPrintCount > 0}
+            <button
+              type="button"
+              onclick={handleClearAllPrints}
+              style="
+                padding: 7px 12px;
+                border-radius: 10px;
+                background: rgba(239, 68, 68, 0.35);
+                border: 1px solid rgba(254, 202, 202, 0.4);
+                display: flex;
+                align-items: center;
+                gap: 6px;
+                color: #fee2e2;
+                cursor: pointer;
+                font-size: 11px;
+                font-weight: 600;
+                transition: background 0.15s ease;
+              "
+              title="Batalkan seluruh antrean cetak foto yang belum diproses"
+            >
+              <Trash2 size={13} />
+              <span>Batalkan Cetak ({pendingPrintCount})</span>
+            </button>
+          {/if}
+
           <button
             type="button"
             onclick={loadSessions}
@@ -760,6 +823,33 @@
                     />
                     <span>{printingMap[item.id] ? '...' : 'Print'}</span>
                   </button>
+
+                  <!-- Tombol Batalkan Cetak Khusus Sesi Ini (Hanya jika status print pending) -->
+                  {#if item.printStatus === 'pending'}
+                    <button
+                      type="button"
+                      onclick={() => handleCancelSessionPrint(item)}
+                      style="
+                        width: 38px;
+                        height: 38px;
+                        border-radius: 10px;
+                        background: {NEU_BG};
+                        box-shadow: {neuCfg.btnSm};
+                        border: none;
+                        cursor: pointer;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        color: #dc2626;
+                        transition: transform 0.1s ease, box-shadow 0.1s ease;
+                      "
+                      title="Batalkan antrean cetak untuk sesi ini saja"
+                      onmousedown={(e) => (e.currentTarget.style.boxShadow = neuCfg.inset)}
+                      onmouseup={(e) => (e.currentTarget.style.boxShadow = neuCfg.btnSm)}
+                    >
+                      <Trash2 size={15} />
+                    </button>
+                  {/if}
 
                   <!-- Tombol Buka Folder Sesi Lokal di Windows Explorer (Icon Folder) -->
                   <button

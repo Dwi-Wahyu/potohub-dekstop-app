@@ -1431,42 +1431,6 @@
                 Pop-up slider banner muncul otomatis saat tidak ada interaksi / klik pada layar awal.
               </p>
             </div>
-
-            <div style="height: 1px; background: rgba(200,210,224,0.7);"></div>
-
-            <!-- PIN change -->
-            <div style="display: flex; flex-direction: column; gap: 6px;">
-              <h1 style="font-size: 10px; font-weight: 700; color: #334155; text-transform: uppercase; letter-spacing: 0.06em;">PIN Admin</h1>
-              <div style="display: flex; gap: 10px;">
-                <input
-                  type="password"
-                  maxLength={4}
-                  value={boothConfig.config.pin}
-                  oninput={(e) => {
-                    const v = e.currentTarget.value;
-                    if (/^\d{0,4}$/.test(v)) update('pin', v);
-                  }}
-                  placeholder="••••"
-                  style="
-                    flex: 1;
-                    background: {NEU_BG};
-                    box-shadow: {neuCfg.inset};
-                    border-radius: 12px;
-                    padding: 10px 14px;
-                    border: none;
-                    outline: none;
-                    font-size: 14px;
-                    font-weight: 700;
-                    color: #334155;
-                    font-family: 'Poppins',sans-serif;
-                    letter-spacing: 0.2em;
-                  "
-                />
-              </div>
-              <p style="font-size: 10px; color: #94a3b8; margin: 0;">Masukkan 4 digit PIN baru. Perubahan tersimpan otomatis.</p>
-            </div>
-
-            <div style="height: 1px; background: rgba(200,210,224,0.7);"></div>
           </div>
         </div>
       </div>

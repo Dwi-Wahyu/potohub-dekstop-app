@@ -127,9 +127,9 @@
     }
   }
 
-  async function handleOpenSessionsFolder(relativePath?: string | null) {
+  async function handleOpenSessionsFolder(relativePath?: string | null, sessionCode?: string | null) {
     try {
-      await invoke('open_sessions_dir', { relativePath: relativePath || null });
+      await invoke('open_sessions_dir', { relativePath: relativePath || null, sessionCode: sessionCode || null });
     } catch (err) {
       console.error('[ReuploadModal] Gagal membuka folder sesi:', err);
     }
@@ -854,7 +854,7 @@
                   <!-- Tombol Buka Folder Sesi Lokal di Windows Explorer (Icon Folder) -->
                   <button
                     type="button"
-                    onclick={() => handleOpenSessionsFolder(item.compositePath)}
+                    onclick={() => handleOpenSessionsFolder(item.compositePath, item.sessionCode)}
                     style="
                       width: 38px;
                       height: 38px;

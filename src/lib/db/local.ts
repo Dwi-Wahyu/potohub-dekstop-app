@@ -543,7 +543,9 @@ export async function listAllSessionOutboxJobs(limit = 60): Promise<SessionHisto
       payloadObj = JSON.parse(r.payload);
     } catch {}
     const compositePath =
-      payloadObj.assetRelativePaths?.find((a: any) => a.role === 'composite')?.path || null;
+      payloadObj.assetRelativePaths?.find((a: any) => a.role === 'composite')?.path ||
+      payloadObj.assetRelativePaths?.[0]?.path ||
+      null;
     return {
       id: r.id,
       sessionCode: r.local_ref || payloadObj.localSessionCode || `sesi-${r.id}`,

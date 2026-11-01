@@ -19,6 +19,33 @@
 
   let cameraFailedMessage = $state<string | null>(null);
   let printerFailedMessage = $state<string | null>(null);
+  let pollTimer: ReturnType<typeof setInterval> | null = null;
+
+  async function checkDevicesHealth() {
+    if (isConnectingCamera || isConnectingPrinter || isCheckingAll) return;
+    try {
+      await cameraStore.checkHealth();
+    } catch {}
+    try {
+      if (printerStore.selectedPrinter) {
+        await printerStore.refreshStatus();
+      } else if (!printerStore.isDetecting) {
+        await printerStore.loadPrinters();
+      }
+    } catch {}
+  }
+
+  $effect(() => {
+    if (cameraStore.status === 'connected') {
+      cameraFailedMessage = null;
+    }
+  });
+
+  $effect(() => {
+    if (!isPrinterOffline) {
+      printerFailedMessage = null;
+    }
+  });
 
   onMount(() => {
     // Grace period 2.5 detik saat startup untuk mencegah false alarm saat probe perangkat
@@ -26,10 +53,13 @@
       settled = true;
     }, 2500);
 
-    // Jika printer belum dimuat, panggil loadPrinters
-    if (printerStore.status === null && !printerStore.isDetecting) {
-      void printerStore.loadPrinters();
-    }
+    // Segera cek kesehatan perangkat saat komponen dimuat
+    void checkDevicesHealth();
+
+    // Polling periodik ringan setiap 5 detik agar alarm responsif tanpa perlu buka ulang aplikasi
+    pollTimer = setInterval(() => {
+      void checkDevicesHealth();
+    }, 5000);
 
     // Refresh status saat window kembali aktif (misal setelah operator kembali dari Config Dashboard)
     const handleFocus = () => {
@@ -39,6 +69,7 @@
 
     return () => {
       clearTimeout(timer);
+      if (pollTimer) clearInterval(pollTimer);
       window.removeEventListener('focus', handleFocus);
     };
   });
@@ -130,13 +161,13 @@
   let isPrinterOffline = $derived(
     !printerStore.isDetecting &&
     !isConnectingPrinter &&
-    printerStore.status !== null &&
     (
       printerStore.printers.length === 0 ||
       !printerStore.selectedPrinter ||
-      !printerStore.status.is_online ||
-      !printerStore.status.is_ready ||
-      printerStore.status.has_error
+      (printerStore.status !== null &&
+        (!printerStore.status.is_online ||
+         !printerStore.status.is_ready ||
+         printerStore.status.has_error))
     )
   );
 

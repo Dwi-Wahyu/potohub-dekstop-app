@@ -325,9 +325,22 @@ export async function replaceQrTicketCache(
 
 export async function findCachedTicket(token: string, boothId: string): Promise<CachedQrTicket | null> {
   const conn = await db();
+  const clean = token.trim();
+  const upper = clean.toUpperCase();
+  const noDash = upper.replace(/-/g, '');
+  const noTkt = upper.startsWith('TKT-') ? upper.slice(4) : upper;
+
   const rows = await conn.select<any[]>(
-    "SELECT * FROM qr_ticket_cache WHERE token = $1 AND booth_id = $2",
-    [token, boothId],
+    `SELECT * FROM qr_ticket_cache 
+     WHERE (
+       token = $1 COLLATE NOCASE 
+       OR UPPER(token) = $2
+       OR REPLACE(UPPER(token), '-', '') = $3
+       OR UPPER(token) = $4
+     ) 
+     AND (booth_id = $5 OR $5 = '' OR $5 = 'default' OR $5 IS NULL)
+     LIMIT 1`,
+    [clean, upper, noDash, noTkt, boothId],
   );
   if (!rows.length) return null;
   const r = rows[0];
@@ -511,6 +524,12 @@ export async function upsertSessionOutboxJob(
     } else if (!payload.backendSessionId && existingPayload.backendSessionId) {
       merged.backendSessionId = existingPayload.backendSessionId;
     }
+    // Pertahankan status cetak jika sudah sukses ('printed')
+    // agar proses simpan aset latar belakang tidak menimpa status print kembali ke 'pending'
+    if (existingPayload.printStatus === 'printed' && (!payload.printStatus || payload.printStatus === 'pending')) {
+      merged.printStatus = 'printed';
+      merged.printError = null;
+    }
     const finalStatus = existingPayload.softfileTarget && existing.status === 'pending' ? 'pending' : targetStatus;
     await conn.execute(
       `UPDATE offline_outbox 
@@ -537,6 +556,25 @@ export async function listAllSessionOutboxJobs(limit = 60): Promise<SessionHisto
      ORDER BY id DESC LIMIT $1`,
     [limit],
   );
+
+  // Ambil data antrean cetak yang sedang pending atau failed untuk sinkronisasi akurat
+  let printQueueRows: any[] = [];
+  try {
+    printQueueRows = await conn.select<any[]>(
+      `SELECT session_code, status, last_error FROM print_queue WHERE status IN ('pending', 'failed')`,
+    );
+  } catch {}
+
+  const activePrintErrors = new Map<string, string>();
+  const pendingPrintSessions = new Set<string>();
+  for (const pq of printQueueRows) {
+    if (pq.status === 'pending') {
+      pendingPrintSessions.add(pq.session_code);
+    } else if (pq.status === 'failed') {
+      activePrintErrors.set(pq.session_code, pq.last_error || 'Gagal cetak antrean');
+    }
+  }
+
   return rows.map((r) => {
     let payloadObj: any = {};
     try {
@@ -546,9 +584,35 @@ export async function listAllSessionOutboxJobs(limit = 60): Promise<SessionHisto
       payloadObj.assetRelativePaths?.find((a: any) => a.role === 'composite')?.path ||
       payloadObj.assetRelativePaths?.[0]?.path ||
       null;
+    const sessionCode = r.local_ref || payloadObj.localSessionCode || `sesi-${r.id}`;
+
+    let resolvedPrintStatus: 'printed' | 'pending' | 'failed' = payloadObj.printStatus || 'pending';
+    let resolvedPrintError: string | null = payloadObj.printError || null;
+
+    if (activePrintErrors.has(sessionCode)) {
+      resolvedPrintStatus = 'failed';
+      resolvedPrintError = activePrintErrors.get(sessionCode) || null;
+    } else if (pendingPrintSessions.has(sessionCode)) {
+      resolvedPrintStatus = 'pending';
+    } else if (payloadObj.printStatus === 'printed') {
+      resolvedPrintStatus = 'printed';
+      resolvedPrintError = null;
+    } else if (
+      payloadObj.printStatus === 'pending' &&
+      !activePrintErrors.has(sessionCode) &&
+      !pendingPrintSessions.has(sessionCode)
+    ) {
+      // Jika sesi telah rampung/terkirim atau tidak ada kegagalan cetak yang dicatat,
+      // ini adalah sesi yang telah berhasil dicetak langsung saat alur foto selesai
+      // (bukan tertunda/gagal), sehingga tidak memicu false alarm "Print: Belum"
+      if (r.status === 'done' || !payloadObj.printError) {
+        resolvedPrintStatus = 'printed';
+      }
+    }
+
     return {
       id: r.id,
-      sessionCode: r.local_ref || payloadObj.localSessionCode || `sesi-${r.id}`,
+      sessionCode,
       status: r.status,
       attempts: r.attempts,
       lastError: r.last_error,
@@ -558,8 +622,8 @@ export async function listAllSessionOutboxJobs(limit = 60): Promise<SessionHisto
       printQty: payloadObj.printQty || 1,
       paperSize: payloadObj.paperSize || '4x6',
       useSecondary: payloadObj.useSecondary ?? false,
-      printStatus: payloadObj.printStatus || (r.status === 'done' ? 'printed' : 'pending'),
-      printError: payloadObj.printError || null,
+      printStatus: resolvedPrintStatus,
+      printError: resolvedPrintError,
     };
   });
 }

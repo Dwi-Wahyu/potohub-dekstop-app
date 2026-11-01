@@ -181,7 +181,8 @@
         selectedTemplate?.width || 1200,
         selectedTemplate?.height || 1800
       ),
-      printStatus: 'pending' as const,
+      printStatus: (copies === 0 ? 'printed' : 'pending') as 'printed' | 'pending' | 'failed',
+      printError: null as string | null,
     };
 
     // Segera catat sesi ke database outbox lokal agar operator bisa melihatnya di dialog sesi
@@ -211,6 +212,8 @@
             });
             if (!activeSignal.aborted) {
               printStatus = 'SUCCESS';
+              sessionPayload.printStatus = 'printed';
+              sessionPayload.printError = null;
               void updateSessionPrintStatus(localSessionCode, 'printed').catch(console.warn);
               if (!result.completed && result.error) {
                 console.warn('[V3Download] Print completion check warning:', result.error);
@@ -226,6 +229,8 @@
               useSecondary,
             });
             printStatus = 'QUEUED';
+            sessionPayload.printStatus = 'failed';
+            sessionPayload.printError = String(err);
             void updateSessionPrintStatus(localSessionCode, 'failed', String(err)).catch(console.warn);
           }
         } else {
@@ -238,6 +243,8 @@
             useSecondary,
           });
           printStatus = 'QUEUED';
+          sessionPayload.printStatus = 'failed';
+          sessionPayload.printError = check.reason || null;
           void updateSessionPrintStatus(localSessionCode, 'failed', check.reason).catch(console.warn);
         }
       })();

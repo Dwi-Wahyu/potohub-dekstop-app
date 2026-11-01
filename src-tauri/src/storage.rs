@@ -145,7 +145,6 @@ pub async fn open_sessions_dir(
                                         let name = sub_path.file_name().and_then(|n| n.to_str()).unwrap_or("");
                                         if name.starts_with(code_clean) || name.contains(code_clean) {
                                             target = sub_path;
-                                            found_specific_session = true;
                                             break 'search_date;
                                         }
                                     }
@@ -156,7 +155,6 @@ pub async fn open_sessions_dir(
                             let name = date_path.file_name().and_then(|n| n.to_str()).unwrap_or("");
                             if name.starts_with(code_clean) || name.contains(code_clean) {
                                 target = date_path;
-                                found_specific_session = true;
                                 break 'search_date;
                             }
                         }
@@ -172,8 +170,10 @@ pub async fn open_sessions_dir(
 
     #[cfg(target_os = "windows")]
     {
+        let path_str = target.to_string_lossy().replace('/', "\\");
+        let path_clean = path_str.trim_start_matches(r"\\?\").to_string();
         std::process::Command::new("explorer.exe")
-            .arg(&target)
+            .arg(&path_clean)
             .spawn()
             .map_err(|e| format!("Gagal membuka Windows Explorer: {}", e))?;
     }

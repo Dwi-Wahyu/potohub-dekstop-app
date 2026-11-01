@@ -124,33 +124,56 @@
   function handleKeyboardPress(charOrAction: string) {
     if (errorMessage) errorMessage = '';
     const targetInput = manualInputEl;
+    const isFocused = targetInput && document.activeElement === targetInput;
 
     if (charOrAction === 'BACKSPACE') {
-      if (targetInput && targetInput.selectionStart !== null && targetInput.selectionEnd !== null) {
+      if (isFocused && targetInput && targetInput.selectionStart !== null && targetInput.selectionEnd !== null) {
         const start = targetInput.selectionStart;
         const end = targetInput.selectionEnd;
         if (start === end && start > 0) {
           manualInput = manualInput.slice(0, start - 1) + manualInput.slice(end);
-          requestAnimationFrame(() => targetInput?.setSelectionRange(start - 1, start - 1));
+          const newPos = start - 1;
+          requestAnimationFrame(() => {
+            targetInput?.focus();
+            targetInput?.setSelectionRange(newPos, newPos);
+          });
+          return;
         } else if (start !== end) {
           manualInput = manualInput.slice(0, start) + manualInput.slice(end);
-          requestAnimationFrame(() => targetInput?.setSelectionRange(start, start));
+          requestAnimationFrame(() => {
+            targetInput?.focus();
+            targetInput?.setSelectionRange(start, start);
+          });
+          return;
         }
-      } else {
-        manualInput = manualInput.slice(0, -1);
       }
+      manualInput = manualInput.slice(0, -1);
+      requestAnimationFrame(() => {
+        targetInput?.focus();
+        const len = manualInput.length;
+        targetInput?.setSelectionRange(len, len);
+      });
     } else if (charOrAction === 'CLEAR') {
       manualInput = '';
       requestAnimationFrame(() => targetInput?.focus());
     } else {
-      if (targetInput && targetInput.selectionStart !== null && targetInput.selectionEnd !== null) {
+      const charToAdd = charOrAction.toUpperCase();
+      if (isFocused && targetInput && targetInput.selectionStart !== null && targetInput.selectionEnd !== null) {
         const start = targetInput.selectionStart;
         const end = targetInput.selectionEnd;
-        manualInput = manualInput.slice(0, start) + charOrAction + manualInput.slice(end);
-        const newCursor = start + charOrAction.length;
-        requestAnimationFrame(() => targetInput?.setSelectionRange(newCursor, newCursor));
+        manualInput = manualInput.slice(0, start) + charToAdd + manualInput.slice(end);
+        const newPos = start + charToAdd.length;
+        requestAnimationFrame(() => {
+          targetInput?.focus();
+          targetInput?.setSelectionRange(newPos, newPos);
+        });
       } else {
-        manualInput += charOrAction;
+        manualInput += charToAdd;
+        requestAnimationFrame(() => {
+          targetInput?.focus();
+          const len = manualInput.length;
+          targetInput?.setSelectionRange(len, len);
+        });
       }
     }
   }
@@ -251,7 +274,11 @@
           bind:value={manualInput}
           onfocus={() => (kbOpen = true)}
           onclick={() => (kbOpen = true)}
-          placeholder="Contoh: TKT-12345"
+          oninput={(e) => {
+            manualInput = (e.target as HTMLInputElement).value.toUpperCase();
+            if (errorMessage) errorMessage = '';
+          }}
+          placeholder="Contoh: 7K9P"
           onkeydown={(e) => e.key === 'Enter' && handleManualSubmit()}
           class="flex-1 px-4 py-2.5 rounded-xl bg-white/10 border border-white/20 text-white text-xs placeholder-white/30 outline-none focus:border-blue-400 focus:bg-white/15 uppercase font-mono tracking-wider"
         />

@@ -124,6 +124,41 @@ class CameraStore {
   }
 
   /**
+   * Cek kesehatan koneksi kamera secara cepat dan non-intrusif.
+   * Mengembalikan true jika kamera aktif terhubung, false jika terputus atau sleep.
+   */
+  async checkHealth(): Promise<boolean> {
+    if (this.cameraMode === "usb") {
+      try {
+        const isConnected = await invoke<boolean>("is_camera_connected").catch(() => false);
+        if (!isConnected) {
+          if (this.status === "connected") {
+            this.status = "error";
+            this.errorMessage = "Kamera USB tidak terdeteksi atau dalam keadaan sleep";
+          }
+          return false;
+        } else {
+          if (this.status !== "connected" && this.status !== "connecting") {
+            this.status = "connected";
+            this.errorMessage = null;
+          }
+          return true;
+        }
+      } catch {
+        return false;
+      }
+    } else if (this.cameraMode === "webcam") {
+      const ok = Boolean(this.stream && this.stream.active);
+      if (!ok && this.status === "connected") {
+        this.status = "error";
+        this.errorMessage = "Webcam stream tidak aktif";
+      }
+      return ok;
+    }
+    return true;
+  }
+
+  /**
    * Mengambil MediaStream webcam dengan resolusi ideal, dengan fallback graceful
    * jika webcam perangkat tidak mendukung constraint spesifik (mis. 720p/480p).
    */

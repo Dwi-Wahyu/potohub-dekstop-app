@@ -982,25 +982,69 @@ export interface RedeemQrTicketResponse {
   } | null;
 }
 
+/**
+ * Membersihkan dan menormalisasi token tiket QR baik dari hasil scan kamera
+ * (URL, query param, hash) maupun dari input manual (keyboard, touchscreen).
+ * Selalu mengembalikan token uppercase tanpa spasi internal.
+ */
+export function normalizeTicketToken(rawInput: string): string {
+  if (!rawInput) return '';
+  let token = rawInput.trim();
+
+  // 1. Decode URI component jika ter-encode (misal %20, %2F)
+  try {
+    if (token.includes('%')) {
+      token = decodeURIComponent(token);
+    }
+  } catch {}
+
+  // 2. Ekstrak token jika input berupa URL atau query string
+  if (token.includes('token=')) {
+    token = token.split('token=')[1].split('&')[0].split('#')[0];
+  } else if (token.includes('code=')) {
+    token = token.split('code=')[1].split('&')[0].split('#')[0];
+  } else if (token.includes('ticket=')) {
+    token = token.split('ticket=')[1].split('&')[0].split('#')[0];
+  } else if (token.includes('t=')) {
+    token = token.split('t=')[1].split('&')[0].split('#')[0];
+  } else if (token.includes('/qr-tickets/')) {
+    token = token.split('/qr-tickets/')[1].split('?')[0].split('/')[0].split('#')[0];
+  } else if (token.includes('/tickets/')) {
+    token = token.split('/tickets/')[1].split('?')[0].split('/')[0].split('#')[0];
+  }
+
+  // 3. Bersihkan tanda kutip atau kurung kurawal jika hasil scan JSON
+  token = token.replace(/^["'{]+|["'}]+$/g, '').trim();
+
+  // 4. Hapus semua spasi internal (misal: "7K 9P" -> "7K9P")
+  token = token.replace(/\s+/g, '');
+
+  // 5. Normalisasi selalu ke uppercase
+  return token.toUpperCase();
+}
+
 export async function validateAndRedeemQrTicket(
   token: string,
   boothId?: string,
 ): Promise<RedeemQrTicketResponse> {
-  const cleanToken = token.includes("token=")
-    ? token.split("token=")[1].split("&")[0]
-    : token.trim();
-  const cleanBoothId = boothId && boothId.trim() !== "" ? boothId.trim() : null;
+  const cleanToken = normalizeTicketToken(token);
+  // Validasi boothId: Hanya teruskan jika merupakan UUID valid, jika bukan kirim null agar tidak memicu 400 Bad Request di backend
+  const cleanBoothId = boothId && isValidUUID(boothId.trim()) ? boothId.trim() : null;
 
-  let res: Response;
-  try {
-    res = await fetch(`${API_BASE}/qr-tickets/redeem`, {
+  async function postRedeem(t: string): Promise<Response> {
+    return await fetch(`${API_BASE}/qr-tickets/redeem`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        token: cleanToken,
+        token: t,
         booth_id: cleanBoothId,
       }),
     });
+  }
+
+  let res: Response;
+  try {
+    res = await postRedeem(cleanToken);
   } catch (networkErr) {
     // Lempar ulang error jaringan asli agar pemanggil tahu ini masalah koneksi
     throw networkErr;
@@ -1010,6 +1054,41 @@ export async function validateAndRedeemQrTicket(
   if (!res.ok) {
     const errJson = await res.json().catch(() => null);
     const serverMessage = errJson?.message || "Tiket QR tidak valid atau telah digunakan";
+
+    // Fallback 1: Jika token memiliki prefix TKT- (misal input 'TKT-7K9P' padahal token di DB '7K9P')
+    if (cleanToken.startsWith('TKT-') && cleanToken.length > 4) {
+      const stripped = cleanToken.slice(4);
+      try {
+        const retryRes = await postRedeem(stripped);
+        if (retryRes.ok) {
+          const retryJson = await retryRes.json();
+          return {
+            ...retryJson,
+            valid: Boolean(retryJson.valid ?? retryJson.success ?? true),
+            success: true,
+          };
+        }
+      } catch {}
+    }
+
+    // Fallback 2: Jika token memiliki tanda strip '-' (misal input '7K-9P' padahal token '7K9P')
+    if (cleanToken.includes('-')) {
+      const noDash = cleanToken.replace(/-/g, '');
+      if (noDash.length > 0) {
+        try {
+          const retryRes = await postRedeem(noDash);
+          if (retryRes.ok) {
+            const retryJson = await retryRes.json();
+            return {
+              ...retryJson,
+              valid: Boolean(retryJson.valid ?? retryJson.success ?? true),
+              success: true,
+            };
+          }
+        } catch {}
+      }
+    }
+
     return {
       valid: false,
       success: false,
@@ -1097,9 +1176,7 @@ export interface RedeemTicketResult {
  *             begitu online lagi.
  */
 export async function redeemTicket(token: string, boothId: string): Promise<RedeemTicketResult> {
-  const cleanToken = token.includes('token=')
-    ? token.split('token=')[1].split('&')[0]
-    : token.trim();
+  const cleanToken = normalizeTicketToken(token);
 
   const { networkStatus } = await import('$lib/stores/networkStatus.svelte');
 

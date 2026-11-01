@@ -425,7 +425,8 @@ pub mod platform {
                     }
 
                     let mut stream: EdsStreamRef = ptr::null_mut();
-                    if (api.CreateMemoryStream)(dir_info.size, &mut stream) == EDS_ERR_OK || (api.CreateMemoryStream)(0, &mut stream) == EDS_ERR_OK {
+                    let stream_size = dir_info.size.try_into().unwrap_or(0);
+                    if (api.CreateMemoryStream)(stream_size, &mut stream) == EDS_ERR_OK || (api.CreateMemoryStream)(0, &mut stream) == EDS_ERR_OK {
                         let dl_err = (api.Download)(in_ref, dir_info.size, stream);
                         let _ = (api.DownloadComplete)(in_ref);
                         if dl_err == EDS_ERR_OK {

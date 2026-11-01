@@ -72,7 +72,7 @@ mod platform {
         let flags = PRINTER_ENUM_LOCAL | PRINTER_ENUM_CONNECTIONS;
         let mut printers: Vec<String> = Vec::new();
 
-        let mut push_unique = |name: String, list: &mut Vec<String>| {
+        let push_unique = |name: String, list: &mut Vec<String>| {
             let trimmed = name.trim().to_string();
             if !trimmed.is_empty() && !list.iter().any(|existing| existing.eq_ignore_ascii_case(&trimmed)) {
                 list.push(trimmed);
@@ -233,6 +233,7 @@ mod platform {
                 c_jobs = info.cJobs;
                 is_attr_offline = (info.Attributes & PRINTER_ATTRIBUTE_WORK_OFFLINE) != 0;
                 got_status = true;
+                
             }
         }
 
@@ -251,7 +252,7 @@ mod platform {
             };
             if get_res6 != 0 {
                 status_code = info6.dwStatus;
-                got_status = true;
+                
             }
         }
 

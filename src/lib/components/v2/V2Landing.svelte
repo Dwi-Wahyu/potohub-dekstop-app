@@ -5,6 +5,7 @@
   import IdleBannerModal from '$lib/components/shared/IdleBannerModal.svelte';
   import { setWindowDecorations, setWindowMinimizable } from '$lib/utils/windowControl';
   import OperatorAccessControl from '$lib/components/shared/OperatorAccessControl.svelte';
+  import DeviceWarningToast from '$lib/components/shared/DeviceWarningToast.svelte';
 
   interface Props {
     onStart: () => void;
@@ -112,6 +113,18 @@
 
   <!-- Idle Promo Banner Popup Slider -->
   <IdleBannerModal disabled={showPinModal} />
+
+  <!-- Safe warning toast jika perangkat (kamera/printer) belum siap -->
+  <DeviceWarningToast
+    variant="v2"
+    onOpenConfig={() => {
+      if (isOperatorUnlocked) {
+        onOpenConfig();
+      } else {
+        showPinModal = true;
+      }
+    }}
+  />
 
   <!-- Operator Access Control (Icon gembok di kanan atas, Minimize (-) dan Close (x) di kiri atas saat terbuka, Config Dashboard di kanan bawah) -->
   <OperatorAccessControl

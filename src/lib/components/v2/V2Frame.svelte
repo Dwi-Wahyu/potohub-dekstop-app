@@ -82,37 +82,50 @@
       if (timeLeft > 0) timeLeft--;
     }, 1000);
 
-    try {
-      const boothId = await requireActiveBoothId();
-      await cachedFetch(
-        `categories:${boothId}`,
-        () => fetchCategories(boothId),
-        (d) => { categoriesData = d; }
-      );
-      await cachedFetch(
-        `templates:${boothId}`,
-        () => fetchTemplates(boothId),
-        (d) => {
-          templatesData = d;
-          preloadAndResolveTemplateAssets(d, categoriesData);
+    const catalogPromise = (async () => {
+      try {
+        const boothId = await requireActiveBoothId();
+        await cachedFetch(
+          `categories:${boothId}`,
+          () => fetchCategories(boothId),
+          (d) => { categoriesData = d; }
+        );
+        await cachedFetch(
+          `templates:${boothId}`,
+          () => fetchTemplates(boothId),
+          (d) => {
+            templatesData = d;
+            preloadAndResolveTemplateAssets(d, categoriesData);
+          }
+        );
+        if (templatesData.length > 0) {
+          selectedFrame = templatesData[0].id;
         }
-      );
-      if (templatesData.length > 0) {
-        selectedFrame = templatesData[0].id;
+      } catch (err) {
+        console.error('[V2Frame] Failed to load dynamic catalog from backend:', err);
+      } finally {
+        loadingCatalog = false;
       }
-    } catch (err) {
-      console.error('[V2Frame] Failed to load dynamic catalog from backend:', err);
-    } finally {
-      loadingCatalog = false;
-    }
+    })();
 
     await cameraStore.startLiveview(videoEl);
     if (cameraStore.cameraMode === 'usb' || cameraStore.cameraMode === 'demo') {
+      const firstFrame = await cameraStore.getLiveviewFrame();
+      if (firstFrame) frameSrc = firstFrame;
+      let fetchingFrame = false;
       liveviewInterval = setInterval(async () => {
-        const url = await cameraStore.getLiveviewFrame();
-        if (url) frameSrc = url;
+        if (fetchingFrame) return;
+        fetchingFrame = true;
+        try {
+          const url = await cameraStore.getLiveviewFrame();
+          if (url) frameSrc = url;
+        } finally {
+          fetchingFrame = false;
+        }
       }, 150);
     }
+
+    await catalogPromise;
   });
 
   onDestroy(() => {
@@ -259,7 +272,7 @@
                     {/if}
                   {:else}
                     <div class="w-full h-full bg-black/40 relative overflow-hidden">
-                      {#if cameraStore.isLiveviewActive}
+                      {#if cameraStore.isLiveviewActive || frameSrc}
                         {#if cameraStore.cameraMode === 'webcam'}
                           <video
                             use:playStream={cameraStore.stream}
@@ -299,7 +312,7 @@
               >
                 {#each Array(cols * rows) as _, i}
                   <div class="border-2 border-black flex items-center justify-center overflow-hidden bg-black/30">
-                    {#if cameraStore.isLiveviewActive}
+                    {#if cameraStore.isLiveviewActive || frameSrc}
                       {#if cameraStore.cameraMode === 'webcam'}
                         <video
                           use:playStream={cameraStore.stream}

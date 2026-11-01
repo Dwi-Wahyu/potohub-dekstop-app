@@ -197,7 +197,7 @@ async fn get_camera_setting(
 ) -> Result<serde_json::Value, GphotoError> {
     #[cfg(target_os = "windows")]
     {
-        if canon_edsdk::platform::is_connected().await {
+        if canon_edsdk::platform::is_available() {
             return Ok(serde_json::json!({
                 "value": "auto",
                 "ability": ["auto"]
@@ -217,7 +217,7 @@ async fn set_camera_setting(
 ) -> Result<(), GphotoError> {
     #[cfg(target_os = "windows")]
     {
-        if canon_edsdk::platform::is_connected().await {
+        if canon_edsdk::platform::is_available() {
             return Ok(());
         }
     }
@@ -233,7 +233,7 @@ async fn capture_photo(
 ) -> Result<Vec<u8>, GphotoError> {
     #[cfg(target_os = "windows")]
     {
-        if canon_edsdk::platform::is_connected().await {
+        if canon_edsdk::platform::is_available() {
             let bytes = canon_edsdk::platform::capture_photo().await
                 .map_err(|e| GphotoError::Operation(e))?;
             return Ok(bytes);
@@ -252,7 +252,7 @@ async fn capture_photo(
 async fn start_liveview(state: State<'_, AppState>) -> Result<(), GphotoError> {
     #[cfg(target_os = "windows")]
     {
-        if canon_edsdk::platform::is_connected().await {
+        if canon_edsdk::platform::is_available() {
             canon_edsdk::platform::start_liveview().await
                 .map_err(|e| GphotoError::Operation(e))?;
             return Ok(());
@@ -267,7 +267,7 @@ async fn start_liveview(state: State<'_, AppState>) -> Result<(), GphotoError> {
 async fn stop_liveview(state: State<'_, AppState>) -> Result<(), GphotoError> {
     #[cfg(target_os = "windows")]
     {
-        if canon_edsdk::platform::is_connected().await {
+        if canon_edsdk::platform::is_available() {
             let _ = canon_edsdk::platform::stop_liveview().await;
             return Ok(());
         }
@@ -281,7 +281,7 @@ async fn stop_liveview(state: State<'_, AppState>) -> Result<(), GphotoError> {
 async fn get_liveview_frame(state: State<'_, AppState>) -> Result<Vec<u8>, GphotoError> {
     #[cfg(target_os = "windows")]
     {
-        if canon_edsdk::platform::is_connected().await {
+        if canon_edsdk::platform::is_available() {
             let bytes = canon_edsdk::platform::get_liveview_frame().await
                 .map_err(|e| GphotoError::Operation(e))?;
             state.liveview_buffer.lock().await.push(bytes.clone());

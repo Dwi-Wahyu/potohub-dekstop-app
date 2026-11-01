@@ -64,6 +64,7 @@ class CameraStore {
   isCapturing = $state(false);
   isLiveviewActive = $state(false);
   private currentLiveviewUrl: string | null = null;
+  private isFetchingFrame = false;
   stream = $state<MediaStream | null>(null);
   private videoElement: HTMLVideoElement | null = null;
   private offscreenVideo: HTMLVideoElement | null = null;
@@ -169,20 +170,7 @@ class CameraStore {
   private async internalConnect(mode: "usb" | "webcam" | "demo"): Promise<void> {
     await this.checkDevMode();
 
-    let targetMode = mode;
-    // Jika developer mengaktifkan VITE_ENABLE_DEV_WEBCAM / dev mode dan target masih 'usb',
-    // cek apakah ada DSLR fisik yang sudah terhubung. Jika tidak, langsung alihkan ke webcam
-    // agar UI tidak freeze atau menunggu timeout GPhoto2 autodetect yang lambat.
-    if (this.isDevMode && targetMode === "usb") {
-      let isUsbReady = false;
-      try {
-        isUsbReady = await invoke<boolean>("is_camera_connected").catch(() => false);
-      } catch {}
-      if (!isUsbReady) {
-        console.info("[CameraStore] Dev webcam aktif & tidak ada DSLR terhubung, beralih langsung ke webcam.");
-        targetMode = "webcam";
-      }
-    }
+    const targetMode = mode;
 
     if (targetMode === "usb") {
       try {
@@ -282,7 +270,13 @@ class CameraStore {
   }
 
   async capture(): Promise<Uint8Array | null> {
-    if (this.status !== "connected" || this.isCapturing) return null;
+    if (this.isCapturing) return null;
+    if (this.status === "idle" || this.status === "error") {
+      await this.connect(this.cameraMode);
+    } else if (this.status === "connecting" && this.connectingPromise) {
+      await this.connectingPromise;
+    }
+    if (this.status !== "connected") return null;
     this.isCapturing = true;
     this.errorMessage = null;
     try {
@@ -297,7 +291,7 @@ class CameraStore {
         return bytes;
       }
     } catch (err) {
-      this.errorMessage = String(err);
+      this.errorMessage = this.formatError(err);
       return null;
     } finally {
       this.isCapturing = false;
@@ -338,7 +332,7 @@ class CameraStore {
 
   async startLiveview(videoEl?: HTMLVideoElement | null) {
     if (this.status === "idle" || this.status === "error") {
-      await this.connect(this.isDevMode ? "webcam" : this.cameraMode);
+      await this.connect(this.cameraMode);
     } else if (this.status === "connecting" && this.connectingPromise) {
       await this.connectingPromise;
     }
@@ -348,11 +342,13 @@ class CameraStore {
       this.videoElement = videoEl;
     }
     if (this.cameraMode === "usb") {
+      this.isLiveviewActive = true;
       try {
         await invoke("start_liveview");
-        this.isLiveviewActive = true;
       } catch (err) {
-        this.errorMessage = String(err);
+        const msg = this.formatError(err);
+        console.warn("[startLiveview] warning:", msg);
+        this.errorMessage = msg;
       }
     } else if (this.cameraMode === "webcam") {
       try {
@@ -411,18 +407,38 @@ class CameraStore {
   }
 
   async getLiveviewFrame(): Promise<string | null> {
-    if (this.status !== "connected") return null;
+    if (this.status !== "connected") {
+      if (this.status === "idle" || this.status === "error") {
+        this.connect(this.cameraMode).catch(() => {});
+      }
+      return this.currentLiveviewUrl;
+    }
     if (this.cameraMode === "usb") {
+      if (this.isFetchingFrame) {
+        return this.currentLiveviewUrl;
+      }
+      this.isFetchingFrame = true;
       try {
         const bytes = await invoke<number[]>("get_liveview_frame");
-        const blob = new Blob([new Uint8Array(bytes)], { type: "image/jpeg" });
-        const url = URL.createObjectURL(blob);
-        this.cleanupLiveviewUrl();
-        this.currentLiveviewUrl = url;
-        return url;
+        if (bytes && bytes.length > 0) {
+          const blob = new Blob([new Uint8Array(bytes)], { type: "image/jpeg" });
+          const url = URL.createObjectURL(blob);
+          this.cleanupLiveviewUrl();
+          this.currentLiveviewUrl = url;
+          if (!this.isLiveviewActive) {
+            this.isLiveviewActive = true;
+          }
+          if (this.errorMessage) {
+            this.errorMessage = null;
+          }
+          return url;
+        }
+        return this.currentLiveviewUrl;
       } catch (err) {
         console.warn("[getLiveviewFrame] error:", err);
-        return null;
+        return this.currentLiveviewUrl;
+      } finally {
+        this.isFetchingFrame = false;
       }
     } else if (this.cameraMode === "webcam") {
       const video =

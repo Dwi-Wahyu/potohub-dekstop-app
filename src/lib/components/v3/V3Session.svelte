@@ -68,37 +68,53 @@
   }
 
   onMount(async () => {
-    try {
-      const boothId = await requireActiveBoothId();
-      await cachedFetch(
-        `templates:${boothId}`,
-        () => fetchTemplates(boothId),
-        (templates) => {
-          const matched = templates.find((t) => t.id === selectedFrame);
-          if (matched) {
-            selectedTemplate = matched;
-          } else if (templates[0]) {
-            selectedTemplate = templates[0];
-          }
-        }
-      );
-    } catch (err) {
-      console.error('[V3Session] Failed to fetch template in V3Session:', err);
-    }
-
-    await cameraStore.startLiveview(videoEl);
     timer = setInterval(() => {
       if (sessionSecs > 0) sessionSecs--;
     }, 1000);
 
+    const templatePromise = (async () => {
+      try {
+        const boothId = await requireActiveBoothId();
+        await cachedFetch(
+          `templates:${boothId}`,
+          () => fetchTemplates(boothId),
+          (templates) => {
+            const matched = templates.find((t) => t.id === selectedFrame);
+            if (matched) {
+              selectedTemplate = matched;
+            } else if (templates[0]) {
+              selectedTemplate = templates[0];
+            }
+          }
+        );
+      } catch (err) {
+        console.error('[V3Session] Failed to fetch template in V3Session:', err);
+      }
+    })();
+
+    await cameraStore.startLiveview(videoEl);
+
     if (cameraStore.cameraMode === 'usb' || cameraStore.cameraMode === 'demo') {
+      const firstFrame = await cameraStore.getLiveviewFrame();
+      if (firstFrame) {
+        frameSrc = firstFrame;
+      }
+      let fetchingFrame = false;
       liveviewInterval = setInterval(async () => {
-        const url = await cameraStore.getLiveviewFrame();
-        if (url) {
-          frameSrc = url;
+        if (fetchingFrame) return;
+        fetchingFrame = true;
+        try {
+          const url = await cameraStore.getLiveviewFrame();
+          if (url) {
+            frameSrc = url;
+          }
+        } finally {
+          fetchingFrame = false;
         }
       }, 150);
     }
+
+    await templatePromise;
   });
 
   onDestroy(() => {
@@ -305,7 +321,7 @@
                             </div>
                           </button>
                         {/if}
-                      {:else if cameraStore.isLiveviewActive}
+                      {:else if cameraStore.isLiveviewActive || frameSrc}
                         {#if cameraStore.cameraMode === 'webcam'}
                           <video
                             use:playStream={cameraStore.stream}
@@ -390,7 +406,7 @@
         {/each}
 
         <!-- Permanent Liveview Feed Layer -->
-        {#if cameraStore.isLiveviewActive}
+        {#if cameraStore.isLiveviewActive || frameSrc}
           {#if cameraStore.cameraMode === 'webcam'}
             <video
               use:playStream={cameraStore.stream}

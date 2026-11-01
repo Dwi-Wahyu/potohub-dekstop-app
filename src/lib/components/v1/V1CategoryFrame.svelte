@@ -153,7 +153,6 @@
   }
 
   onMount(async () => {
-    await loadCatalog();
     timer = setInterval(() => {
       if (secs > 0) secs--;
       else {
@@ -162,8 +161,14 @@
       }
     }, 1000);
 
+    const catalogPromise = loadCatalog();
+
     await cameraStore.startLiveview(videoEl);
     if (cameraStore.cameraMode === 'usb' || cameraStore.cameraMode === 'demo') {
+      const firstFrame = await cameraStore.getLiveviewFrame();
+      if (firstFrame) {
+        frameSrc = firstFrame;
+      }
       let fetchingFrame = false;
       liveviewInterval = setInterval(async () => {
         if (fetchingFrame) return;
@@ -178,6 +183,8 @@
         }
       }, 150);
     }
+
+    await catalogPromise;
   });
 
   onDestroy(() => {
@@ -440,7 +447,7 @@
                         {/if}
                       {:else}
                         <div class="w-full h-full bg-black/40 relative">
-                          {#if cameraStore.isLiveviewActive}
+                          {#if cameraStore.isLiveviewActive || frameSrc}
                             {#if cameraStore.cameraMode === 'webcam'}
                               <video
                                 use:playStream={cameraStore.stream}

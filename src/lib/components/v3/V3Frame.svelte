@@ -73,34 +73,47 @@
   ];
 
   onMount(async () => {
-    try {
-      const boothId = await requireActiveBoothId();
-      await cachedFetch(
-        `categories:${boothId}`,
-        () => fetchCategories(boothId),
-        (d) => { categoriesData = d; }
-      );
-      await cachedFetch(
-        `templates:${boothId}`,
-        () => fetchTemplates(boothId),
-        (d) => { templatesData = d; }
-      );
-      if (templatesData.length > 0) {
-        selectedFrame = templatesData[0].id;
+    const catalogPromise = (async () => {
+      try {
+        const boothId = await requireActiveBoothId();
+        await cachedFetch(
+          `categories:${boothId}`,
+          () => fetchCategories(boothId),
+          (d) => { categoriesData = d; }
+        );
+        await cachedFetch(
+          `templates:${boothId}`,
+          () => fetchTemplates(boothId),
+          (d) => { templatesData = d; }
+        );
+        if (templatesData.length > 0) {
+          selectedFrame = templatesData[0].id;
+        }
+      } catch (err) {
+        console.error('[V3Frame] Failed to load dynamic catalog from backend:', err);
+      } finally {
+        loadingCatalog = false;
       }
-    } catch (err) {
-      console.error('[V3Frame] Failed to load dynamic catalog from backend:', err);
-    } finally {
-      loadingCatalog = false;
-    }
+    })();
 
     await cameraStore.startLiveview(videoEl);
     if (cameraStore.cameraMode === 'usb' || cameraStore.cameraMode === 'demo') {
+      const firstFrame = await cameraStore.getLiveviewFrame();
+      if (firstFrame) frameSrc = firstFrame;
+      let fetchingFrame = false;
       liveviewInterval = setInterval(async () => {
-        const url = await cameraStore.getLiveviewFrame();
-        if (url) frameSrc = url;
+        if (fetchingFrame) return;
+        fetchingFrame = true;
+        try {
+          const url = await cameraStore.getLiveviewFrame();
+          if (url) frameSrc = url;
+        } finally {
+          fetchingFrame = false;
+        }
       }, 150);
     }
+
+    await catalogPromise;
   });
 
   onDestroy(() => {
@@ -245,7 +258,7 @@
                     class="w-full h-full rounded"
                     objectFit="contain"
                   />
-                {:else if cameraStore.isLiveviewActive}
+                {:else if cameraStore.isLiveviewActive || frameSrc}
                   <div class="w-full h-full flex flex-col gap-0.5 relative overflow-hidden">
                     {#each Array(Math.min(4, photoCount)) as _, j}
                       <div class="flex-1 bg-black/30 rounded-md overflow-hidden relative">

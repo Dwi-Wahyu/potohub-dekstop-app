@@ -63,7 +63,7 @@ class CameraStore {
 
   isCapturing = $state(false);
   isLiveviewActive = $state(false);
-  private currentLiveviewUrl: string | null = null;
+  currentLiveviewUrl = $state<string | null>(null);
   private isFetchingFrame = false;
   stream = $state<MediaStream | null>(null);
   private videoElement: HTMLVideoElement | null = null;
@@ -449,7 +449,9 @@ class CameraStore {
       return this.currentLiveviewUrl;
     }
     if (this.cameraMode === "usb") {
-      if (this.isFetchingFrame) {
+      // Saat kamera sedang mengeksekusi jepretan foto fisik (isCapturing), tahan request EVF
+      // agar tidak memicu collision/device busy (0x81) pada interface USB kamera.
+      if (this.isFetchingFrame || this.isCapturing) {
         return this.currentLiveviewUrl;
       }
       this.isFetchingFrame = true;

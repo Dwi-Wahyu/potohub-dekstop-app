@@ -80,7 +80,9 @@ pub mod platform {
     pub const kEdsCameraCommand_ExtendShutDownTimer: u32 = 0x00000001;
     pub const kEdsCameraCommand_PressShutterButton: u32 = 0x00000004;
     pub const kEdsCameraCommand_ShutterButton_OFF: i32 = 0x00000000;
+    pub const kEdsCameraCommand_ShutterButton_Halfway: i32 = 0x00000001;
     pub const kEdsCameraCommand_ShutterButton_Completely: i32 = 0x00000003;
+    pub const kEdsCameraCommand_ShutterButton_Halfway_NonAF: i32 = 0x00010001;
     pub const kEdsCameraCommand_ShutterButton_Completely_NonAF: i32 = 0x00010003;
 
     pub const kEdsObjectEvent_All: u32 = 0x00000200;
@@ -414,8 +416,16 @@ pub mod platform {
             if sender_guard.is_some() {
                 let mut dir_info: EdsDirectoryItemInfo = std::mem::zeroed();
                 if (api.GetDirectoryItemInfo)(in_ref, &mut dir_info) == EDS_ERR_OK {
+                    if dir_info.isFolder != 0 {
+                        log::debug!("[Canon-EDSDK] Mengabaikan event folder: size={}", dir_info.size);
+                        if !in_ref.is_null() {
+                            let _ = (api.Release)(in_ref);
+                        }
+                        return EDS_ERR_OK;
+                    }
+
                     let mut stream: EdsStreamRef = ptr::null_mut();
-                    if (api.CreateMemoryStream)(0, &mut stream) == EDS_ERR_OK {
+                    if (api.CreateMemoryStream)(dir_info.size, &mut stream) == EDS_ERR_OK || (api.CreateMemoryStream)(0, &mut stream) == EDS_ERR_OK {
                         let dl_err = (api.Download)(in_ref, dir_info.size, stream);
                         let _ = (api.DownloadComplete)(in_ref);
                         if dl_err == EDS_ERR_OK {
@@ -425,10 +435,13 @@ pub mod platform {
                             let _ = (api.GetLength)(stream, &mut data_len);
                             if !data_ptr.is_null() && data_len > 0 {
                                 let bytes = std::slice::from_raw_parts(data_ptr as *const u8, data_len as usize).to_vec();
+                                log::info!("[Canon-EDSDK] Sukses download foto dari kamera, ukuran: {} bytes", bytes.len());
                                 if let Some(sender) = sender_guard.take() {
                                     let _ = sender.send(bytes);
                                 }
                             }
+                        } else {
+                            log::warn!("[Canon-EDSDK] EdsDownload gagal (code: {:#X})", dl_err);
                         }
                         let _ = (api.Release)(stream);
                     }
@@ -529,12 +542,6 @@ pub mod platform {
         let model = CStr::from_ptr(dev_info.szDeviceDescription.as_ptr()).to_string_lossy().to_string();
         let port = CStr::from_ptr(dev_info.szPortName.as_ptr()).to_string_lossy().to_string();
 
-        let api_ctx = api as *const EdsdkApi as *mut c_void;
-        let _ = (api.SetObjectEventHandler)(cam_target, kEdsObjectEvent_All, Some(handle_object_event), api_ctx);
-        if let Some(set_state) = api.SetCameraStateEventHandler {
-            let _ = set_state(cam_target, kEdsStateEvent_All, Some(handle_state_event), ptr::null_mut());
-        }
-
         let mut session_err = (api.OpenSession)(cam_target);
         if session_err != EDS_ERR_OK {
             for attempt in 1..=5 {
@@ -550,10 +557,6 @@ pub mod platform {
                     }
                     if cam_target.is_null() {
                         break;
-                    }
-                    let _ = (api.SetObjectEventHandler)(cam_target, kEdsObjectEvent_All, Some(handle_object_event), api_ctx);
-                    if let Some(set_state) = api.SetCameraStateEventHandler {
-                        let _ = set_state(cam_target, kEdsStateEvent_All, Some(handle_state_event), ptr::null_mut());
                     }
                 } else {
                     std::thread::sleep(Duration::from_millis(250));
@@ -577,6 +580,15 @@ pub mod platform {
             } else {
                 return Err(format!("Gagal membuka sesi ke kamera Canon (code: {:#X}). Pastikan software EOS Utility ditutup dan kamera dalam mode M/P.", session_err));
             }
+        }
+
+        // Wajib pada Canon EDSDK: Daftarkan Event Handler SETELAH OpenSession berhasil dibuka
+        let api_ctx = api as *const EdsdkApi as *mut c_void;
+        let obj_res = (api.SetObjectEventHandler)(cam_target, kEdsObjectEvent_All, Some(handle_object_event), api_ctx);
+        log::info!("[Canon-Worker] SetObjectEventHandler registrasi hasil: {:#X}", obj_res);
+        if let Some(set_state) = api.SetCameraStateEventHandler {
+            let state_res = set_state(cam_target, kEdsStateEvent_All, Some(handle_state_event), ptr::null_mut());
+            log::info!("[Canon-Worker] SetCameraStateEventHandler registrasi hasil: {:#X}", state_res);
         }
 
         // Set SaveTo Host
@@ -962,10 +974,13 @@ pub mod platform {
                         unsafe {
                             let err = (api.SendCommand)(camera, kEdsCameraCommand_TakePicture, 0);
                             if err != EDS_ERR_OK {
-                                log::warn!("[Canon-Worker] TakePicture gagal ({:#X}), mencoba ShutterButton Completely_NonAF...", err);
+                                log::warn!("[Canon-Worker] TakePicture gagal ({:#X}), mencoba ShutterButton Halfway -> Completely_NonAF...", err);
                                 non_af_attempted = true;
+                                let _ = (api.SendCommand)(camera, kEdsCameraCommand_PressShutterButton, kEdsCameraCommand_ShutterButton_Halfway_NonAF);
+                                std::thread::sleep(Duration::from_millis(100));
+                                pump_messages();
                                 let _ = (api.SendCommand)(camera, kEdsCameraCommand_PressShutterButton, kEdsCameraCommand_ShutterButton_Completely_NonAF);
-                                std::thread::sleep(Duration::from_millis(60));
+                                std::thread::sleep(Duration::from_millis(250));
                                 pump_messages();
                                 let _ = (api.SendCommand)(camera, kEdsCameraCommand_PressShutterButton, kEdsCameraCommand_ShutterButton_OFF);
                             }
@@ -987,8 +1002,11 @@ pub mod platform {
                                     let _ = (api.SendCommand)(camera, kEdsCameraCommand_PressShutterButton, kEdsCameraCommand_ShutterButton_OFF);
                                     std::thread::sleep(Duration::from_millis(50));
                                     pump_messages();
+                                    let _ = (api.SendCommand)(camera, kEdsCameraCommand_PressShutterButton, kEdsCameraCommand_ShutterButton_Halfway_NonAF);
+                                    std::thread::sleep(Duration::from_millis(100));
+                                    pump_messages();
                                     let _ = (api.SendCommand)(camera, kEdsCameraCommand_PressShutterButton, kEdsCameraCommand_ShutterButton_Completely_NonAF);
-                                    std::thread::sleep(Duration::from_millis(60));
+                                    std::thread::sleep(Duration::from_millis(250));
                                     pump_messages();
                                     let _ = (api.SendCommand)(camera, kEdsCameraCommand_PressShutterButton, kEdsCameraCommand_ShutterButton_OFF);
                                 }
@@ -1011,7 +1029,9 @@ pub mod platform {
                         }
 
                         // Setelah foto diambil, kamera Canon otomatis mematikan EVF output ke PC.
-                        // Set LIVEVIEW_ACTIVE_FLAG ke false dan aktifkan kembali EVF agar liveview & video clip setelah foto langsung jalan.
+                        // Beri jeda kecil agar buffer internal kamera stabil sebelum re-enable EVF
+                        std::thread::sleep(Duration::from_millis(150));
+                        pump_messages();
                         LIVEVIEW_ACTIVE_FLAG.store(false, Ordering::SeqCst);
                         unsafe {
                             if !camera.is_null() {

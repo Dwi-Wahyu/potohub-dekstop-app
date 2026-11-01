@@ -216,7 +216,12 @@ class PrinterStore {
     }
 
     if (anyTransitionedToOnline) {
-      console.log("[printerStore] Printer transitioned OFFLINE -> ONLINE (auto queue flush dinonaktifkan per preferensi operator).");
+      console.log("[printerStore] Printer transitioned OFFLINE -> ONLINE. Memeriksa antrean cetak idle...");
+      if (typeof window !== 'undefined') {
+        import('./utils/idleCoordinator').then(({ checkAndFlushQueuesIfIdle }) => {
+          void checkAndFlushQueuesIfIdle();
+        });
+      }
     }
   }
 

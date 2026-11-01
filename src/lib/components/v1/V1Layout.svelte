@@ -41,6 +41,10 @@
   let selectedPrice = $state(35000);
   let selectedFrameConfigId = $state('grid4');
 
+  $effect(() => {
+    boothFlow.goTo(currentSubStep as any);
+  });
+
   let effectiveBasePrice = $derived(
     boothConfig.config.earlyPaymentPage && boothConfig.config.basePrice > 0
       ? boothConfig.config.basePrice
@@ -188,14 +192,12 @@
       background={getV1Bg('session')}
       frameConfigId={selectedFrameConfigId}
       onComplete={handleCameraComplete}
-      onBack={() => (currentSubStep = 'print_qty')}
     />
   {:else if currentSubStep === 'customize'}
     <V1Customize
       background={getV1Bg('filter')}
       photos={boothFlow.photosTaken}
       frameConfigId={selectedFrameConfigId}
-      onBack={() => (currentSubStep = 'camera')}
       onNext={handleCustomizeNext}
     />
   {:else if currentSubStep === 'complete'}

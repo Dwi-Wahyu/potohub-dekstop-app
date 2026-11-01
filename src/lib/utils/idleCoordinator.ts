@@ -15,7 +15,10 @@ export function isAppIdle(): boolean {
     return true;
   }
 
-  const isAtWelcome = boothFlow.step === 'welcome';
+  const isAtWelcome =
+    boothFlow.step === 'welcome' ||
+    (boothFlow.step as string) === 'landing' ||
+    (boothFlow.step as string) === 'start';
   const hasNoActiveSession = !boothFlow.sessionCode && boothFlow.photosTaken.length === 0;
   const notGenerating = !boothFlow.isGeneratingGif && !boothFlow.isGeneratingVideo;
 
@@ -24,13 +27,22 @@ export function isAppIdle(): boolean {
 
 /**
  * Pengecekan antrean idle.
- * Sesuai preferensi operator, auto-sync push & auto-print latar belakang dinonaktifkan
- * agar seluruh proses pengiriman softfile dan pencetakan fisik terverifikasi secara manual
- * oleh operator melalui tombol Upload & Cetak di ConfigDashboard / Dialog Sesi.
+ * Auto-print antrean foto fisik otomatis dieksekusi HANYA jika aplikasi berada dalam kondisi IDLE
+ * (layar awal/standby tanpa sesi pelanggan aktif).
  */
 export async function checkAndFlushQueuesIfIdle(): Promise<void> {
-  // Auto-sync & auto-print dinonaktifkan per permintaan operator.
-  // Eksekusi print & upload tertunda hanya dilakukan manual via operator dashboard.
+  if (!isAppIdle()) {
+    return;
+  }
+
+  try {
+    const res = await flushPrintQueue();
+    if (res.processed > 0) {
+      console.log(`[idleCoordinator] Sukses auto-print ${res.processed} job antrean saat idle.`);
+    }
+  } catch (err) {
+    console.warn('[idleCoordinator] Gagal flushPrintQueue saat idle:', err);
+  }
 }
 
 let watcherStarted = false;

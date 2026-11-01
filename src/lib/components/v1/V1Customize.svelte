@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
+  import { RotateCw } from '@lucide/svelte';
   import { FILTERS } from '$lib/utils/filters';
   import { uiConfig } from '$lib/stores/uiConfig.svelte';
   import { boothFlow } from '$lib/stores/booth.svelte';
@@ -25,12 +26,11 @@
   interface Props {
     photos: string[];
     frameConfigId?: string;
-    onBack: () => void;
     onNext: () => void;
     background?: string;
   }
 
-  let { photos, frameConfigId = '', onBack, onNext, background }: Props = $props();
+  let { photos, frameConfigId = '', onNext, background }: Props = $props();
 
   let selectedTemplate = $state<BoothTemplate | null>(null);
   let emotsData = $state<BoothEmot[]>([]);
@@ -75,7 +75,7 @@
       if (secs > 0) secs--;
       else {
         clearInterval(timer);
-        onBack();
+        onNext();
       }
     }, 1000);
   });
@@ -192,16 +192,6 @@
       <div class="shrink-0 border-t border-gray-100 pt-4">
         <StickerPicker onPick={addSticker} emots={emotsData} onUndo={removeLastSticker} onClear={clearStickers} count={stickers.length} />
       </div>
-
-      <button
-        onclick={onBack}
-        class="shrink-0 self-start flex items-center gap-1.5 bg-transparent border-none text-[#bbb] text-[13px] font-medium cursor-pointer p-0 hover:text-[#888]"
-      >
-        <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
-          <path d="M15.75 19.5L8.25 12l7.5-7.5" stroke-linecap="round" stroke-linejoin="round" />
-        </svg>
-        Ambil Ulang
-      </button>
     </div>
 
     <!-- Film strip preview card -->

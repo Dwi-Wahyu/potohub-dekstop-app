@@ -46,6 +46,10 @@
   let step = $state<V2Step>('landing');
   let selectedFrameId = $state('strip-2x4');
 
+  $effect(() => {
+    boothFlow.goTo(step as any);
+  });
+
   function handleStart() {
     step = 'tutorial';
   }
@@ -167,10 +171,9 @@
       background={getV2Bg('session')}
       selectedFrame={selectedFrameId}
       onComplete={handleSessionComplete}
-      onBack={() => (step = 'frame')}
     />
   {:else if step === 'filter'}
-    <V2Filter background={getV2Bg('filter')} selectedFrame={selectedFrameId} onNext={handleFilterNext} onBack={() => (step = 'session')} />
+    <V2Filter background={getV2Bg('filter')} selectedFrame={selectedFrameId} onNext={handleFilterNext} />
   {:else if step === 'download'}
     <V2Download background={getV2Bg('download')} selectedFrame={selectedFrameId} onDone={handleDone} />
   {/if}

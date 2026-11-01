@@ -39,6 +39,10 @@
   let selectedPackage = $state<StoreCategory | null>(null);
   let selectedFrameId = $state('frame1');
 
+  $effect(() => {
+    boothFlow.goTo(step as any);
+  });
+
   function handleStart() {
     step = 'tutorial';
   }
@@ -203,9 +207,9 @@
       }}
     />
   {:else if step === 'session'}
-    <V3Session background={getV3Bg('session')} selectedFrame={selectedFrameId} onComplete={handleSessionComplete} onBack={() => (step = 'frame')} />
+    <V3Session background={getV3Bg('session')} selectedFrame={selectedFrameId} onComplete={handleSessionComplete} />
   {:else if step === 'filter'}
-    <V3Filter background={getV3Bg('filter')} selectedFrame={selectedFrameId} onNext={handleFilterNext} onBack={() => (step = 'session')} />
+    <V3Filter background={getV3Bg('filter')} selectedFrame={selectedFrameId} onNext={handleFilterNext} />
   {:else if step === 'loading'}
     <V3Loading background={getV3Bg('loading')} onDone={handleLoadingDone} />
   {:else if step === 'download'}

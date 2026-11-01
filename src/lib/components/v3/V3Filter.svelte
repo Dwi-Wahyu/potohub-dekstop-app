@@ -27,11 +27,11 @@
   interface Props {
     selectedFrame?: string;
     onNext: () => void;
-    onBack: () => void;
+    onBack?: () => void;
     background?: string;
   }
 
-  let { selectedFrame = '', onNext, onBack, background }: Props = $props();
+  let { selectedFrame = '', onNext, background }: Props = $props();
 
   let selectedFilter = $state('none');
   let emotsData = $state<BoothEmot[]>([]);

@@ -19,11 +19,11 @@
   interface Props {
     selectedFrame: string;
     onComplete: (photos: string[]) => void;
-    onBack: () => void;
+    onBack?: () => void;
     background?: string;
   }
 
-  let { selectedFrame, onComplete, onBack, background }: Props = $props();
+  let { selectedFrame, onComplete, background }: Props = $props();
 
   let selectedTemplate = $state<BoothTemplate | null>(null);
   let templateLayers = $derived(getTemplateLayers(selectedTemplate));
@@ -69,7 +69,22 @@
 
   onMount(async () => {
     timer = setInterval(() => {
-      if (sessionSecs > 0) sessionSecs--;
+      if (sessionSecs > 0) {
+        sessionSecs--;
+        if (sessionSecs === 0) {
+          clearInterval(timer);
+          if (!isRunning) {
+            onComplete(boothFlow.photosTaken);
+          } else {
+            const checkDone = setInterval(() => {
+              if (!isRunning) {
+                clearInterval(checkDone);
+                onComplete(boothFlow.photosTaken);
+              }
+            }, 300);
+          }
+        }
+      }
     }, 1000);
 
     const templatePromise = (async () => {

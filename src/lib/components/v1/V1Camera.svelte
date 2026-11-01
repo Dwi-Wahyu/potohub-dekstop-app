@@ -19,12 +19,12 @@
 
   interface Props {
     onComplete: (photos: string[]) => void;
-    onBack: () => void;
+    onBack?: () => void;
     frameConfigId?: string;
     background?: string;
   }
 
-  let { onComplete, onBack, frameConfigId = '', background }: Props = $props();
+  let { onComplete, frameConfigId = '', background }: Props = $props();
 
   let selectedTemplate = $state<BoothTemplate | null>(null);
   let templateLayers = $derived(getTemplateLayers(selectedTemplate));
@@ -70,7 +70,22 @@
 
   onMount(async () => {
     timer = setInterval(() => {
-      if (sessionSecs > 0) sessionSecs--;
+      if (sessionSecs > 0) {
+        sessionSecs--;
+        if (sessionSecs === 0) {
+          clearInterval(timer);
+          if (!isRunning) {
+            onComplete(boothFlow.photosTaken);
+          } else {
+            const checkDone = setInterval(() => {
+              if (!isRunning) {
+                clearInterval(checkDone);
+                onComplete(boothFlow.photosTaken);
+              }
+            }, 300);
+          }
+        }
+      }
     }, 1000);
 
     const templatePromise = (async () => {
@@ -444,25 +459,40 @@
           {/if}
         </div>
 
-        <button
-          onclick={() => allDone && onComplete(boothFlow.photosTaken)}
-          disabled={!allDone}
-          class={`shrink-0 flex items-center justify-center gap-2 border-none rounded-full px-8 py-4 font-bold text-base transition-all ${
-            allDone ? 'bg-[#111117] text-white cursor-pointer hover:bg-[#2a2838]' : 'bg-[#e8e4df] text-[#bbb] cursor-default'
-          }`}
-        >
-          Lanjut
-          <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
-            <path d="M8.25 4.5l7.5 7.5-7.5 7.5" stroke-linecap="round" stroke-linejoin="round" />
-          </svg>
-        </button>
-
-        {#if !isRunning}
+        {#if allDone}
+          <div class="shrink-0 flex items-center gap-2 w-full">
+            <button
+              type="button"
+              onclick={() => handleRetakeSingle(activeRetakeIdx ?? 0)}
+              disabled={isRunning}
+              class="flex-1 flex items-center justify-center gap-2 bg-[#f4ece3] hover:bg-[#e8ded3] text-[#111117] border-none rounded-full px-4 py-3.5 font-bold text-sm cursor-pointer transition-all active:scale-95 shadow-sm"
+              title="Ambil ulang foto pada slot yang dipilih"
+            >
+              <RotateCw size={15} />
+              <span>Retake {activeRetakeIdx !== null ? `Foto ${activeRetakeIdx + 1}` : 'Foto'}</span>
+            </button>
+            <button
+              type="button"
+              onclick={() => onComplete(boothFlow.photosTaken)}
+              disabled={isRunning}
+              class="flex-1 flex items-center justify-center gap-2 bg-[#111117] hover:bg-[#2a2838] text-white border-none rounded-full px-4 py-3.5 font-bold text-sm cursor-pointer transition-all active:scale-95 shadow-sm"
+            >
+              Lanjut
+              <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+                <path d="M8.25 4.5l7.5 7.5-7.5 7.5" stroke-linecap="round" stroke-linejoin="round" />
+              </svg>
+            </button>
+          </div>
+        {:else}
           <button
-            onclick={onBack}
-            class="shrink-0 flex items-center justify-center gap-1.5 bg-transparent border-none text-[#bbb] text-xs font-medium cursor-pointer py-1 hover:text-[#888]"
+            type="button"
+            disabled={true}
+            class="shrink-0 flex items-center justify-center gap-2 border-none rounded-full px-8 py-4 font-bold text-base transition-all bg-[#e8e4df] text-[#bbb] cursor-default"
           >
-            Kembali
+            Lanjut
+            <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+              <path d="M8.25 4.5l7.5 7.5-7.5 7.5" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
           </button>
         {/if}
       </div>

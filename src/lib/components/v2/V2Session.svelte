@@ -19,11 +19,11 @@
   interface Props {
     selectedFrame: string;
     onComplete: (photos: string[]) => void;
-    onBack: () => void;
+    onBack?: () => void;
     background?: string;
   }
 
-  let { selectedFrame, onComplete, onBack, background }: Props = $props();
+  let { selectedFrame, onComplete, background }: Props = $props();
 
   let selectedTemplate = $state<BoothTemplate | null>(null);
   let templateLayers = $derived(getTemplateLayers(selectedTemplate));
@@ -69,7 +69,22 @@
 
   onMount(async () => {
     timer = setInterval(() => {
-      if (sessionSecs > 0) sessionSecs--;
+      if (sessionSecs > 0) {
+        sessionSecs--;
+        if (sessionSecs === 0) {
+          clearInterval(timer);
+          if (!isRunning) {
+            onComplete(boothFlow.photosTaken);
+          } else {
+            const checkDone = setInterval(() => {
+              if (!isRunning) {
+                clearInterval(checkDone);
+                onComplete(boothFlow.photosTaken);
+              }
+            }, 300);
+          }
+        }
+      }
     }, 1000);
 
     const templatePromise = (async () => {
@@ -497,21 +512,18 @@
           </button>
         {/if}
 
-        <!-- <button
-          onclick={handleRetake}
-          disabled={sessionsDone === 0 || isRunning}
-          class={`w-full py-3 border-2 border-black rounded-xl font-bold tracking-widest uppercase flex items-center justify-center gap-2 transition-all cursor-pointer bg-white ${
-            sessionsDone > 0 && !isRunning
-              ? 'hover:bg-gray-100 shadow-[4px_4px_0_0_rgba(0,0,0,1)] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none text-black'
-              : 'opacity-30 cursor-not-allowed bg-gray-50 text-gray-400'
-          }`}
-        >
-          <RefreshCw size={16} strokeWidth={2.5} /> Retake
-        </button> -->
-
         {#if allDone}
           <button
+            onclick={() => handleRetakeSingle(activeRetakeIdx ?? 0)}
+            disabled={isRunning}
+            class="w-full py-3.5 border-2 border-black rounded-xl font-bold tracking-widest uppercase flex items-center justify-center gap-2 transition-all cursor-pointer bg-white hover:bg-gray-100 shadow-[4px_4px_0_0_rgba(0,0,0,1)] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none text-black"
+          >
+            <RotateCw size={16} strokeWidth={2.5} />
+            Retake {activeRetakeIdx !== null ? `Foto ${activeRetakeIdx + 1}` : 'Foto'}
+          </button>
+          <button
             onclick={() => onComplete(boothFlow.photosTaken)}
+            disabled={isRunning}
             class="w-full py-4 border-2 border-black bg-black text-white rounded-xl font-bold tracking-widest uppercase flex items-center justify-center gap-2 hover:bg-gray-800 shadow-[4px_4px_0_0_rgba(200,200,200,1)] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none transition-all cursor-pointer"
           >
             Finish <ArrowRight size={18} strokeWidth={3} />

@@ -32,9 +32,11 @@ export async function prefetchBoothAssets(boothId: string): Promise<void> {
 
   const urls = new Set<string>(collectAssetUrls());
   if (categories.status === 'fulfilled') {
+    void writeApiCache(`categories:${boothId}`, categories.value);
     for (const c of categories.value) if (c.banner_url) urls.add(c.banner_url);
   }
   if (templates.status === 'fulfilled') {
+    void writeApiCache(`templates:${boothId}`, templates.value);
     for (const t of templates.value) {
       if (t.preview_image_url) urls.add(t.preview_image_url);
       if (t.frame_image_url) urls.add(t.frame_image_url);

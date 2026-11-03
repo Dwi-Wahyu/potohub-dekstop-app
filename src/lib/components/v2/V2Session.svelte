@@ -8,17 +8,22 @@
   import { formatTime, getLiveviewTransformStyle } from '$lib/utils/shared';
   import { fetchTemplates, requireActiveBoothId, type BoothTemplate } from '$lib/api/boothClient';
   import { cachedFetch } from '$lib/utils/offlineCache';
-  import { getSortedPhotoSlots, getTemplateLayers, getLayerZIndex } from '$lib/utils/templateComposite';
+  import {
+    getSortedPhotoSlots,
+    getTemplateLayers,
+    getLayerZIndex,
+    getTemplatePreviewBoxStyle
+  } from '$lib/utils/templateComposite';
   import { QrCode, Camera, RefreshCw, ArrowRight, Search, RotateCw, FlipHorizontal2 } from '@lucide/svelte';
 
   interface Props {
     selectedFrame: string;
     onComplete: (photos: string[]) => void;
-    onBack: () => void;
+    onBack?: () => void;
     background?: string;
   }
 
-  let { selectedFrame, onComplete, onBack, background }: Props = $props();
+  let { selectedFrame, onComplete, background }: Props = $props();
 
   let selectedTemplate = $state<BoothTemplate | null>(null);
   let templateLayers = $derived(getTemplateLayers(selectedTemplate));
@@ -63,37 +68,68 @@
   }
 
   onMount(async () => {
-    try {
-      const boothId = await requireActiveBoothId();
-      await cachedFetch(
-        `templates:${boothId}`,
-        () => fetchTemplates(boothId),
-        (templates) => {
-          const matched = templates.find((t) => t.id === selectedFrame);
-          if (matched) {
-            selectedTemplate = matched;
-          } else if (templates[0]) {
-            selectedTemplate = templates[0];
+    timer = setInterval(() => {
+      if (sessionSecs > 0) {
+        sessionSecs--;
+        if (sessionSecs === 0) {
+          clearInterval(timer);
+          if (!isRunning) {
+            onComplete(boothFlow.photosTaken);
+          } else {
+            const checkDone = setInterval(() => {
+              if (!isRunning) {
+                clearInterval(checkDone);
+                onComplete(boothFlow.photosTaken);
+              }
+            }, 300);
           }
         }
-      );
-    } catch (err) {
-      console.error('[V2Session] Failed to fetch template in V2Session:', err);
-    }
-
-    await cameraStore.startLiveview(videoEl);
-    timer = setInterval(() => {
-      if (sessionSecs > 0) sessionSecs--;
+      }
     }, 1000);
 
+    const templatePromise = (async () => {
+      try {
+        const boothId = await requireActiveBoothId();
+        await cachedFetch(
+          `templates:${boothId}`,
+          () => fetchTemplates(boothId),
+          (templates) => {
+            const matched = templates.find((t) => t.id === selectedFrame);
+            if (matched) {
+              selectedTemplate = matched;
+            } else if (templates[0]) {
+              selectedTemplate = templates[0];
+            }
+          }
+        );
+      } catch (err) {
+        console.error('[V2Session] Failed to fetch template in V2Session:', err);
+      }
+    })();
+
+    await cameraStore.startLiveview(videoEl);
+
     if (cameraStore.cameraMode === 'usb' || cameraStore.cameraMode === 'demo') {
+      const firstFrame = await cameraStore.getLiveviewFrame();
+      if (firstFrame) {
+        frameSrc = firstFrame;
+      }
+      let fetchingFrame = false;
       liveviewInterval = setInterval(async () => {
-        const url = await cameraStore.getLiveviewFrame();
-        if (url) {
-          frameSrc = url;
+        if (fetchingFrame) return;
+        fetchingFrame = true;
+        try {
+          const url = await cameraStore.getLiveviewFrame();
+          if (url) {
+            frameSrc = url;
+          }
+        } finally {
+          fetchingFrame = false;
         }
       }, 150);
     }
+
+    await templatePromise;
   });
 
   onDestroy(() => {
@@ -135,23 +171,33 @@
     }, 2000);
 
     try {
-      const bytes = await cameraStore.capture();
+      let bytes = await cameraStore.capture();
+      if (!bytes && cameraStore.cameraMode === 'usb') {
+        console.warn(`[V2Session] Retake slot ${index + 1} pertama null, retry dalam 500ms...`);
+        await new Promise((r) => setTimeout(r, 500));
+        bytes = await cameraStore.capture();
+      }
+
       let photoUrl = '';
-      if (bytes) {
+      if (bytes && bytes.length > 0) {
         const blob = new Blob([bytes], { type: 'image/jpeg' });
         photoUrl = URL.createObjectURL(blob);
       } else {
-        const canvas = document.createElement('canvas');
-        canvas.width = 640;
-        canvas.height = 480;
-        const ctx = canvas.getContext('2d');
-        if (ctx) {
-          ctx.fillStyle = '#3b82f6';
-          ctx.fillRect(0, 0, canvas.width, canvas.height);
-          ctx.fillStyle = '#ffffff';
-          ctx.font = '30px sans-serif';
-          ctx.fillText(`Photo ${index + 1}`, 240, 240);
-          photoUrl = canvas.toDataURL('image/jpeg');
+        photoUrl = cameraStore.currentLiveviewUrl || '';
+        if (!photoUrl) {
+          const canvas = document.createElement('canvas');
+          canvas.width = 1200;
+          canvas.height = 800;
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            ctx.fillStyle = '#1e1b4b';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = '#ffffff';
+            ctx.font = 'bold 36px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText(`Photo ${index + 1}`, canvas.width / 2, canvas.height / 2);
+            photoUrl = canvas.toDataURL('image/jpeg');
+          }
         }
       }
 
@@ -262,7 +308,7 @@
       {/if}
 
       <!-- Permanent Liveview Feed Layer -->
-      {#if cameraStore.isLiveviewActive}
+      {#if cameraStore.isLiveviewActive || frameSrc}
         {#if cameraStore.cameraMode === 'webcam'}
           <video
             use:playStream={cameraStore.stream}
@@ -372,13 +418,13 @@
       </h3>
 
       <!-- Selected template preview with liveview & photos -->
-      <div class="flex-1 flex flex-col items-center justify-center min-h-0 py-2 overflow-hidden">
+      <div class="flex-1 flex flex-col items-center justify-center min-h-0 py-2 overflow-hidden" style="container-type: size;">
         {#if selectedTemplate}
           {@const tWidth = selectedTemplate.width || 1200}
           {@const tHeight = selectedTemplate.height || 1800}
           <div
-            class="relative h-full max-w-full overflow-hidden rounded-xl bg-black/40 shadow-[4px_4px_0_0_#000] border-[2.5px] border-black"
-            style="aspect-ratio: {tWidth} / {tHeight};"
+            class="relative overflow-hidden rounded-xl bg-black/40 shadow-[4px_4px_0_0_#000] border-[2.5px] border-black"
+            style={getTemplatePreviewBoxStyle(tWidth, tHeight)}
           >
             {#if templateLayers.length > 0}
               {#each templateLayers.filter((l) => !l.isQr) as layer, idx (layer.id ?? idx)}
@@ -399,7 +445,7 @@
                   "
                 >
                   {#if layer.isBackground}
-                    {@const layerBgUrl = layer.imageUrl || bgUrl}
+                    {@const layerBgUrl = uiConfig.resolveAssetUrl(layer.imageUrl || bgUrl)}
                     {#if layerBgUrl}
                       <img
                         src={layerBgUrl}
@@ -427,7 +473,7 @@
                             </div>
                           </button>
                         {/if}
-                      {:else if cameraStore.isLiveviewActive}
+                      {:else if cameraStore.isLiveviewActive || frameSrc}
                         {#if cameraStore.cameraMode === 'webcam'}
                           <video
                             use:playStream={cameraStore.stream}
@@ -476,21 +522,18 @@
           </button>
         {/if}
 
-        <!-- <button
-          onclick={handleRetake}
-          disabled={sessionsDone === 0 || isRunning}
-          class={`w-full py-3 border-2 border-black rounded-xl font-bold tracking-widest uppercase flex items-center justify-center gap-2 transition-all cursor-pointer bg-white ${
-            sessionsDone > 0 && !isRunning
-              ? 'hover:bg-gray-100 shadow-[4px_4px_0_0_rgba(0,0,0,1)] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none text-black'
-              : 'opacity-30 cursor-not-allowed bg-gray-50 text-gray-400'
-          }`}
-        >
-          <RefreshCw size={16} strokeWidth={2.5} /> Retake
-        </button> -->
-
         {#if allDone}
           <button
+            onclick={() => handleRetakeSingle(activeRetakeIdx ?? 0)}
+            disabled={isRunning}
+            class="w-full py-3.5 border-2 border-black rounded-xl font-bold tracking-widest uppercase flex items-center justify-center gap-2 transition-all cursor-pointer bg-white hover:bg-gray-100 shadow-[4px_4px_0_0_rgba(0,0,0,1)] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none text-black"
+          >
+            <RotateCw size={16} strokeWidth={2.5} />
+            Retake {activeRetakeIdx !== null ? `Foto ${activeRetakeIdx + 1}` : 'Foto'}
+          </button>
+          <button
             onclick={() => onComplete(boothFlow.photosTaken)}
+            disabled={isRunning}
             class="w-full py-4 border-2 border-black bg-black text-white rounded-xl font-bold tracking-widest uppercase flex items-center justify-center gap-2 hover:bg-gray-800 shadow-[4px_4px_0_0_rgba(200,200,200,1)] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none transition-all cursor-pointer"
           >
             Finish <ArrowRight size={18} strokeWidth={3} />

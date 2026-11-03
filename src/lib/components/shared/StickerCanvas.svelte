@@ -1,5 +1,6 @@
 <script lang="ts">
   import { STICKER_EMOJI_PX, STICKER_IMAGE_PX, type Sticker } from '$lib/utils/stickers';
+  import { uiConfig } from '$lib/stores/uiConfig.svelte';
   import type { Snippet } from 'svelte';
   import { Trash2, X } from '@lucide/svelte';
 
@@ -99,7 +100,7 @@
         width: 72px;
         height: 72px;
         border-radius: 999px;
-        z-index: 40;
+        z-index: 130;
         background: {overTrash ? '#ef4444' : 'rgba(0,0,0,0.6)'};
         color: #fff;
         border: 3px solid #fff;
@@ -126,7 +127,7 @@
         user-select: none;
         touch-action: none;
         filter: drop-shadow(0 2px 4px rgba(0,0,0,0.3));
-        z-index: {isSel ? 30 : 20};
+        z-index: {isSel ? 120 : 100};
         line-height: 1;
         padding: 10px;
         border-radius: 10px;
@@ -161,7 +162,7 @@
       {/if}
       {#if s.type === 'image' && s.imageUrl}
         <img
-          src={s.imageUrl}
+          src={uiConfig.resolveAssetUrl(s.imageUrl)}
           alt="Sticker"
           class="pointer-events-none block select-none"
           style="

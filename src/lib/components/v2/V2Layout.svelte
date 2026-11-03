@@ -46,6 +46,10 @@
   let step = $state<V2Step>('landing');
   let selectedFrameId = $state('strip-2x4');
 
+  $effect(() => {
+    boothFlow.goTo(step as any);
+  });
+
   function handleStart() {
     step = 'tutorial';
   }
@@ -56,6 +60,7 @@
 
   function handleTutorialNext() {
     if (boothConfig.config.skipPayment) {
+      boothFlow.paymentMethod = 'Cash';
       step = 'frame';
     } else if (boothConfig.config.earlyPaymentPage) {
       step = 'payment';
@@ -66,13 +71,16 @@
 
   function handlePaymentSelect(method: 'ticket' | 'cashless') {
     if (method === 'ticket') {
+      boothFlow.paymentMethod = 'Ticket';
       step = 'ticket';
     } else {
+      boothFlow.paymentMethod = 'Cashless';
       step = 'qris';
     }
   }
 
   function handleTicketConfirm() {
+    boothFlow.paymentMethod = 'Ticket';
     if (boothConfig.config.earlyPaymentPage) {
       step = 'frame';
     } else {
@@ -81,6 +89,7 @@
   }
 
   function handleQrisSuccess() {
+    boothFlow.paymentMethod = 'Cashless';
     if (boothConfig.config.earlyPaymentPage) {
       step = 'frame';
     } else {
@@ -90,7 +99,9 @@
 
   function handleSelectFrame(frameId: string) {
     selectedFrameId = frameId;
+    boothFlow.selectedFrameId = frameId;
     if (boothConfig.config.skipPayment) {
+      boothFlow.paymentMethod = 'Cash';
       step = 'session';
     } else if (boothConfig.config.earlyPaymentPage) {
       step = 'session';
@@ -160,10 +171,9 @@
       background={getV2Bg('session')}
       selectedFrame={selectedFrameId}
       onComplete={handleSessionComplete}
-      onBack={() => (step = 'frame')}
     />
   {:else if step === 'filter'}
-    <V2Filter background={getV2Bg('filter')} selectedFrame={selectedFrameId} onNext={handleFilterNext} onBack={() => (step = 'session')} />
+    <V2Filter background={getV2Bg('filter')} selectedFrame={selectedFrameId} onNext={handleFilterNext} />
   {:else if step === 'download'}
     <V2Download background={getV2Bg('download')} selectedFrame={selectedFrameId} onDone={handleDone} />
   {/if}

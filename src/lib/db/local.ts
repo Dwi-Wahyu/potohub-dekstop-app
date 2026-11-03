@@ -140,6 +140,9 @@ export async function saveUserSession(data: UserSession): Promise<void> {
 
 export async function clearUserSession(): Promise<void> {
   try {
+    if (typeof window !== "undefined") {
+      localStorage.removeItem("potohub_refresh_token");
+    }
     const conn = await db();
     await conn.execute("DELETE FROM user_session WHERE id = 1");
   } catch (e) {
@@ -322,9 +325,22 @@ export async function replaceQrTicketCache(
 
 export async function findCachedTicket(token: string, boothId: string): Promise<CachedQrTicket | null> {
   const conn = await db();
+  const clean = token.trim();
+  const upper = clean.toUpperCase();
+  const noDash = upper.replace(/-/g, '');
+  const noTkt = upper.startsWith('TKT-') ? upper.slice(4) : upper;
+
   const rows = await conn.select<any[]>(
-    "SELECT * FROM qr_ticket_cache WHERE token = $1 AND booth_id = $2",
-    [token, boothId],
+    `SELECT * FROM qr_ticket_cache 
+     WHERE (
+       token = $1 COLLATE NOCASE 
+       OR UPPER(token) = $2
+       OR REPLACE(UPPER(token), '-', '') = $3
+       OR UPPER(token) = $4
+     ) 
+     AND (booth_id = $5 OR $5 = '' OR $5 = 'default' OR $5 IS NULL)
+     LIMIT 1`,
+    [clean, upper, noDash, noTkt, boothId],
   );
   if (!rows.length) return null;
   const r = rows[0];
@@ -447,6 +463,233 @@ export async function countPendingOutboxJobs(): Promise<number> {
   return Number(rows[0]?.c ?? 0);
 }
 
+export interface SessionHistoryItem {
+  id: number;
+  sessionCode: string;
+  status: 'pending' | 'processing' | 'done' | 'dead_letter';
+  attempts: number;
+  lastError: string | null;
+  createdAt: number;
+  softfileTarget: string | null;
+  compositePath: string | null;
+  printQty: number;
+  paperSize?: string;
+  useSecondary?: boolean;
+  printStatus?: 'printed' | 'pending' | 'failed';
+  printError?: string | null;
+}
+
+export async function getOutboxJobByLocalRef(localRef: string): Promise<OutboxJob | null> {
+  const conn = await db();
+  const rows = await conn.select<any[]>(
+    "SELECT * FROM offline_outbox WHERE local_ref = $1 ORDER BY id DESC LIMIT 1",
+    [localRef],
+  );
+  if (!rows.length) return null;
+  const r = rows[0];
+  return {
+    id: r.id,
+    jobType: r.job_type,
+    localRef: r.local_ref,
+    payload: r.payload,
+    status: r.status,
+    attempts: r.attempts,
+    lastError: r.last_error,
+  };
+}
+
+export async function upsertSessionOutboxJob(
+  sessionCode: string,
+  payload: any,
+  options?: { status?: 'pending' | 'done'; lastError?: string | null },
+): Promise<number> {
+  const conn = await db();
+  const now = Date.now();
+  const targetStatus = options?.status ?? 'pending';
+  const targetError = options?.lastError ?? null;
+  const existing = await getOutboxJobByLocalRef(sessionCode);
+  if (existing) {
+    let existingPayload: any = {};
+    try {
+      existingPayload = JSON.parse(existing.payload);
+    } catch {}
+    const merged = { ...existingPayload, ...payload };
+    if (payload.softfileTarget && !existingPayload.softfileTarget) {
+      merged.softfileTarget = payload.softfileTarget;
+    } else if (!payload.softfileTarget && existingPayload.softfileTarget) {
+      merged.softfileTarget = existingPayload.softfileTarget;
+    }
+    if (payload.backendSessionId && !existingPayload.backendSessionId) {
+      merged.backendSessionId = payload.backendSessionId;
+    } else if (!payload.backendSessionId && existingPayload.backendSessionId) {
+      merged.backendSessionId = existingPayload.backendSessionId;
+    }
+    // Pertahankan status cetak jika sudah sukses ('printed')
+    // agar proses simpan aset latar belakang tidak menimpa status print kembali ke 'pending'
+    if (existingPayload.printStatus === 'printed' && (!payload.printStatus || payload.printStatus === 'pending')) {
+      merged.printStatus = 'printed';
+      merged.printError = null;
+    }
+    const finalStatus = existingPayload.softfileTarget && existing.status === 'pending' ? 'pending' : targetStatus;
+    await conn.execute(
+      `UPDATE offline_outbox 
+       SET payload = $2, status = $3, attempts = 0, last_error = $4, updated_at = $5
+       WHERE id = $1`,
+      [existing.id, JSON.stringify(merged), finalStatus, targetError, now],
+    );
+    return existing.id;
+  } else {
+    const result = await conn.execute(
+      `INSERT INTO offline_outbox (job_type, local_ref, payload, status, attempts, last_error, created_at, updated_at)
+       VALUES ('session_softfile', $1, $2, $3, 0, $4, $5, $5)`,
+      [sessionCode, JSON.stringify(payload), targetStatus, targetError, now],
+    );
+    return Number(result.lastInsertId ?? 0);
+  }
+}
+
+export async function listAllSessionOutboxJobs(limit = 60): Promise<SessionHistoryItem[]> {
+  const conn = await db();
+  const rows = await conn.select<any[]>(
+    `SELECT * FROM offline_outbox 
+     WHERE job_type = 'session_softfile' 
+     ORDER BY id DESC LIMIT $1`,
+    [limit],
+  );
+
+  // Ambil data antrean cetak yang sedang pending atau failed untuk sinkronisasi akurat
+  let printQueueRows: any[] = [];
+  try {
+    printQueueRows = await conn.select<any[]>(
+      `SELECT session_code, status, last_error FROM print_queue WHERE status IN ('pending', 'failed')`,
+    );
+  } catch {}
+
+  const activePrintErrors = new Map<string, string>();
+  const pendingPrintSessions = new Set<string>();
+  for (const pq of printQueueRows) {
+    if (pq.status === 'pending') {
+      pendingPrintSessions.add(pq.session_code);
+    } else if (pq.status === 'failed') {
+      activePrintErrors.set(pq.session_code, pq.last_error || 'Gagal cetak antrean');
+    }
+  }
+
+  return rows.map((r) => {
+    let payloadObj: any = {};
+    try {
+      payloadObj = JSON.parse(r.payload);
+    } catch {}
+    const compositePath =
+      payloadObj.assetRelativePaths?.find((a: any) => a.role === 'composite')?.path ||
+      payloadObj.assetRelativePaths?.[0]?.path ||
+      null;
+    const sessionCode = r.local_ref || payloadObj.localSessionCode || `sesi-${r.id}`;
+
+    let resolvedPrintStatus: 'printed' | 'pending' | 'failed' = payloadObj.printStatus || 'pending';
+    let resolvedPrintError: string | null = payloadObj.printError || null;
+
+    if (activePrintErrors.has(sessionCode)) {
+      resolvedPrintStatus = 'failed';
+      resolvedPrintError = activePrintErrors.get(sessionCode) || null;
+    } else if (pendingPrintSessions.has(sessionCode)) {
+      resolvedPrintStatus = 'pending';
+    } else if (payloadObj.printStatus === 'printed') {
+      resolvedPrintStatus = 'printed';
+      resolvedPrintError = null;
+    } else if (
+      payloadObj.printStatus === 'pending' &&
+      !activePrintErrors.has(sessionCode) &&
+      !pendingPrintSessions.has(sessionCode)
+    ) {
+      // Jika sesi telah rampung/terkirim atau tidak ada kegagalan cetak yang dicatat,
+      // ini adalah sesi yang telah berhasil dicetak langsung saat alur foto selesai
+      // (bukan tertunda/gagal), sehingga tidak memicu false alarm "Print: Belum"
+      if (r.status === 'done' || !payloadObj.printError) {
+        resolvedPrintStatus = 'printed';
+      }
+    }
+
+    return {
+      id: r.id,
+      sessionCode,
+      status: r.status,
+      attempts: r.attempts,
+      lastError: r.last_error,
+      createdAt: r.created_at || Date.now(),
+      softfileTarget: payloadObj.softfileTarget || null,
+      compositePath,
+      printQty: payloadObj.printQty || 1,
+      paperSize: payloadObj.paperSize || '4x6',
+      useSecondary: payloadObj.useSecondary ?? false,
+      printStatus: resolvedPrintStatus,
+      printError: resolvedPrintError,
+    };
+  });
+}
+
+export async function updateSessionPrintStatus(
+  sessionCode: string,
+  printStatus: 'printed' | 'pending' | 'failed',
+  printError?: string | null,
+): Promise<void> {
+  const conn = await db();
+  const existing = await getOutboxJobByLocalRef(sessionCode);
+  if (!existing) return;
+  let payloadObj: any = {};
+  try {
+    payloadObj = JSON.parse(existing.payload);
+  } catch {}
+  payloadObj.printStatus = printStatus;
+  payloadObj.printError = printError || null;
+  await conn.execute(
+    `UPDATE offline_outbox SET payload = $2, updated_at = $3 WHERE id = $1`,
+    [existing.id, JSON.stringify(payloadObj), Date.now()],
+  );
+}
+
+export async function countPendingSessionSoftfileJobs(): Promise<number> {
+  const conn = await db();
+  const rows = await conn.select<any[]>(
+    `SELECT COUNT(*) as c FROM offline_outbox 
+     WHERE job_type = 'session_softfile' AND status IN ('pending', 'dead_letter')`,
+  );
+  return Number(rows[0]?.c ?? 0);
+}
+
+export async function getOutboxJobById(id: number): Promise<OutboxJob | null> {
+  const conn = await db();
+  const rows = await conn.select<any[]>("SELECT * FROM offline_outbox WHERE id = $1", [id]);
+  if (!rows.length) return null;
+  const r = rows[0];
+  return {
+    id: r.id,
+    jobType: r.job_type,
+    localRef: r.local_ref,
+    payload: r.payload,
+    status: r.status,
+    attempts: r.attempts,
+    lastError: r.last_error,
+  };
+}
+
+export async function updateOutboxJobPayload(id: number, payload: string): Promise<void> {
+  const conn = await db();
+  await conn.execute("UPDATE offline_outbox SET payload = $2, updated_at = $3 WHERE id = $1", [
+    id,
+    payload,
+    Date.now(),
+  ]);
+}
+
+export async function resetOutboxJobForRetry(id: number): Promise<void> {
+  const conn = await db();
+  await conn.execute(
+    "UPDATE offline_outbox SET status = 'pending', attempts = 0, last_error = NULL, updated_at = $2 WHERE id = $1",
+    [id, Date.now()],
+  );
+}
+
 // ============================================================================
 // DEVICE IDENTITY (SQLite `device_identity`)
 // ============================================================================
@@ -555,6 +798,33 @@ export async function markPrintJobFailedAttempt(id: number, error: string): Prom
     `UPDATE print_queue SET status = $2, attempts = $3, last_error = $4, updated_at = $5 WHERE id = $1`,
     [newStatus, attempts, error, Date.now()]
   );
+}
+
+export async function cancelPrintJob(id: number): Promise<void> {
+  const conn = await db();
+  await conn.execute(
+    `UPDATE print_queue SET status = 'cancelled', updated_at = $1 WHERE id = $2`,
+    [Date.now(), id]
+  );
+}
+
+export async function clearAllPendingPrintJobs(): Promise<number> {
+  const conn = await db();
+  const res = await conn.execute(
+    `UPDATE print_queue SET status = 'cancelled', updated_at = $1 WHERE status = 'pending'`,
+    [Date.now()]
+  );
+  return Number(res.rowsAffected ?? 0);
+}
+
+export async function cancelPendingPrintJobsBySessionCode(sessionCode: string): Promise<number> {
+  const conn = await db();
+  const res = await conn.execute(
+    `UPDATE print_queue SET status = 'cancelled', updated_at = $1 WHERE session_code = $2 AND status = 'pending'`,
+    [Date.now(), sessionCode]
+  );
+  await updateSessionPrintStatus(sessionCode, 'failed', 'Dibatalkan oleh operator');
+  return Number(res.rowsAffected ?? 0);
 }
 
 export async function countPendingPrintJobs(): Promise<number> {

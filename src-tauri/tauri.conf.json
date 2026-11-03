@@ -2,7 +2,15 @@
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "PotoHub Booth Client",
   "version": "0.1.0",
-  "identifier": "com.dwiwahyuilahi.potohub-dekstop-app",
+  "identifier": "com.potohub.boothclient",
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDRBOTM3OEYwMzY4ODg1MzMKUldTa0FRQVBzT2xNMXlFNTlRUkRkM3o5N2xYd1dKdmV4Y3U2Tnd3Z0V6VlI3a0lNRHhWVk9rTXFhMDF0Q3B4Tjlva3UK",
+      "endpoints": [
+        "https://potohub.com/api/app/update/{{target}}/{{arch}}/{{current_version}}"
+      ]
+    }
+  },
   "build": {
     "beforeDevCommand": "pnpm dev",
     "devUrl": "http://localhost:1420",
@@ -13,8 +21,9 @@
     "windows": [
       {
         "title": "PotoHub Booth Client",
-        "width": 800,
-        "height": 600
+        "width": 1280,
+        "height": 800,
+        "maximized": true
       }
     ],
     "security": {
@@ -24,6 +33,7 @@
         "scope": [
           "$APPCACHE/**/*",
           "$APPDATA/**/*",
+          "$APPLOCALDATA/**/*",
           "$HOME/**/*"
         ]
       }
@@ -31,7 +41,7 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": ["msi", "nsis"],
     "windows": {
       "nsis": {
         "installerIcon": "icons/icon.ico",
@@ -49,7 +59,8 @@
       "gphoto-libs/*": ".",
       "gphoto-libs/camlibs/*": "camlibs",
       "gphoto-libs/iolibs/*": "iolibs",
-      "drivers/*": "drivers"
+      "drivers/EDSDK.dll": "drivers/EDSDK.dll",
+      "drivers/EdsImage.dll": "drivers/EdsImage.dll"
     },
     "externalBin": ["binaries/ffmpeg"],
     "icon": [

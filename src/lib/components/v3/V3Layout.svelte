@@ -39,6 +39,10 @@
   let selectedPackage = $state<StoreCategory | null>(null);
   let selectedFrameId = $state('frame1');
 
+  $effect(() => {
+    boothFlow.goTo(step as any);
+  });
+
   function handleStart() {
     step = 'tutorial';
   }
@@ -49,6 +53,7 @@
 
   function handleTutorialNext() {
     if (boothConfig.config.skipPayment) {
+      boothFlow.paymentMethod = 'Cash';
       step = 'frame';
     } else if (boothConfig.config.earlyPaymentPage) {
       step = 'package';
@@ -64,8 +69,10 @@
 
   function handlePaymentSelectMethod(method: 'ticket' | 'cashless') {
     if (method === 'ticket') {
+      boothFlow.paymentMethod = 'Ticket';
       step = 'ticket';
     } else {
+      boothFlow.paymentMethod = 'Cashless';
       if (boothConfig.config.earlyPaymentPage) {
         step = 'frame';
       } else {
@@ -75,6 +82,7 @@
   }
 
   function handleTicketConfirm() {
+    boothFlow.paymentMethod = 'Ticket';
     if (boothConfig.config.earlyPaymentPage) {
       step = 'frame';
     } else {
@@ -84,7 +92,9 @@
 
   function handleSelectFrame(frameId: string) {
     selectedFrameId = frameId;
+    boothFlow.selectedFrameId = frameId;
     if (boothConfig.config.skipPayment) {
+      boothFlow.paymentMethod = 'Cash';
       step = 'session';
     } else if (boothConfig.config.earlyPaymentPage) {
       step = 'session';
@@ -197,9 +207,9 @@
       }}
     />
   {:else if step === 'session'}
-    <V3Session background={getV3Bg('session')} selectedFrame={selectedFrameId} onComplete={handleSessionComplete} onBack={() => (step = 'frame')} />
+    <V3Session background={getV3Bg('session')} selectedFrame={selectedFrameId} onComplete={handleSessionComplete} />
   {:else if step === 'filter'}
-    <V3Filter background={getV3Bg('filter')} selectedFrame={selectedFrameId} onNext={handleFilterNext} onBack={() => (step = 'session')} />
+    <V3Filter background={getV3Bg('filter')} selectedFrame={selectedFrameId} onNext={handleFilterNext} />
   {:else if step === 'loading'}
     <V3Loading background={getV3Bg('loading')} onDone={handleLoadingDone} />
   {:else if step === 'download'}

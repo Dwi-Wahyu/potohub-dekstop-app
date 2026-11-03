@@ -7,9 +7,15 @@
   import { ZoomIn, ZoomOut, Maximize2, X } from '@lucide/svelte';
   import { boothFlow, type PhotoTransform } from '$lib/stores/booth.svelte';
   import { boothConfig } from '$lib/stores/boothConfig.svelte';
+  import { uiConfig } from '$lib/stores/uiConfig.svelte';
   import { cameraStore } from '$lib/camera.svelte';
   import { getLiveviewTransformStyle, getPhotoSlotTransformStyle } from '$lib/utils/shared';
-  import { getLayerZIndex, findPhotoSlotIndex, type TemplateDesignLayer } from '$lib/utils/templateComposite';
+  import {
+    getLayerZIndex,
+    findPhotoSlotIndex,
+    getTemplatePreviewBoxStyle,
+    type TemplateDesignLayer
+  } from '$lib/utils/templateComposite';
   import type { BoothTemplate } from '$lib/api/boothClient';
   import { STICKER_EMOJI_PX, STICKER_IMAGE_PX, type Sticker } from '$lib/utils/stickers';
 
@@ -177,18 +183,18 @@
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div
     class="absolute flex items-center justify-center crop-pop"
-    style="inset: 12% 10%;"
+    style="inset: 12% 10%; container-type: size;"
     onclick={(e) => e.stopPropagation()}
     onwheel={onWheel}
   >
     <div
-      class="relative h-full max-w-full overflow-hidden rounded-xl bg-black/40 shadow-2xl"
-      style="aspect-ratio: {tWidth} / {tHeight};"
+      class="relative overflow-hidden rounded-xl bg-black/40 shadow-2xl"
+      style={getTemplatePreviewBoxStyle(tWidth, tHeight)}
     >
       {#each layers.filter((l) => !l.isQr) as layer, idx (layer.id ?? idx)}
         {@const box = `left: ${((layer.x || 0) / tWidth) * 100}%; top: ${((layer.y || 0) / tHeight) * 100}%; width: ${((layer.w || 200) / tWidth) * 100}%; height: ${((layer.h || 200) / tHeight) * 100}%; transform: rotate(${layer.rot || 0}deg);`}
         {#if layer.isBackground}
-          {@const layerBgUrl = layer.imageUrl || bgUrl}
+          {@const layerBgUrl = uiConfig.resolveAssetUrl(layer.imageUrl || bgUrl)}
           {#if layerBgUrl}
             <img
               src={layerBgUrl}
@@ -249,7 +255,7 @@
         >
           {#if s.type === 'image' && s.imageUrl}
             <img
-              src={s.imageUrl}
+              src={uiConfig.resolveAssetUrl(s.imageUrl)}
               alt="Sticker"
               class="block"
               style="width: {s.width ? `${s.width}px` : `${STICKER_IMAGE_PX}px`}; height: {s.height ? `${s.height}px` : 'auto'};"

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { Minus, X, Settings, Lock, LockOpen } from '@lucide/svelte';
-  import { minimizeWindow, closeWindow } from '$lib/utils/windowControl';
+  import { minimizeWindow, closeWindow, setKioskLockedMode } from '$lib/utils/windowControl';
 
   interface Props {
     showPinModal?: boolean;
@@ -16,9 +16,14 @@
     onOpenConfig
   }: Props = $props();
 
+  // Sinkronkan status terkunci (locked) dengan Fullscreen Kiosk Mode Windows (menutup/membuka bottom taskbar Windows)
+  $effect(() => {
+    void setKioskLockedMode(!isOperatorUnlocked);
+  });
+
   function handleLockClick() {
     if (isOperatorUnlocked) {
-      // Menutup akses operator / kunci kembali booth
+      // Menutup akses operator / kunci kembali booth (otomatis kembali fullscreen menutup taskbar)
       isOperatorUnlocked = false;
     } else {
       // Buka modal PIN password untuk touchscreen kiosk

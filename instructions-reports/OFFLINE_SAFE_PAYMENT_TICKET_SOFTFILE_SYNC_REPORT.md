@@ -97,10 +97,10 @@ Fitur yang diimplementasikan mencakup:
 
 | Berkas | Perubahan | Keterangan |
 |---|---|---|
-| [`api/src/handlers/health.rs`](file:///home/dwiwahyu/Projects/PotoHub/source-code/api/src/handlers/health.rs) | **BARU** | Handler Axum `health_check()` mengembalikan JSON `{"status": "ok"}` dengan anotasi OpenAPI Utoipa. Endpoint publik tanpa otentikasi. |
-| [`api/src/handlers/mod.rs`](file:///home/dwiwahyu/Projects/PotoHub/source-code/api/src/handlers/mod.rs) | Dimodifikasi | Mendaftarkan modul `pub mod health;`. |
-| [`api/src/routes.rs`](file:///home/dwiwahyu/Projects/PotoHub/source-code/api/src/routes.rs) | Dimodifikasi | Mendaftarkan route `.route("/health", get(handlers::health::health_check))` pada router publik `/api`. |
-| [`api/src/openapi.rs`](file:///home/dwiwahyu/Projects/PotoHub/source-code/api/src/openapi.rs) | Dimodifikasi | Mendaftarkan `handlers::health::health_check` dan skema `handlers::health::HealthResponse` pada OpenAPI Spec. |
+| [`api/src/handlers/health.rs`](file:///home/potohub/Projects/PotoHub/source-code/api/src/handlers/health.rs) | **BARU** | Handler Axum `health_check()` mengembalikan JSON `{"status": "ok"}` dengan anotasi OpenAPI Utoipa. Endpoint publik tanpa otentikasi. |
+| [`api/src/handlers/mod.rs`](file:///home/potohub/Projects/PotoHub/source-code/api/src/handlers/mod.rs) | Dimodifikasi | Mendaftarkan modul `pub mod health;`. |
+| [`api/src/routes.rs`](file:///home/potohub/Projects/PotoHub/source-code/api/src/routes.rs) | Dimodifikasi | Mendaftarkan route `.route("/health", get(handlers::health::health_check))` pada router publik `/api`. |
+| [`api/src/openapi.rs`](file:///home/potohub/Projects/PotoHub/source-code/api/src/openapi.rs) | Dimodifikasi | Mendaftarkan `handlers::health::health_check` dan skema `handlers::health::HealthResponse` pada OpenAPI Spec. |
 
 ### 3.2. Rust Native Tauri (`dekstop-app/src-tauri`)
 

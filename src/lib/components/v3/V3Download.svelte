@@ -3,21 +3,22 @@
   import QRCode from 'qrcode';
   import { uiConfig } from '$lib/stores/uiConfig.svelte';
   import { boothFlow } from '$lib/stores/booth.svelte';
-  import { sendSoftfileEmail, sendSoftfileWA, generateSessionCode } from '$lib/utils/shared';
+  import { sendSoftfileEmail, sendSoftfileWA, generateSessionCode, resolvePrinterConfigForTemplate } from '$lib/utils/shared';
   import { boothConfig } from '$lib/stores/boothConfig.svelte';
   import { Delete, Sparkles, Clock, Image, Film, Video } from '@lucide/svelte';
 
   import { compositeTemplateImage } from '$lib/utils/templateComposite';
-  import { saveSessionAssets } from '$lib/utils/sessionAssets';
+  import { saveSessionAssets, type SaveSessionAssetsResult } from '$lib/utils/sessionAssets';
   import { cachedFetch } from '$lib/utils/offlineCache';
   import {
     fetchTemplates,
     createTransactionSession,
     requireActiveBoothId,
+    isValidUUID,
     type BoothTemplate
   } from '$lib/api/boothClient';
   import { networkStatus } from '$lib/stores/networkStatus.svelte';
-  import { enqueueOutboxJob, enqueuePrintJob } from '$lib/db/local';
+  import { enqueueOutboxJob, enqueuePrintJob, upsertSessionOutboxJob, updateSessionPrintStatus } from '$lib/db/local';
   import { printerStore } from '$lib/printer.svelte';
   import OfflineBanner from '$lib/components/shared/OfflineBanner.svelte';
   import { buildAssetRelativePaths } from '$lib/utils/localSessionStorage';
@@ -48,6 +49,7 @@
   let caps = $state(false);
   let numMode = $state(false);
   let interval: any = null;
+  let printAbortController: AbortController | null = null;
   let qrDataUrl = $state('');
   let isSaving = $state(false);
   let compositeUrl = $state<string | null>(null);
@@ -55,12 +57,15 @@
   let activePreviewTab = $state<'strip' | 'gif' | 'liveview'>('strip');
 
   const envs = import.meta.env as Record<string, string>;
-  const rawAdminDashboardUrl =
+  const rawSoftfileUrl =
+    envs.SOFTFILE_BASE_URL ||
+    envs.VITE_SOFTFILE_BASE_URL ||
     envs.ADMIN_DASHBOARD_URL ||
     envs.VITE_ADMIN_DASHBOARD_URL ||
     envs.PUBLIC_ADMIN_DASHBOARD_URL ||
     'http://localhost:3000';
-  const ADMIN_DASHBOARD_PUBLIC_URL = rawAdminDashboardUrl.replace(/\/+$/, '');
+  const SOFTFILE_PUBLIC_URL = rawSoftfileUrl.replace(/\/+$/, '');
+  const ADMIN_DASHBOARD_PUBLIC_URL = SOFTFILE_PUBLIC_URL;
 
   onMount(async () => {
     interval = setInterval(() => {
@@ -81,8 +86,9 @@
         `templates:${boothId}`,
         () => fetchTemplates(boothId),
         (templates) => {
+          const targetId = selectedFrame || boothFlow.selectedFrameId;
           selectedTemplate =
-            templates.find((t) => t.id === selectedFrame) || templates[0] || null;
+            templates.find((t) => t.id === targetId) || templates[0] || null;
         }
       );
     } catch (err) {
@@ -94,22 +100,35 @@
 
     let softfileUrl = `${ADMIN_DASHBOARD_PUBLIC_URL}/softfile/pending-${localSessionCode}`;
     let targetSessionIdentifier = localSessionCode;
+    let sessionCreateError: string | null = null;
+    const effectivePhotos = [...boothFlow.photosTaken];
 
-    if (networkStatus.isOnline) {
+    if (isValidUUID(boothFlow.sessionId)) {
+      const existingSessId = boothFlow.sessionId!;
+      softfileUrl = `${ADMIN_DASHBOARD_PUBLIC_URL}/softfile/${existingSessId}`;
+      targetSessionIdentifier = existingSessId;
+    } else if (networkStatus.isOnline && isValidUUID(boothId)) {
       isSaving = true;
       try {
+        const sessionMethod = boothFlow.paymentMethod === 'Ticket' ? 'Ticket' : 'Cash';
         const session = await createTransactionSession(
           boothId,
           selectedTemplate?.category_id,
           boothFlow.printQty,
-          'cashless',
+          sessionMethod,
           selectedFrame
         );
-        const sessId = session.session_id || session.id || 'demo-session';
-        boothFlow.sessionId = sessId;
-        softfileUrl = `${ADMIN_DASHBOARD_PUBLIC_URL}/softfile/${sessId}`;
-        targetSessionIdentifier = sessId;
+        const sessId = session.session_id || session.id;
+        if (isValidUUID(sessId)) {
+          boothFlow.sessionId = sessId;
+          softfileUrl = `${ADMIN_DASHBOARD_PUBLIC_URL}/softfile/${sessId}`;
+          targetSessionIdentifier = sessId;
+        } else {
+          sessionCreateError = `Session ID tidak valid: ${sessId}`;
+          boothFlow.sessionId = null;
+        }
       } catch (err) {
+        sessionCreateError = String(err);
         console.error('Failed to create session online in V3Download, using local code:', err);
         boothFlow.sessionId = null;
       }
@@ -123,7 +142,7 @@
       try {
         compositeUrl = await compositeTemplateImage(
           selectedTemplate,
-          boothFlow.photosTaken,
+          effectivePhotos,
           boothFlow.selectedFilterId,
           softfileUrl,
           boothFlow.stickers
@@ -134,40 +153,49 @@
       }
     }
 
-    try {
-      isSaving = true;
-      await saveSessionAssets(
-        boothId,
-        targetSessionIdentifier,
-        compositeUrl,
+    // 1. Catat sesi ke database lokal dan picu cetak instan (< 1s)
+    const copies = boothFlow.printQty || 1;
+    const { useSecondary, paperSize } = resolvePrinterConfigForTemplate(selectedTemplate);
+    const dateStr = new Date().toISOString().slice(0, 10);
+    const boothSanitized = (uiConfig.config.boothName || 'booth')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '');
+    const diskPath = `${dateStr}/${localSessionCode}_${boothSanitized}/composite/print_strip.jpg`;
+
+    const sessionPayload = {
+      boothId,
+      categoryId: selectedTemplate?.category_id ?? null,
+      frameId: selectedFrame,
+      printQty: copies,
+      paperSize,
+      useSecondary,
+      paymentMethod: (boothFlow.paymentMethod === 'Ticket' ? 'Ticket' : 'Cash') as 'Ticket' | 'Cash',
+      softfileTarget: null,
+      localSessionCode,
+      backendSessionId: isValidUUID(boothFlow.sessionId) ? boothFlow.sessionId! : undefined,
+      assetRelativePaths: buildAssetRelativePaths(
+        localSessionCode,
+        uiConfig.config.boothName,
+        effectivePhotos.length,
         selectedTemplate?.width || 1200,
-        selectedTemplate?.height || 1800,
-        (selectedTemplate?.design_data || []).filter((l) => !l.isBackground && !l.isQr),
-        selectedTemplate?.frame_image_url || selectedTemplate?.design_data?.find((l) => l.isBackground)?.imageUrl,
-        [...boothFlow.photosTaken],
-        [...boothFlow.liveviewClips],
-        boothFlow.sessionCode,
-        selectedTemplate,
-        softfileUrl
-      );
+        selectedTemplate?.height || 1800
+      ),
+      printStatus: (copies === 0 ? 'printed' : 'pending') as 'printed' | 'pending' | 'failed',
+      printError: null as string | null,
+    };
 
-      // Programmatic Auto-Print Flow
-      const copies = boothFlow.printQty || 1;
-      const paperSize = selectedTemplate?.paper_size || '4x6';
-      const useSecondary = Boolean(selectedTemplate?.use_secondary_printer);
-      const dateStr = new Date().toISOString().slice(0, 10);
-      const boothSanitized = (uiConfig.config.boothName || 'booth')
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, '-')
-        .replace(/^-+|-+$/g, '');
-      const diskPath = `${dateStr}/${localSessionCode}_${boothSanitized}/composite/print_strip.jpg`;
+    // Segera catat sesi ke database outbox lokal agar operator bisa melihatnya di dialog sesi
+    void upsertSessionOutboxJob(localSessionCode, sessionPayload, { status: 'pending' }).catch(console.warn);
 
-      if (copies > 0 && compositeUrl) {
+    if (copies > 0 && compositeUrl) {
+      void (async () => {
+        await printerStore.refreshStatus();
         const check = printerStore.canPrint(copies, useSecondary);
         if (check.ok) {
           printStatus = 'PRINTING';
           try {
-            const res = await fetch(compositeUrl);
+            const res = await fetch(compositeUrl!);
             const buf = new Uint8Array(await res.arrayBuffer());
             await printerStore.printFromBuffer(buf, {
               copies,
@@ -175,7 +203,22 @@
               quality: 'standard',
               useSecondary,
             });
-            printStatus = 'SUCCESS';
+            printAbortController = new AbortController();
+            const activeSignal = printAbortController.signal;
+            const result = await printerStore.waitForPrintCompletion({
+              copies,
+              useSecondary,
+              signal: activeSignal,
+            });
+            if (!activeSignal.aborted) {
+              printStatus = 'SUCCESS';
+              sessionPayload.printStatus = 'printed';
+              sessionPayload.printError = null;
+              void updateSessionPrintStatus(localSessionCode, 'printed').catch(console.warn);
+              if (!result.completed && result.error) {
+                console.warn('[V3Download] Print completion check warning:', result.error);
+              }
+            }
           } catch (err) {
             console.warn('[V3Download] Direct print failed, fallback enqueueing:', err);
             await enqueuePrintJob({
@@ -186,6 +229,9 @@
               useSecondary,
             });
             printStatus = 'QUEUED';
+            sessionPayload.printStatus = 'failed';
+            sessionPayload.printError = String(err);
+            void updateSessionPrintStatus(localSessionCode, 'failed', String(err)).catch(console.warn);
           }
         } else {
           console.warn('[V3Download] Printer check failed, enqueueing job:', check.reason);
@@ -197,17 +243,57 @@
             useSecondary,
           });
           printStatus = 'QUEUED';
+          sessionPayload.printStatus = 'failed';
+          sessionPayload.printError = check.reason || null;
+          void updateSessionPrintStatus(localSessionCode, 'failed', check.reason).catch(console.warn);
         }
-      }
+      })();
+    }
+
+    // 2. Pembuatan Aset Sesi (Liveview Video, GIF, dan Upload R2) berjalan di Latar Belakang (Non-blocking)
+    let assetResult: SaveSessionAssetsResult | null = null;
+    try {
+      isSaving = true;
+      assetResult = await saveSessionAssets(
+        boothId,
+        targetSessionIdentifier,
+        compositeUrl,
+        selectedTemplate?.width || 1200,
+        selectedTemplate?.height || 1800,
+        (selectedTemplate?.design_data || []).filter((l) => !l.isBackground && !l.isQr),
+        selectedTemplate?.frame_image_url || selectedTemplate?.design_data?.find((l) => l.isBackground)?.imageUrl,
+        effectivePhotos,
+        [...boothFlow.liveviewClips],
+        boothFlow.sessionCode,
+        selectedTemplate,
+        softfileUrl
+      );
     } catch (err) {
       console.error('Failed to save assets in V3Download:', err);
     } finally {
       isSaving = false;
+      const sCode = boothFlow.sessionCode || localSessionCode;
+      const isSyncedOnline = Boolean(isValidUUID(boothFlow.sessionId) && assetResult?.compositeUploaded);
+      const syncError = isSyncedOnline
+        ? null
+        : assetResult?.lastUploadError ||
+          sessionCreateError ||
+          (!networkStatus.isOnline ? 'Booth sedang offline saat sesi selesai' : 'Gagal unggah softfile ke server');
+
+      void upsertSessionOutboxJob(
+        sCode,
+        sessionPayload,
+        {
+          status: isSyncedOnline ? 'done' : 'pending',
+          lastError: syncError,
+        }
+      ).catch(console.warn);
     }
   });
 
   onDestroy(() => {
     if (interval) clearInterval(interval);
+    if (printAbortController) printAbortController.abort();
   });
 
   $effect(() => {
@@ -217,19 +303,27 @@
   let sendErrMsg = $state('');
 
   async function enqueueSoftfileJob(target: string) {
-    await enqueueOutboxJob(
-      'session_softfile',
+    const sCode = boothFlow.sessionCode || generateSessionCode(uiConfig.config.boothName);
+    await upsertSessionOutboxJob(
+      sCode,
       {
         boothId: await requireActiveBoothId().catch(() => 'default'),
         categoryId: selectedTemplate?.category_id ?? null,
         frameId: selectedFrame,
         printQty: boothFlow.printQty,
-        paymentMethod: 'Cashless',
+        paymentMethod: boothFlow.paymentMethod === 'Ticket' ? 'Ticket' : 'Cash',
         softfileTarget: target,
-        localSessionCode: boothFlow.sessionCode,
-        assetRelativePaths: buildAssetRelativePaths(boothFlow.sessionCode, uiConfig.config.boothName),
+        localSessionCode: sCode,
+        backendSessionId: isValidUUID(boothFlow.sessionId) ? boothFlow.sessionId! : undefined,
+        assetRelativePaths: buildAssetRelativePaths(
+          sCode,
+          uiConfig.config.boothName,
+          boothFlow.photosTaken.length,
+          selectedTemplate?.width || 1200,
+          selectedTemplate?.height || 1800
+        ),
       },
-      boothFlow.sessionCode ?? undefined,
+      { status: 'pending' }
     );
     softfileQueued = true;
     emailSent = target === email.trim();
@@ -245,7 +339,7 @@
     }
     sendErrMsg = '';
 
-    if (!networkStatus.isOnline) {
+    if (!networkStatus.isOnline || !isValidUUID(boothFlow.sessionId)) {
       await enqueueSoftfileJob(email.trim());
       return;
     }
@@ -276,7 +370,7 @@
     }
     sendErrMsg = '';
 
-    if (!networkStatus.isOnline) {
+    if (!networkStatus.isOnline || !isValidUUID(boothFlow.sessionId)) {
       await enqueueSoftfileJob(phone.trim().replace(/[\s-]/g, ''));
       return;
     }

@@ -85,7 +85,7 @@ Menindaklanjuti pengujian alur perjalanan pengguna (*customer journey*) pada apl
 
 ```bash
 $ pnpm check
-Loading svelte-check in workspace: /home/dwiwahyu/Projects/PotoHub/source-code/dekstop-app
+Loading svelte-check in workspace: /home/potohub/Projects/PotoHub/source-code/dekstop-app
 Getting Svelte diagnostics...
 
 svelte-check found 0 errors and 0 warnings

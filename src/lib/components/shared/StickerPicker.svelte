@@ -2,6 +2,7 @@
   import { EMOJI_LIST, loadBoothEmojis, type StickerType } from '$lib/utils/stickers';
   import type { BoothEmot } from '$lib/api/boothClient';
   import { ensureAsset } from '$lib/utils/offlineCache';
+  import { uiConfig } from '$lib/stores/uiConfig.svelte';
   import { Trash2, Undo2 } from '@lucide/svelte';
 
   interface Props {
@@ -29,14 +30,20 @@
 
   let fallbackList = $derived(boothId ? loadBoothEmojis(boothId) : EMOJI_LIST);
   let emotDataUrls = $state<Record<string, string>>({});
+  const requestedUrls = new Set<string>();
 
   $effect(() => {
     if (emots && emots.length > 0) {
       for (const emot of emots) {
-        if (emot.emot_type === 'image' && emot.file_url && !emotDataUrls[emot.file_url]) {
-          void ensureAsset(emot.file_url)
+        if (emot.emot_type === 'image' && emot.file_url && !requestedUrls.has(emot.file_url)) {
+          requestedUrls.add(emot.file_url);
+          const url = emot.file_url;
+          void ensureAsset(url)
             .then((dataUrl) => {
-              if (dataUrl) emotDataUrls[emot.file_url!] = dataUrl;
+              if (dataUrl) {
+                emotDataUrls[url] = dataUrl;
+                uiConfig.setResolvedBackground(url, dataUrl);
+              }
             })
             .catch(() => {});
         }
@@ -78,7 +85,7 @@
         <button
           onclick={() => {
             if (emot.emot_type === 'image' && emot.file_url) {
-              const urlToUse = emotDataUrls[emot.file_url] || emot.file_url;
+              const urlToUse = emotDataUrls[emot.file_url] || uiConfig.resolveAssetUrl(emot.file_url);
               onPick('', urlToUse, 'image');
             } else {
               onPick(emot.emoji_text || '😊', '', 'emoji');
@@ -90,7 +97,7 @@
           title={emot.name}
         >
           {#if emot.emot_type === 'image' && emot.file_url}
-            <img src={emotDataUrls[emot.file_url] || emot.file_url} alt={emot.name} class="w-6 h-6 object-contain pointer-events-none" />
+            <img src={emotDataUrls[emot.file_url] || uiConfig.resolveAssetUrl(emot.file_url)} alt={emot.name} class="w-6 h-6 object-contain pointer-events-none" />
           {:else}
             <span class="text-xl">{emot.emoji_text || '😊'}</span>
           {/if}

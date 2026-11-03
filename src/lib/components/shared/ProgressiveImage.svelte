@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { uiConfig } from '$lib/stores/uiConfig.svelte';
+
   interface Props {
     src?: string | null;
     blurSrc?: string | null;
@@ -17,6 +19,7 @@
     objectFit = 'cover'
   }: Props = $props();
 
+  let resolvedSrc = $derived(src ? uiConfig.resolveAssetUrl(src) : null);
   let isLoaded = $state(false);
 
   function handleLoad() {
@@ -24,7 +27,7 @@
   }
 
   $effect(() => {
-    if (src) {
+    if (resolvedSrc) {
       isLoaded = false;
     }
   });
@@ -40,9 +43,9 @@
   {/if}
 
   <!-- Layer 2: Actual Image -->
-  {#if src}
+  {#if resolvedSrc}
     <img
-      {src}
+      src={resolvedSrc}
       {alt}
       loading="lazy"
       decoding="async"

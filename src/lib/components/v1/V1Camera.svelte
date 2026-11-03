@@ -9,16 +9,22 @@
   import { formatTime, getLiveviewTransformStyle } from '$lib/utils/shared';
   import { fetchTemplates, requireActiveBoothId, type BoothTemplate } from '$lib/api/boothClient';
   import { cachedFetch } from '$lib/utils/offlineCache';
-  import { getSortedPhotoSlots, getTemplateLayers, getLayerZIndex } from '$lib/utils/templateComposite';
+  import {
+    getSortedPhotoSlots,
+    getTemplateLayers,
+    getLayerZIndex,
+    getTemplatePreviewBoxStyle,
+    preloadAndResolveTemplateAssets
+  } from '$lib/utils/templateComposite';
 
   interface Props {
     onComplete: (photos: string[]) => void;
-    onBack: () => void;
+    onBack?: () => void;
     frameConfigId?: string;
     background?: string;
   }
 
-  let { onComplete, onBack, frameConfigId = '', background }: Props = $props();
+  let { onComplete, frameConfigId = '', background }: Props = $props();
 
   let selectedTemplate = $state<BoothTemplate | null>(null);
   let templateLayers = $derived(getTemplateLayers(selectedTemplate));
@@ -63,37 +69,69 @@
   }
 
   onMount(async () => {
-    try {
-      const boothId = await requireActiveBoothId();
-      await cachedFetch(
-        `templates:${boothId}`,
-        () => fetchTemplates(boothId),
-        (templates) => {
-          const matched = templates.find((t) => t.id === frameConfigId);
-          if (matched) {
-            selectedTemplate = matched;
-          } else if (templates[0]) {
-            selectedTemplate = templates[0];
+    timer = setInterval(() => {
+      if (sessionSecs > 0) {
+        sessionSecs--;
+        if (sessionSecs === 0) {
+          clearInterval(timer);
+          if (!isRunning) {
+            onComplete(boothFlow.photosTaken);
+          } else {
+            const checkDone = setInterval(() => {
+              if (!isRunning) {
+                clearInterval(checkDone);
+                onComplete(boothFlow.photosTaken);
+              }
+            }, 300);
           }
         }
-      );
-    } catch (err) {
-      console.error('[V1Camera] Failed to load template:', err);
-    }
-
-    await cameraStore.startLiveview(videoEl);
-    timer = setInterval(() => {
-      if (sessionSecs > 0) sessionSecs--;
+      }
     }, 1000);
 
+    const templatePromise = (async () => {
+      try {
+        const boothId = await requireActiveBoothId();
+        await cachedFetch(
+          `templates:${boothId}`,
+          () => fetchTemplates(boothId),
+          (templates) => {
+            preloadAndResolveTemplateAssets(templates);
+            const matched = templates.find((t) => t.id === frameConfigId);
+            if (matched) {
+              selectedTemplate = matched;
+            } else if (templates[0]) {
+              selectedTemplate = templates[0];
+            }
+          }
+        );
+      } catch (err) {
+        console.error('[V1Camera] Failed to load template:', err);
+      }
+    })();
+
+    await cameraStore.startLiveview(videoEl);
+
     if (cameraStore.cameraMode === 'usb' || cameraStore.cameraMode === 'demo') {
+      const firstFrame = await cameraStore.getLiveviewFrame();
+      if (firstFrame) {
+        frameSrc = firstFrame;
+      }
+      let fetchingFrame = false;
       liveviewInterval = setInterval(async () => {
-        const url = await cameraStore.getLiveviewFrame();
-        if (url) {
-          frameSrc = url;
+        if (fetchingFrame) return;
+        fetchingFrame = true;
+        try {
+          const url = await cameraStore.getLiveviewFrame();
+          if (url) {
+            frameSrc = url;
+          }
+        } finally {
+          fetchingFrame = false;
         }
       }, 150);
     }
+
+    await templatePromise;
   });
 
   onDestroy(() => {
@@ -130,23 +168,33 @@
     }, 2000);
 
     try {
-      const bytes = await cameraStore.capture();
+      let bytes = await cameraStore.capture();
+      if (!bytes && cameraStore.cameraMode === 'usb') {
+        console.warn(`[V1Camera] Retake slot ${index + 1} pertama null, retry dalam 500ms...`);
+        await new Promise((r) => setTimeout(r, 500));
+        bytes = await cameraStore.capture();
+      }
+
       let photoUrl = '';
-      if (bytes) {
+      if (bytes && bytes.length > 0) {
         const blob = new Blob([bytes], { type: 'image/jpeg' });
         photoUrl = URL.createObjectURL(blob);
       } else {
-        const canvas = document.createElement('canvas');
-        canvas.width = 640;
-        canvas.height = 480;
-        const ctx = canvas.getContext('2d');
-        if (ctx) {
-          ctx.fillStyle = '#3b82f6';
-          ctx.fillRect(0, 0, canvas.width, canvas.height);
-          ctx.fillStyle = '#ffffff';
-          ctx.font = '30px sans-serif';
-          ctx.fillText(`Photo ${index + 1}`, 240, 240);
-          photoUrl = canvas.toDataURL('image/jpeg');
+        photoUrl = cameraStore.currentLiveviewUrl || '';
+        if (!photoUrl) {
+          const canvas = document.createElement('canvas');
+          canvas.width = 1200;
+          canvas.height = 800;
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            ctx.fillStyle = '#1e1b4b';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = '#ffffff';
+            ctx.font = 'bold 36px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText(`Photo ${index + 1}`, canvas.width / 2, canvas.height / 2);
+            photoUrl = canvas.toDataURL('image/jpeg');
+          }
         }
       }
 
@@ -210,7 +258,7 @@
       {/if}
 
       <!-- Permanent Liveview Feed Layer -->
-      {#if cameraStore.isLiveviewActive}
+      {#if cameraStore.isLiveviewActive || frameSrc}
         {#if cameraStore.cameraMode === 'webcam'}
           <video
             use:playStream={cameraStore.stream}
@@ -330,13 +378,16 @@
           </span>
         </div>
 
-        <div class="flex-1 min-h-0 bg-[#141412] rounded-xl flex items-center justify-center p-2 relative overflow-hidden">
+        <div
+          class="flex-1 min-h-0 bg-[#141412] rounded-xl flex items-center justify-center p-2 relative overflow-hidden"
+          style="container-type: size;"
+        >
           {#if selectedTemplate}
             {@const tWidth = selectedTemplate.width || 1200}
             {@const tHeight = selectedTemplate.height || 1800}
             <div
-              class="relative h-full max-w-full overflow-hidden rounded-lg bg-black/40 shadow-md"
-              style="aspect-ratio: {tWidth} / {tHeight};"
+              class="relative overflow-hidden rounded-lg bg-black/40 shadow-md"
+              style={getTemplatePreviewBoxStyle(tWidth, tHeight)}
             >
               {#if templateLayers.length > 0}
                 {#each templateLayers.filter((l) => !l.isQr) as layer, idx (layer.id ?? idx)}
@@ -357,7 +408,7 @@
                     "
                   >
                     {#if layer.isBackground}
-                      {@const layerBgUrl = layer.imageUrl || bgUrl}
+                      {@const layerBgUrl = uiConfig.resolveAssetUrl(layer.imageUrl || bgUrl)}
                       {#if layerBgUrl}
                         <img
                           src={layerBgUrl}
@@ -385,7 +436,7 @@
                               </div>
                             </button>
                           {/if}
-                        {:else if cameraStore.isLiveviewActive}
+                        {:else if cameraStore.isLiveviewActive || frameSrc}
                           {#if cameraStore.cameraMode === 'webcam'}
                             <video
                               use:playStream={cameraStore.stream}
@@ -418,25 +469,40 @@
           {/if}
         </div>
 
-        <button
-          onclick={() => allDone && onComplete(boothFlow.photosTaken)}
-          disabled={!allDone}
-          class={`shrink-0 flex items-center justify-center gap-2 border-none rounded-full px-8 py-4 font-bold text-base transition-all ${
-            allDone ? 'bg-[#111117] text-white cursor-pointer hover:bg-[#2a2838]' : 'bg-[#e8e4df] text-[#bbb] cursor-default'
-          }`}
-        >
-          Lanjut
-          <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
-            <path d="M8.25 4.5l7.5 7.5-7.5 7.5" stroke-linecap="round" stroke-linejoin="round" />
-          </svg>
-        </button>
-
-        {#if !isRunning}
+        {#if allDone}
+          <div class="shrink-0 flex items-center gap-2 w-full">
+            <button
+              type="button"
+              onclick={() => handleRetakeSingle(activeRetakeIdx ?? 0)}
+              disabled={isRunning}
+              class="flex-1 flex items-center justify-center gap-2 bg-[#f4ece3] hover:bg-[#e8ded3] text-[#111117] border-none rounded-full px-4 py-3.5 font-bold text-sm cursor-pointer transition-all active:scale-95 shadow-sm"
+              title="Ambil ulang foto pada slot yang dipilih"
+            >
+              <RotateCw size={15} />
+              <span>Retake {activeRetakeIdx !== null ? `Foto ${activeRetakeIdx + 1}` : 'Foto'}</span>
+            </button>
+            <button
+              type="button"
+              onclick={() => onComplete(boothFlow.photosTaken)}
+              disabled={isRunning}
+              class="flex-1 flex items-center justify-center gap-2 bg-[#111117] hover:bg-[#2a2838] text-white border-none rounded-full px-4 py-3.5 font-bold text-sm cursor-pointer transition-all active:scale-95 shadow-sm"
+            >
+              Lanjut
+              <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+                <path d="M8.25 4.5l7.5 7.5-7.5 7.5" stroke-linecap="round" stroke-linejoin="round" />
+              </svg>
+            </button>
+          </div>
+        {:else}
           <button
-            onclick={onBack}
-            class="shrink-0 flex items-center justify-center gap-1.5 bg-transparent border-none text-[#bbb] text-xs font-medium cursor-pointer py-1 hover:text-[#888]"
+            type="button"
+            disabled={true}
+            class="shrink-0 flex items-center justify-center gap-2 border-none rounded-full px-8 py-4 font-bold text-base transition-all bg-[#e8e4df] text-[#bbb] cursor-default"
           >
-            Kembali
+            Lanjut
+            <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+              <path d="M8.25 4.5l7.5 7.5-7.5 7.5" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
           </button>
         {/if}
       </div>

@@ -36,6 +36,7 @@ export interface BoothCfg {
   whatsappEnabled: boolean;
   primaryPrinter: string;
   secondaryPrinter: string;
+  multiPrint: boolean;
 }
 
 export const DEFAULT_CFG: BoothCfg = {
@@ -74,6 +75,7 @@ export const DEFAULT_CFG: BoothCfg = {
   whatsappEnabled: true,
   primaryPrinter: '',
   secondaryPrinter: '',
+  multiPrint: false,
 };
 
 class BoothConfigStore {
@@ -105,7 +107,7 @@ class BoothConfigStore {
           paymentPage: !!early,
           basePrice: baseVal,
           skipPayment: parsed.skipPayment ?? false,
-          cameraMode: isDevWebcamEnabled() ? 'webcam' : (parsed.cameraMode ?? DEFAULT_CFG.cameraMode),
+          cameraMode: parsed.cameraMode ?? (isDevWebcamEnabled() ? 'webcam' : DEFAULT_CFG.cameraMode),
         };
       } else {
         this.config = { ...DEFAULT_CFG };

@@ -1,7 +1,7 @@
 {
   "mcpServers": {
     "potohub-api-context": {
-      "command": "/home/dwiwahyu/Projects/PotoHub/source-code/api/target/release/mcp_context_server"
+      "command": "mcp_context_server"
     }
   }
 }

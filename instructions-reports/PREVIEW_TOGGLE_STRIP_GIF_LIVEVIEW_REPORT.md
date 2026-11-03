@@ -125,7 +125,7 @@ Pengguna menginginkan implementasi fitur **toggle untuk menampilkan tiga hasil s
    ```bash
    $ pnpm check
    $ svelte-kit sync && svelte-check --tsconfig ./tsconfig.json
-   Loading svelte-check in workspace: /home/dwiwahyu/Projects/PotoHub/source-code/dekstop-app
+   Loading svelte-check in workspace: /home/potohub/Projects/PotoHub/source-code/dekstop-app
    Getting Svelte diagnostics...
 
    svelte-check found 0 errors and 0 warnings

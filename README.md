@@ -173,4 +173,4 @@ potohub-dekstop-app/
 ## 🏷️ Arsip & Rollback CCAPI
 
 Jika ingin mengembalikan implementasi lama menggunakan Canon CCAPI (Wi-Fi HTTP), ikuti panduan pada:
-👉 [`docs/legacy-ccapi/README.md`](file:///home/dwiwahyuilahi/Personal/Projects/Photobooth%20App%20System/potohub-dekstop-app/docs/legacy-ccapi/README.md) atau checkout git tag: `ccapi-backup-20260727`.
+👉 [`docs/legacy-ccapi/README.md`](docs/legacy-ccapi/README.md) atau checkout git tag: `ccapi-backup-20260727`.

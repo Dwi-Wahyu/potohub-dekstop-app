@@ -5,6 +5,8 @@ import { boothConfig } from "./stores/boothConfig.svelte";
 export type PrinterStatus = {
   is_ready: boolean;
   is_online: boolean;
+  is_printing?: boolean;
+  active_jobs?: number;
   paper_remaining?: number;
   paper_limit_alert?: number;
   printer_name: string;
@@ -19,6 +21,29 @@ export type PrintOptions = {
   useSecondary?: boolean;
   targetPrinter?: string;
 };
+
+const PHYSICAL_PRINT_MS_PER_COPY = 12_000;
+const POST_SPOOL_MIN_MS_PER_COPY = 10_000;
+const MAX_SPOOL_WAIT_MS = 120_000;
+const POLL_INTERVAL_MS = 1_000;
+
+function sleepWithAbort(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    if (signal?.aborted) {
+      resolve();
+      return;
+    }
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(timer);
+      resolve();
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+}
 
 class PrinterStore {
   printers = $state<string[]>([]);
@@ -86,12 +111,29 @@ class PrinterStore {
       }
 
       // Resolve secondary printer
-      if (
-        savedSecondary &&
-        this.printers.includes(savedSecondary) &&
-        savedSecondary !== this.selectedPrinter
-      ) {
+      if (savedSecondary && this.printers.includes(savedSecondary)) {
         this.secondaryPrinter = savedSecondary;
+      } else if (this.printers.length > 1) {
+        // Auto-detect secondary printer (e.g. queue dengan cut / strip / copy / 2x6, atau printer kedua)
+        const candidateSecondary =
+          this.printers.find((p) => {
+            if (p === this.selectedPrinter) return false;
+            const u = p.toUpperCase();
+            return (
+              u.includes("CUT") ||
+              u.includes("STRIP") ||
+              u.includes("COPY") ||
+              u.includes("2X6") ||
+              u.includes("SECONDARY")
+            );
+          }) || this.printers.find((p) => p !== this.selectedPrinter);
+
+        if (candidateSecondary) {
+          this.secondaryPrinter = candidateSecondary;
+          boothConfig.save({ secondaryPrinter: candidateSecondary });
+        } else {
+          this.secondaryPrinter = null;
+        }
       } else {
         this.secondaryPrinter = null;
         if (savedSecondary) {
@@ -101,13 +143,12 @@ class PrinterStore {
 
       if (this.selectedPrinter) {
         await this.refreshStatus();
-        flushPrintQueue().catch((err) =>
-          console.error("[PrinterStore] Initial queue flush error:", err)
-        );
       } else {
         this.status = {
           is_ready: false,
           is_online: false,
+          is_printing: false,
+          active_jobs: 0,
           paper_remaining: undefined,
           paper_limit_alert: 50,
           printer_name: "",
@@ -120,6 +161,8 @@ class PrinterStore {
       this.status = {
         is_ready: false,
         is_online: false,
+        is_printing: false,
+        active_jobs: 0,
         paper_remaining: undefined,
         paper_limit_alert: 50,
         printer_name: "",
@@ -173,10 +216,12 @@ class PrinterStore {
     }
 
     if (anyTransitionedToOnline) {
-      console.log("[printerStore] Printer transitioned OFFLINE -> ONLINE! Triggering flushPrintQueue...");
-      flushPrintQueue().catch((err) =>
-        console.error("[PrinterStore] Auto queue flush error:", err)
-      );
+      console.log("[printerStore] Printer transitioned OFFLINE -> ONLINE. Memeriksa antrean cetak idle...");
+      if (typeof window !== 'undefined') {
+        import('./utils/idleCoordinator').then(({ checkAndFlushQueuesIfIdle }) => {
+          void checkAndFlushQueuesIfIdle();
+        });
+      }
     }
   }
 
@@ -248,6 +293,139 @@ class PrinterStore {
     }
   }
 
+  /**
+   * Menunggu hingga proses cetak benar-benar selesai di antrean OS Spooler
+   * ditambah durasi mekanis cetak fisik printer foto (agar tidak langsung dinyatakan
+   * selesai saat data baru masuk spooler atau saat printer baru menyala/warming up).
+   */
+  async waitForPrintCompletion(options?: {
+    copies?: number;
+    useSecondary?: boolean;
+    targetPrinter?: string;
+    signal?: AbortSignal;
+  }): Promise<{ completed: boolean; error?: string }> {
+    const copies = Math.max(1, options?.copies ?? 1);
+    const targetPrinter = options?.targetPrinter || this.resolvePrinter(options?.useSecondary);
+    const signal = options?.signal;
+
+    if (!targetPrinter) {
+      return { completed: false, error: "Printer tidak ditemukan" };
+    }
+
+    const startTime = Date.now();
+    this.isPrinting = true;
+
+    try {
+      // Beri jeda awal singkat agar OS Print Spooler mendaftarkan job yang baru dikirim
+      await sleepWithAbort(800, signal);
+      if (signal?.aborted) return { completed: false };
+
+      // Fase 1: Tunggu sampai printer online/ready dan antrean job di OS Spooler selesai ditransfer
+      // (Jika printer baru menyala / warming up, job akan tertahan di spooler selama printer inisialisasi)
+      let spoolCleared = false;
+      let lastErrorMsg: string | undefined;
+
+      while (Date.now() - startTime < MAX_SPOOL_WAIT_MS) {
+        if (signal?.aborted) return { completed: false };
+
+        let currentStatus: PrinterStatus | null = null;
+        try {
+          currentStatus = await invoke<PrinterStatus>("get_printer_status", {
+            printerName: targetPrinter,
+          });
+          if (options?.useSecondary && this.secondaryPrinter === targetPrinter) {
+            this.secondaryStatus = currentStatus;
+          } else {
+            this.status = currentStatus;
+          }
+        } catch (err) {
+          console.warn("[printerStore] Gagal cek status saat menunggu print:", err);
+        }
+
+        if (currentStatus) {
+          const jobStillActive =
+            Boolean(currentStatus.is_printing) || (currentStatus.active_jobs ?? 0) > 0;
+          if (!jobStillActive) {
+            spoolCleared = true;
+            break;
+          }
+
+          if (
+            currentStatus.has_error &&
+            currentStatus.error_message &&
+            (currentStatus.error_message.toLowerCase().includes("habis") ||
+              currentStatus.error_message.toLowerCase().includes("jam") ||
+              currentStatus.error_message.toLowerCase().includes("tersangkut"))
+          ) {
+            return {
+              completed: false,
+              error: currentStatus.error_message,
+            };
+          }
+        }
+
+        await sleepWithAbort(POLL_INTERVAL_MS, signal);
+      }
+
+      if (signal?.aborted) return { completed: false };
+      if (!spoolCleared) {
+        // Jika batas waktu spooler habis tapi tidak ada error fatal, anggap data sudah terkirim ke printer
+        console.warn("[printerStore] Spool wait timeout tercapai, beralih ke fase mekanis...");
+        spoolCleared = true;
+      }
+
+      // Fase 2: Setelah data keluar dari OS Spooler (masuk ke RAM buffer printer),
+      // printer thermal/foto masih membutuhkan waktu mekanis untuk mencetak Y-M-C-O & memotong kertas.
+      const spoolClearedTime = Date.now();
+      const elapsedSoFar = spoolClearedTime - startTime;
+      const minTotalMs = copies * PHYSICAL_PRINT_MS_PER_COPY;
+      const minPostSpoolMs = copies * POST_SPOOL_MIN_MS_PER_COPY;
+      const remainingMechanicalMs = Math.max(minTotalMs - elapsedSoFar, minPostSpoolMs);
+
+      const mechanicalEndTime = Date.now() + remainingMechanicalMs;
+      while (Date.now() < mechanicalEndTime) {
+        if (signal?.aborted) return { completed: false };
+
+        const waitStep = Math.min(POLL_INTERVAL_MS, mechanicalEndTime - Date.now());
+        if (waitStep > 0) {
+          await sleepWithAbort(waitStep, signal);
+        }
+        if (signal?.aborted) return { completed: false };
+
+        try {
+          const currentStatus = await invoke<PrinterStatus>("get_printer_status", {
+            printerName: targetPrinter,
+          });
+          if (options?.useSecondary && this.secondaryPrinter === targetPrinter) {
+            this.secondaryStatus = currentStatus;
+          } else {
+            this.status = currentStatus;
+          }
+
+          // Cek HANYA jika ada error fatal mekanik seperti kertas habis atau tersangkut
+          if (
+            currentStatus.has_error &&
+            currentStatus.error_message &&
+            (currentStatus.error_message.toLowerCase().includes("habis") ||
+              currentStatus.error_message.toLowerCase().includes("jam") ||
+              currentStatus.error_message.toLowerCase().includes("tersangkut"))
+          ) {
+            return {
+              completed: false,
+              error: currentStatus.error_message,
+            };
+          }
+        } catch {
+          // Abaikan error transien saat polling fase mekanis (misal USB re-enumeration saat pisau cutter aktif)
+        }
+      }
+
+      return { completed: true };
+    } finally {
+      this.isPrinting = false;
+    }
+  }
+
   async openPrinterProperties(printerName?: string | null) {
     const target = printerName || this.selectedPrinter;
     if (!target) return;
@@ -257,6 +435,34 @@ class PrinterStore {
       });
     } catch (err) {
       console.error("[printerStore] Failed to open printer properties:", err);
+      this.errorMessage = String(err);
+      throw err;
+    }
+  }
+
+  /**
+   * Buka Printing Preferences untuk Secondary Printer.
+   * Jika hanya ada 1 printer fisik dan antrean kloning belum dibuat,
+   * secara otomatis membuat antrean kloning di Windows (misal: "DS-RX1 (Cut 2x6)"),
+   * memilihnya sebagai secondary printer, dan langsung membuka dialog setting 2-inch cut-nya.
+   */
+  async openSecondaryPrinterProperties() {
+    if (!this.selectedPrinter) {
+      throw new Error("Pilih Primary Printer terlebih dahulu");
+    }
+    try {
+      const target = await invoke<string>("open_secondary_printer_properties", {
+        primaryPrinter: this.selectedPrinter,
+        currentSecondary: this.secondaryPrinter,
+      });
+      if (target && target !== this.secondaryPrinter) {
+        this.secondaryPrinter = target;
+        boothConfig.save({ secondaryPrinter: target });
+        await this.loadPrinters();
+      }
+      return target;
+    } catch (err) {
+      console.error("[printerStore] Failed to open secondary printer properties:", err);
       this.errorMessage = String(err);
       throw err;
     }

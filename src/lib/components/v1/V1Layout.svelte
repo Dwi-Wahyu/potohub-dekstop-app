@@ -41,6 +41,10 @@
   let selectedPrice = $state(35000);
   let selectedFrameConfigId = $state('grid4');
 
+  $effect(() => {
+    boothFlow.goTo(currentSubStep as any);
+  });
+
   let effectiveBasePrice = $derived(
     boothConfig.config.earlyPaymentPage && boothConfig.config.basePrice > 0
       ? boothConfig.config.basePrice
@@ -57,6 +61,7 @@
 
   function handleTutorialNext() {
     if (boothConfig.config.skipPayment) {
+      boothFlow.paymentMethod = 'Cash';
       currentSubStep = 'category_frame';
     } else if (boothConfig.config.earlyPaymentPage) {
       currentSubStep = 'method_select';
@@ -68,12 +73,14 @@
   function handleCategoryFrameNext(price: number, frameId: string) {
     selectedPrice = price;
     selectedFrameConfigId = frameId;
+    boothFlow.selectedFrameId = frameId;
     currentSubStep = 'print_qty';
   }
 
   function handlePrintQtyNext(quantity: number) {
     boothFlow.printQty = quantity;
     if (boothConfig.config.skipPayment) {
+      boothFlow.paymentMethod = 'Cash';
       currentSubStep = 'camera';
     } else if (boothConfig.config.earlyPaymentPage) {
       currentSubStep = 'camera';
@@ -84,13 +91,16 @@
 
   function handleMethodSelect(method: 'ticket' | 'cashless') {
     if (method === 'ticket') {
+      boothFlow.paymentMethod = 'Ticket';
       currentSubStep = 'ticket';
     } else {
+      boothFlow.paymentMethod = 'Cashless';
       currentSubStep = 'payment';
     }
   }
 
   function handlePaymentSuccess() {
+    boothFlow.paymentMethod = 'Cashless';
     if (boothConfig.config.earlyPaymentPage) {
       currentSubStep = 'category_frame';
     } else {
@@ -161,6 +171,7 @@
     <V1TicketScan
       background={getV1Bg('ticket')}
       onSuccess={() => {
+        boothFlow.paymentMethod = 'Ticket';
         if (boothConfig.config.earlyPaymentPage) {
           currentSubStep = 'category_frame';
         } else {
@@ -181,14 +192,12 @@
       background={getV1Bg('session')}
       frameConfigId={selectedFrameConfigId}
       onComplete={handleCameraComplete}
-      onBack={() => (currentSubStep = 'print_qty')}
     />
   {:else if currentSubStep === 'customize'}
     <V1Customize
       background={getV1Bg('filter')}
       photos={boothFlow.photosTaken}
       frameConfigId={selectedFrameConfigId}
-      onBack={() => (currentSubStep = 'camera')}
       onNext={handleCustomizeNext}
     />
   {:else if currentSubStep === 'complete'}

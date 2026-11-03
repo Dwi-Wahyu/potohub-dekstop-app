@@ -8,17 +8,22 @@
   import { formatTime, getLiveviewTransformStyle } from '$lib/utils/shared';
   import { fetchTemplates, requireActiveBoothId, type BoothTemplate } from '$lib/api/boothClient';
   import { cachedFetch } from '$lib/utils/offlineCache';
-  import { getSortedPhotoSlots, getTemplateLayers, getLayerZIndex } from '$lib/utils/templateComposite';
+  import {
+    getSortedPhotoSlots,
+    getTemplateLayers,
+    getLayerZIndex,
+    getTemplatePreviewBoxStyle
+  } from '$lib/utils/templateComposite';
   import { Check, Sparkles, ChevronRight, Search, RotateCw, Camera, FlipHorizontal2 } from '@lucide/svelte';
 
   interface Props {
     selectedFrame: string;
     onComplete: (photos: string[]) => void;
-    onBack: () => void;
+    onBack?: () => void;
     background?: string;
   }
 
-  let { selectedFrame, onComplete, onBack, background }: Props = $props();
+  let { selectedFrame, onComplete, background }: Props = $props();
 
   let selectedTemplate = $state<BoothTemplate | null>(null);
   let templateLayers = $derived(getTemplateLayers(selectedTemplate));
@@ -63,37 +68,68 @@
   }
 
   onMount(async () => {
-    try {
-      const boothId = await requireActiveBoothId();
-      await cachedFetch(
-        `templates:${boothId}`,
-        () => fetchTemplates(boothId),
-        (templates) => {
-          const matched = templates.find((t) => t.id === selectedFrame);
-          if (matched) {
-            selectedTemplate = matched;
-          } else if (templates[0]) {
-            selectedTemplate = templates[0];
+    timer = setInterval(() => {
+      if (sessionSecs > 0) {
+        sessionSecs--;
+        if (sessionSecs === 0) {
+          clearInterval(timer);
+          if (!isRunning) {
+            onComplete(boothFlow.photosTaken);
+          } else {
+            const checkDone = setInterval(() => {
+              if (!isRunning) {
+                clearInterval(checkDone);
+                onComplete(boothFlow.photosTaken);
+              }
+            }, 300);
           }
         }
-      );
-    } catch (err) {
-      console.error('[V3Session] Failed to fetch template in V3Session:', err);
-    }
-
-    await cameraStore.startLiveview(videoEl);
-    timer = setInterval(() => {
-      if (sessionSecs > 0) sessionSecs--;
+      }
     }, 1000);
 
+    const templatePromise = (async () => {
+      try {
+        const boothId = await requireActiveBoothId();
+        await cachedFetch(
+          `templates:${boothId}`,
+          () => fetchTemplates(boothId),
+          (templates) => {
+            const matched = templates.find((t) => t.id === selectedFrame);
+            if (matched) {
+              selectedTemplate = matched;
+            } else if (templates[0]) {
+              selectedTemplate = templates[0];
+            }
+          }
+        );
+      } catch (err) {
+        console.error('[V3Session] Failed to fetch template in V3Session:', err);
+      }
+    })();
+
+    await cameraStore.startLiveview(videoEl);
+
     if (cameraStore.cameraMode === 'usb' || cameraStore.cameraMode === 'demo') {
+      const firstFrame = await cameraStore.getLiveviewFrame();
+      if (firstFrame) {
+        frameSrc = firstFrame;
+      }
+      let fetchingFrame = false;
       liveviewInterval = setInterval(async () => {
-        const url = await cameraStore.getLiveviewFrame();
-        if (url) {
-          frameSrc = url;
+        if (fetchingFrame) return;
+        fetchingFrame = true;
+        try {
+          const url = await cameraStore.getLiveviewFrame();
+          if (url) {
+            frameSrc = url;
+          }
+        } finally {
+          fetchingFrame = false;
         }
       }, 150);
     }
+
+    await templatePromise;
   });
 
   onDestroy(() => {
@@ -128,23 +164,33 @@
     }, 2000);
 
     try {
-      const bytes = await cameraStore.capture();
+      let bytes = await cameraStore.capture();
+      if (!bytes && cameraStore.cameraMode === 'usb') {
+        console.warn(`[V3Session] Retake slot ${index + 1} pertama null, retry dalam 500ms...`);
+        await new Promise((r) => setTimeout(r, 500));
+        bytes = await cameraStore.capture();
+      }
+
       let photoUrl = '';
-      if (bytes) {
+      if (bytes && bytes.length > 0) {
         const blob = new Blob([bytes], { type: 'image/jpeg' });
         photoUrl = URL.createObjectURL(blob);
       } else {
-        const canvas = document.createElement('canvas');
-        canvas.width = 640;
-        canvas.height = 480;
-        const ctx = canvas.getContext('2d');
-        if (ctx) {
-          ctx.fillStyle = '#3b82f6';
-          ctx.fillRect(0, 0, canvas.width, canvas.height);
-          ctx.fillStyle = '#ffffff';
-          ctx.font = '30px sans-serif';
-          ctx.fillText(`Photo ${index + 1}`, 240, 240);
-          photoUrl = canvas.toDataURL('image/jpeg');
+        photoUrl = cameraStore.currentLiveviewUrl || '';
+        if (!photoUrl) {
+          const canvas = document.createElement('canvas');
+          canvas.width = 1200;
+          canvas.height = 800;
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            ctx.fillStyle = '#1e1b4b';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = '#ffffff';
+            ctx.font = 'bold 36px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText(`Photo ${index + 1}`, canvas.width / 2, canvas.height / 2);
+            photoUrl = canvas.toDataURL('image/jpeg');
+          }
         }
       }
 
@@ -244,14 +290,14 @@
     <div class="w-[34%] h-full bg-[#fdfdfd] flex flex-col items-center justify-center gap-5 p-8 border-r border-gray-100 shadow-[4px_0_16px_rgba(0,0,0,0.05)] z-10">
       <p class="text-[8px] font-bold text-gray-400 uppercase tracking-[0.3em] m-0">✦ Preview Strip ✦</p>
 
-      <div class="relative flex-1 max-h-[55vh] w-full flex items-center justify-center">
+      <div class="relative flex-1 max-h-[55vh] w-full flex items-center justify-center" style="container-type: size;">
         {#if selectedTemplate}
           {@const tWidth = selectedTemplate.width || 1200}
           {@const tHeight = selectedTemplate.height || 1800}
 
           <div
-            class="relative h-full max-w-full overflow-hidden rounded-xl bg-black/40 shadow-xl border-2 border-gray-200"
-            style="aspect-ratio: {tWidth} / {tHeight};"
+            class="relative overflow-hidden rounded-xl bg-black/40 shadow-xl border-2 border-gray-200"
+            style={getTemplatePreviewBoxStyle(tWidth, tHeight)}
           >
             {#if templateLayers.length > 0}
               {#each templateLayers.filter((l) => !l.isQr) as layer, idx (layer.id ?? idx)}
@@ -272,7 +318,7 @@
                   "
                 >
                   {#if layer.isBackground}
-                    {@const layerBgUrl = layer.imageUrl || bgUrl}
+                    {@const layerBgUrl = uiConfig.resolveAssetUrl(layer.imageUrl || bgUrl)}
                     {#if layerBgUrl}
                       <img
                         src={layerBgUrl}
@@ -300,7 +346,7 @@
                             </div>
                           </button>
                         {/if}
-                      {:else if cameraStore.isLiveviewActive}
+                      {:else if cameraStore.isLiveviewActive || frameSrc}
                         {#if cameraStore.cameraMode === 'webcam'}
                           <video
                             use:playStream={cameraStore.stream}
@@ -385,7 +431,7 @@
         {/each}
 
         <!-- Permanent Liveview Feed Layer -->
-        {#if cameraStore.isLiveviewActive}
+        {#if cameraStore.isLiveviewActive || frameSrc}
           {#if cameraStore.cameraMode === 'webcam'}
             <video
               use:playStream={cameraStore.stream}

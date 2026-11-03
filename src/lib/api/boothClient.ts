@@ -164,7 +164,7 @@ function mapPublicConfigToBoothUIConfig(
   };
 }
 
-export function isValidUUID(str: string | null | undefined): boolean {
+export function isValidUUID(str: string | null | undefined): str is string {
   if (!str) return false;
   return /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(
     str,
@@ -217,6 +217,7 @@ export async function getAuthHeaders(
 
 export interface LoginResponseData {
   token: string;
+  refresh_token?: string;
   user: {
     id: string;
     organization_id: string | null;
@@ -233,16 +234,31 @@ export async function refreshUserToken(): Promise<string | null> {
 
   refreshPromise = (async () => {
     try {
+      const storedRefresh =
+        typeof window !== "undefined"
+          ? localStorage.getItem("potohub_refresh_token")
+          : null;
+
       const res = await tauriFetch(`${API_BASE}/auth/refresh`, {
         method: "POST",
-        headers: { Accept: "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: storedRefresh ? JSON.stringify({ refresh_token: storedRefresh }) : undefined,
       });
       if (!res.ok) {
         await clearUserSession();
+        if (typeof window !== "undefined") {
+          localStorage.removeItem("potohub_refresh_token");
+        }
         return null;
       }
       const json = await res.json();
       const newToken = json.token;
+      if (json.refresh_token && typeof window !== "undefined") {
+        localStorage.setItem("potohub_refresh_token", json.refresh_token);
+      }
       const session = await getUserSession();
       if (session && newToken) {
         await saveUserSession({
@@ -255,6 +271,9 @@ export async function refreshUserToken(): Promise<string | null> {
       return newToken as string;
     } catch (e) {
       await clearUserSession();
+      if (typeof window !== "undefined") {
+        localStorage.removeItem("potohub_refresh_token");
+      }
       return null;
     } finally {
       refreshPromise = null;
@@ -284,6 +303,10 @@ export async function loginUser(
   }
   const json = await res.json();
   const data: LoginResponseData = json.data ?? json;
+
+  if (data.refresh_token && typeof window !== "undefined") {
+    localStorage.setItem("potohub_refresh_token", data.refresh_token);
+  }
 
   if (data.token && data.user) {
     await saveUserSession({
@@ -323,12 +346,21 @@ export async function isTokenValid(token: string | null | undefined): Promise<bo
           return false;
         }
       }
+
+      // Token operator booth berlaku 365 hari dan tidak disimpan di tabel users
+      if (
+        decoded.role === "operator" ||
+        decoded.role === "Operator" ||
+        (Array.isArray(decoded.assigned_booths) && decoded.assigned_booths.length > 0)
+      ) {
+        return true;
+      }
     }
   } catch (e) {
     console.warn("Gagal parse JWT payload di client-side:", e);
   }
 
-  // 2. API check against /api/auth/me
+  // 2. API check against /api/auth/me untuk user session
   try {
     const res = await fetch(`${API_BASE}/auth/me`, {
       method: "GET",
@@ -337,7 +369,7 @@ export async function isTokenValid(token: string | null | undefined): Promise<bo
     return res.ok;
   } catch (e) {
     console.warn("Periksa /auth/me ke API gagal (network offline):", e);
-    return true;
+    return true; // Jika offline, tetap izinkan jalan jika exp JWT valid
   }
 }
 
@@ -557,6 +589,8 @@ function applyRemoteSettings(settings: Record<string, any>) {
   const general = settings?.general ?? {};
   const timer = settings?.timer ?? {};
   const softfile = settings?.softfile ?? {};
+  const print = settings?.print ?? {};
+  const paperReminder = settings?.['paper-reminder'] ?? {};
 
   const isEarly = general.early_payment_page ?? general.payment_page ?? boothConfig.config.earlyPaymentPage;
   const rawBase = general.base_price ?? general.basePrice;
@@ -592,6 +626,9 @@ function applyRemoteSettings(settings: Record<string, any>) {
     endScreenTimeSecs: timer.end_screen_time ?? boothConfig.config.endScreenTimeSecs,
     emailEnabled: softfile.email_enabled ?? boothConfig.config.emailEnabled ?? true,
     whatsappEnabled: softfile.whatsapp_enabled ?? boothConfig.config.whatsappEnabled ?? true,
+    multiPrint: typeof print.multi_print === 'boolean' ? print.multi_print : boothConfig.config.multiPrint,
+    paperThreshold: typeof paperReminder.threshold === 'number' ? paperReminder.threshold : boothConfig.config.paperThreshold,
+    paperCount: typeof paperReminder.current_stock === 'number' ? paperReminder.current_stock : boothConfig.config.paperCount,
   });
 }
 
@@ -670,12 +707,19 @@ export async function createTransactionSession(
     method = "Cashless";
   }
 
-  const res = await fetch(`${API_BASE}/booths/${boothId}/transactions`, {
+  const sanitizedCategoryId = isValidUUID(categoryId) ? categoryId : null;
+  const sanitizedFrameId = isValidUUID(frameId) ? frameId : null;
+
+  await logInfo(
+    `[createTransactionSession] boothId=${boothId} method=${method} totalPrint=${totalPrint} categoryId=${sanitizedCategoryId} frameId=${sanitizedFrameId} amount=${amount ?? "null"}`
+  ).catch(() => {});
+
+  const res = await tauriFetch(`${API_BASE}/booths/${boothId}/transactions`, {
     method: "POST",
     headers: await getAuthHeaders("application/json"),
     body: JSON.stringify({
-      category_id: categoryId || null,
-      frame_id: frameId || null,
+      category_id: sanitizedCategoryId,
+      frame_id: sanitizedFrameId,
       total_print: totalPrint,
       payment_method: method,
       amount: amount != null ? amount : null,
@@ -683,16 +727,23 @@ export async function createTransactionSession(
   });
   if (!res.ok) {
     const errText = await res.text().catch(() => "");
+    await logError(
+      `[createTransactionSession] Gagal status=${res.status} (${method}): ${errText}`
+    ).catch(() => {});
     console.error("createTransactionSession failed:", res.status, errText);
     throw new Error(
-      `Gagal membuat sesi transaksi: ${errText || res.statusText}`,
+      `Gagal membuat sesi transaksi (${res.status}): ${errText || res.statusText}`,
     );
   }
   const json = await res.json();
   const data = json.data ?? json;
+  const resolvedId = data.session_id || data.id;
+  await logInfo(
+    `[createTransactionSession] Sukses session_id=${resolvedId} status=${data.status}`
+  ).catch(() => {});
   return {
     ...data,
-    session_id: data.session_id || data.id,
+    session_id: resolvedId,
   };
 }
 
@@ -708,7 +759,7 @@ export async function checkPaymentStatus(
   boothId: string,
   orderId: string,
 ): Promise<PaymentStatusResponse> {
-  const res = await fetch(`${API_BASE}/booths/${boothId}/transactions/${orderId}/status`, {
+  const res = await tauriFetch(`${API_BASE}/booths/${boothId}/transactions/${orderId}/status`, {
     headers: await getAuthHeaders(),
   });
   if (!res.ok) {
@@ -802,8 +853,9 @@ export async function uploadGalleryAsset(
     typeof blobOrDataUrl === "string"
       ? await (await fetch(blobOrDataUrl)).blob()
       : blobOrDataUrl;
+  const bytes = new Uint8Array(await blob.arrayBuffer());
   await logInfo(
-    `[uploadGalleryAsset] ${fileType} size=${blob.size} bytes, session=${sessionId}`
+    `[uploadGalleryAsset] ${fileType} size=${bytes.byteLength} bytes, session=${sessionId}`
   ).catch(() => {});
 
   const { upload_url, file_url } = await requestUploadUrl(
@@ -817,10 +869,10 @@ export async function uploadGalleryAsset(
     `[uploadGalleryAsset] presigned URL diterima untuk ${fileType}: ${file_url}`
   ).catch(() => {});
 
-  const putRes = await fetch(upload_url, {
+  const putRes = await tauriFetch(upload_url, {
     method: "PUT",
     headers: { "Content-Type": contentType },
-    body: blob,
+    body: bytes,
   });
   if (!putRes.ok) {
     const errBody = await putRes.text().catch(() => "");
@@ -840,7 +892,7 @@ export async function uploadGalleryAsset(
     fileType,
     width,
     height,
-    blob.size,
+    bytes.byteLength,
     blurBase64,
   );
 }
@@ -930,25 +982,69 @@ export interface RedeemQrTicketResponse {
   } | null;
 }
 
+/**
+ * Membersihkan dan menormalisasi token tiket QR baik dari hasil scan kamera
+ * (URL, query param, hash) maupun dari input manual (keyboard, touchscreen).
+ * Selalu mengembalikan token uppercase tanpa spasi internal.
+ */
+export function normalizeTicketToken(rawInput: string): string {
+  if (!rawInput) return '';
+  let token = rawInput.trim();
+
+  // 1. Decode URI component jika ter-encode (misal %20, %2F)
+  try {
+    if (token.includes('%')) {
+      token = decodeURIComponent(token);
+    }
+  } catch {}
+
+  // 2. Ekstrak token jika input berupa URL atau query string
+  if (token.includes('token=')) {
+    token = token.split('token=')[1].split('&')[0].split('#')[0];
+  } else if (token.includes('code=')) {
+    token = token.split('code=')[1].split('&')[0].split('#')[0];
+  } else if (token.includes('ticket=')) {
+    token = token.split('ticket=')[1].split('&')[0].split('#')[0];
+  } else if (token.includes('t=')) {
+    token = token.split('t=')[1].split('&')[0].split('#')[0];
+  } else if (token.includes('/qr-tickets/')) {
+    token = token.split('/qr-tickets/')[1].split('?')[0].split('/')[0].split('#')[0];
+  } else if (token.includes('/tickets/')) {
+    token = token.split('/tickets/')[1].split('?')[0].split('/')[0].split('#')[0];
+  }
+
+  // 3. Bersihkan tanda kutip atau kurung kurawal jika hasil scan JSON
+  token = token.replace(/^["'{]+|["'}]+$/g, '').trim();
+
+  // 4. Hapus semua spasi internal (misal: "7K 9P" -> "7K9P")
+  token = token.replace(/\s+/g, '');
+
+  // 5. Normalisasi selalu ke uppercase
+  return token.toUpperCase();
+}
+
 export async function validateAndRedeemQrTicket(
   token: string,
   boothId?: string,
 ): Promise<RedeemQrTicketResponse> {
-  const cleanToken = token.includes("token=")
-    ? token.split("token=")[1].split("&")[0]
-    : token.trim();
-  const cleanBoothId = boothId && boothId.trim() !== "" ? boothId.trim() : null;
+  const cleanToken = normalizeTicketToken(token);
+  // Validasi boothId: Hanya teruskan jika merupakan UUID valid, jika bukan kirim null agar tidak memicu 400 Bad Request di backend
+  const cleanBoothId = boothId && isValidUUID(boothId.trim()) ? boothId.trim() : null;
 
-  let res: Response;
-  try {
-    res = await fetch(`${API_BASE}/qr-tickets/redeem`, {
+  async function postRedeem(t: string): Promise<Response> {
+    return await fetch(`${API_BASE}/qr-tickets/redeem`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        token: cleanToken,
+        token: t,
         booth_id: cleanBoothId,
       }),
     });
+  }
+
+  let res: Response;
+  try {
+    res = await postRedeem(cleanToken);
   } catch (networkErr) {
     // Lempar ulang error jaringan asli agar pemanggil tahu ini masalah koneksi
     throw networkErr;
@@ -958,6 +1054,41 @@ export async function validateAndRedeemQrTicket(
   if (!res.ok) {
     const errJson = await res.json().catch(() => null);
     const serverMessage = errJson?.message || "Tiket QR tidak valid atau telah digunakan";
+
+    // Fallback 1: Jika token memiliki prefix TKT- (misal input 'TKT-7K9P' padahal token di DB '7K9P')
+    if (cleanToken.startsWith('TKT-') && cleanToken.length > 4) {
+      const stripped = cleanToken.slice(4);
+      try {
+        const retryRes = await postRedeem(stripped);
+        if (retryRes.ok) {
+          const retryJson = await retryRes.json();
+          return {
+            ...retryJson,
+            valid: Boolean(retryJson.valid ?? retryJson.success ?? true),
+            success: true,
+          };
+        }
+      } catch {}
+    }
+
+    // Fallback 2: Jika token memiliki tanda strip '-' (misal input '7K-9P' padahal token '7K9P')
+    if (cleanToken.includes('-')) {
+      const noDash = cleanToken.replace(/-/g, '');
+      if (noDash.length > 0) {
+        try {
+          const retryRes = await postRedeem(noDash);
+          if (retryRes.ok) {
+            const retryJson = await retryRes.json();
+            return {
+              ...retryJson,
+              valid: Boolean(retryJson.valid ?? retryJson.success ?? true),
+              success: true,
+            };
+          }
+        } catch {}
+      }
+    }
+
     return {
       valid: false,
       success: false,
@@ -1045,9 +1176,7 @@ export interface RedeemTicketResult {
  *             begitu online lagi.
  */
 export async function redeemTicket(token: string, boothId: string): Promise<RedeemTicketResult> {
-  const cleanToken = token.includes('token=')
-    ? token.split('token=')[1].split('&')[0]
-    : token.trim();
+  const cleanToken = normalizeTicketToken(token);
 
   const { networkStatus } = await import('$lib/stores/networkStatus.svelte');
 

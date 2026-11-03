@@ -13,14 +13,30 @@
     Eye,
     Camera,
     X,
-    Settings
+    Settings,
+    RefreshCw,
+    Layers,
+    UploadCloud,
+    FolderOpen,
+    Trash2
   } from '@lucide/svelte';
+  import UpdateModal from '$lib/components/shared/UpdateModal.svelte';
+  import ReuploadSessionsModal from '$lib/components/shared/ReuploadSessionsModal.svelte';
+  import { updaterStore } from '$lib/utils/updater.svelte';
   import { goto } from '$app/navigation';
   import { boothConfig, type BoothCfg } from '$lib/stores/boothConfig.svelte';
   import { uiConfig } from '$lib/stores/uiConfig.svelte';
   import { syncBoothSettings, getActiveBoothId } from '$lib/api/boothClient';
   import { networkStatus } from '$lib/stores/networkStatus.svelte';
-  import { countPendingOutboxJobs } from '$lib/db/local';
+  import {
+    countPendingOutboxJobs,
+    countPendingSessionSoftfileJobs,
+    countPendingPrintJobs,
+    clearAllPendingPrintJobs,
+  } from '$lib/db/local';
+  import { invoke } from '@tauri-apps/api/core';
+  import { flushOutbox } from '$lib/utils/offlineOutbox';
+  import { flushPrintQueue } from '$lib/utils/printQueue';
   import { cameraStore } from '$lib/camera.svelte';
   import { printerStore } from '$lib/printer.svelte';
   import { getLiveviewTransformStyle } from '$lib/utils/shared';
@@ -38,6 +54,12 @@
   let fallbackMode = $state<'demo' | null>(null);
   let saveNotice = $state<string | null>(null);
   let pendingJobs = $state(0);
+  let pendingSoftfileSessions = $state(0);
+  let pendingPrintJobs = $state(0);
+  let isReuploadModalOpen = $state(false);
+  let isUploadingPending = $state(false);
+  let isPrintingQueue = $state(false);
+  let isClearingPrintQueue = $state(false);
 
   const NEU_BG = '#ebf0f7';
   const NEU_PRIMARY = '#2a2873';
@@ -86,11 +108,81 @@
     } catch (e) {
       syncStatus = e instanceof Error ? e.message : 'Sync gagal';
     } finally {
-      pendingJobs = await countPendingOutboxJobs().catch(() => 0);
+      await refreshPendingCount();
     }
     setTimeout(() => {
       syncStatus = null;
     }, 3000);
+  }
+
+  async function refreshPendingCount() {
+    pendingJobs = await countPendingOutboxJobs().catch(() => 0);
+    pendingSoftfileSessions = await countPendingSessionSoftfileJobs().catch(() => 0);
+    pendingPrintJobs = await countPendingPrintJobs().catch(() => 0);
+  }
+
+  async function handleFlushPrintQueue() {
+    if (isPrintingQueue || pendingPrintJobs === 0) return;
+    isPrintingQueue = true;
+    try {
+      const res = await flushPrintQueue({ force: true });
+      await refreshPendingCount();
+      saveNotice = `Proses cetak selesai! ${res.processed} lembar dicetak${res.errors > 0 ? `, ${res.errors} gagal` : ''}.`;
+      setTimeout(() => {
+        saveNotice = null;
+      }, 3500);
+    } catch (err) {
+      saveNotice = `Cetak antrean gagal: ${String(err)}`;
+      setTimeout(() => {
+        saveNotice = null;
+      }, 3500);
+    } finally {
+      isPrintingQueue = false;
+    }
+  }
+
+  async function handleClearPrintQueue() {
+    if (isClearingPrintQueue || pendingPrintJobs === 0) return;
+    const ok = confirm(`Batalkan dan hapus ${pendingPrintJobs} antrean cetak foto yang tertunda?`);
+    if (!ok) return;
+
+    isClearingPrintQueue = true;
+    try {
+      const cleared = await clearAllPendingPrintJobs();
+      await refreshPendingCount();
+      saveNotice = `Berhasil membatalkan ${cleared} antrean cetak foto!`;
+      setTimeout(() => {
+        saveNotice = null;
+      }, 3500);
+    } catch (err) {
+      saveNotice = `Gagal membatalkan antrean: ${String(err)}`;
+      setTimeout(() => {
+        saveNotice = null;
+      }, 3500);
+    } finally {
+      isClearingPrintQueue = false;
+    }
+  }
+
+  async function handleUploadAllPending() {
+    if (isUploadingPending) return;
+    isUploadingPending = true;
+    try {
+      const outboxRes = await flushOutbox({ force: true });
+      const printRes = await flushPrintQueue({ force: true });
+      await refreshPendingCount();
+      saveNotice = `Sinkronisasi selesai! ${outboxRes.processed} upload diproses.`;
+      setTimeout(() => {
+        saveNotice = null;
+      }, 3500);
+    } catch (err) {
+      saveNotice = `Sinkronisasi gagal: ${String(err)}`;
+      setTimeout(() => {
+        saveNotice = null;
+      }, 3500);
+    } finally {
+      isUploadingPending = false;
+    }
   }
 
   async function handleConnectDetected() {
@@ -115,6 +207,36 @@
 
   function handleOpenManualSettings() {
     goto('/camera-manual-settings');
+  }
+
+  async function handleOpenPrinterProperties(printerName: string | null) {
+    if (!printerName) return;
+    try {
+      await printerStore.openPrinterProperties(printerName);
+    } catch (err) {
+      saveNotice = `Gagal membuka preferensi printer: ${String(err)}`;
+      setTimeout(() => {
+        saveNotice = null;
+      }, 4000);
+    }
+  }
+
+  async function handleOpenSecondaryPrinterProperties() {
+    if (!printerStore.selectedPrinter) {
+      saveNotice = 'Pilih Primary Printer terlebih dahulu sebelum mengatur Secondary Printer';
+      setTimeout(() => {
+        saveNotice = null;
+      }, 4000);
+      return;
+    }
+    try {
+      await printerStore.openSecondaryPrinterProperties();
+    } catch (err) {
+      saveNotice = `Gagal membuka preferensi secondary printer: ${String(err)}`;
+      setTimeout(() => {
+        saveNotice = null;
+      }, 4000);
+    }
   }
 
   // State & Handlers untuk Dialog Live Preview Kamera
@@ -172,11 +294,12 @@
       await boothConfig.init(boothId);
     }
     boothName = uiConfig.config.boothName || boothName;
-    pendingJobs = await countPendingOutboxJobs().catch(() => 0);
+    void refreshPendingCount();
     void handleSync();
     await cameraStore.checkDevMode();
     void cameraStore.detect();
     void printerStore.loadPrinters();
+    void updaterStore.checkForUpdates(true);
   });
 
   onDestroy(() => {
@@ -347,6 +470,47 @@
           </div>
         </div>
 
+        <div style="width: 1px; height: 30px; background: rgba(200,210,224,0.7); flex-shrink: 0;"></div>
+
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <div
+            style="
+              width: 40px;
+              height: 40px;
+              border-radius: 12px;
+              background: {NEU_BG};
+              box-shadow: {neuCfg.btn};
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              color: {NEU_PRIMARY};
+              flex-shrink: 0;
+            "
+          >
+            <Layers size={17} />
+          </div>
+          <div>
+            <p style="font-size: 11px; font-weight: 700; color: #334155; margin: 0;">Version</p>
+            <p style="font-size: 11px; color: #64748b; margin: 0; display: flex; align-items: center; gap: 6px;">
+              v{updaterStore.currentVersion}
+              {#if updaterStore.hasUpdate}
+                <span
+                  style="
+                    padding: 1px 6px;
+                    border-radius: 999px;
+                    background: #f59e0b;
+                    color: white;
+                    font-size: 9px;
+                    font-weight: 700;
+                  "
+                >
+                  Update
+                </span>
+              {/if}
+            </p>
+          </div>
+        </div>
+
         <div style="flex: 1;"></div>
 
         {#if pendingJobs > 0}
@@ -367,6 +531,62 @@
             Pending Sync Offline: {pendingJobs}
           </div>
         {/if}
+
+        {#if pendingPrintJobs > 0}
+          <div
+            style="
+              padding: 6px 14px;
+              border-radius: 9999px;
+              background: #ede9fe;
+              color: #5b21b6;
+              font-size: 11px;
+              font-weight: 700;
+              display: flex;
+              align-items: center;
+              gap: 6px;
+            "
+          >
+            <Printer size={12} />
+            Pending Cetak: {pendingPrintJobs}
+          </div>
+        {/if}
+
+        <button
+          onclick={() => updaterStore.checkForUpdates(false)}
+          style="
+            position: relative;
+            padding: 8px 18px;
+            border-radius: 12px;
+            background: {NEU_BG};
+            box-shadow: {neuCfg.btn};
+            border: none;
+            cursor: pointer;
+            font-family: 'Poppins', sans-serif;
+            font-weight: 700;
+            font-size: 13px;
+            color: #334155;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+          "
+        >
+          <RefreshCw size={15} class={updaterStore.isChecking ? 'animate-spin' : ''} />
+          Check Updates
+          {#if updaterStore.hasUpdate}
+            <span
+              style="
+                position: absolute;
+                top: 4px;
+                right: 4px;
+                width: 8px;
+                height: 8px;
+                border-radius: 50%;
+                background: #ef4444;
+                box-shadow: 0 0 6px rgba(239, 68, 68, 0.7);
+              "
+            ></span>
+          {/if}
+        </button>
 
         <button
           onclick={handleSync}
@@ -803,7 +1023,7 @@
                       type="button"
                       title="Buka Pengaturan Printer Properties & Preferences (Aktifkan 2-Inch Cut)"
                       disabled={!printerStore.selectedPrinter}
-                      onclick={() => printerStore.openPrinterProperties(printerStore.selectedPrinter)}
+                      onclick={() => handleOpenPrinterProperties(printerStore.selectedPrinter)}
                       style="
                         display: flex;
                         align-items: center;
@@ -874,9 +1094,9 @@
                     <!-- Tombol Pengaturan Printer (Gear) -->
                     <button
                       type="button"
-                      title="Buka Pengaturan Printer Properties & Preferences (Aktifkan 2-Inch Cut)"
-                      disabled={!printerStore.secondaryPrinter}
-                      onclick={() => printerStore.openPrinterProperties(printerStore.secondaryPrinter)}
+                      title="Buka Pengaturan Secondary Printer Preferences (Aktifkan 2-Inch Cut)"
+                      disabled={!printerStore.selectedPrinter}
+                      onclick={() => handleOpenSecondaryPrinterProperties()}
                       style="
                         display: flex;
                         align-items: center;
@@ -887,17 +1107,17 @@
                         background: {NEU_BG};
                         box-shadow: {neuCfg.btnSm};
                         border: none;
-                        cursor: {printerStore.secondaryPrinter ? 'pointer' : 'not-allowed'};
-                        color: {printerStore.secondaryPrinter ? '#334155' : '#94a3b8'};
-                        opacity: {printerStore.secondaryPrinter ? 1 : 0.5};
+                        cursor: {printerStore.selectedPrinter ? 'pointer' : 'not-allowed'};
+                        color: {printerStore.selectedPrinter ? '#334155' : '#94a3b8'};
+                        opacity: {printerStore.selectedPrinter ? 1 : 0.5};
                         flex-shrink: 0;
                         transition: all 0.15s ease;
                       "
                       onmousedown={(e) => {
-                        if (printerStore.secondaryPrinter) e.currentTarget.style.boxShadow = neuCfg.inset;
+                        if (printerStore.selectedPrinter) e.currentTarget.style.boxShadow = neuCfg.inset;
                       }}
                       onmouseup={(e) => {
-                        if (printerStore.secondaryPrinter) e.currentTarget.style.boxShadow = neuCfg.btnSm;
+                        if (printerStore.selectedPrinter) e.currentTarget.style.boxShadow = neuCfg.btnSm;
                       }}
                     >
                       <Settings size={16} />
@@ -916,6 +1136,292 @@
                   <p style="font-size: 10px; color: #dc2626; margin: 0;">{printerStore.errorMessage}</p>
                 {/if}
               {/if}
+            </div>
+
+            <div style="height: 1px; background: rgba(200,210,224,0.7);"></div>
+
+            <!-- Session Pending Softfile Upload (Sesuai Referensi Layout) -->
+            <div style="display: flex; flex-direction: column; gap: 6px;">
+              <div style="display: flex; align-items: center; justify-content: space-between;">
+                <h1 style="font-size: 10px; font-weight: 700; color: #334155; text-transform: uppercase; letter-spacing: 0.06em; margin: 0;">
+                  Session Pending Softfile Upload
+                </h1>
+                {#if pendingSoftfileSessions > 0}
+                  <span
+                    style="
+                      font-size: 10px;
+                      font-weight: 700;
+                      color: #b45309;
+                      background: #fef3c7;
+                      padding: 2px 8px;
+                      border-radius: 9999px;
+                    "
+                  >
+                    {pendingSoftfileSessions} antrean
+                  </span>
+                {/if}
+              </div>
+
+              <div style="display: flex; gap: 8px; align-items: center;">
+                <!-- Count Box / Display Input -->
+                <div
+                  style="
+                    flex: 1;
+                    background: {NEU_BG};
+                    box-shadow: {neuCfg.inset};
+                    border-radius: 12px;
+                    padding: 9px 14px;
+                    font-size: 13px;
+                    font-weight: 700;
+                    color: {pendingSoftfileSessions > 0 ? '#d97706' : '#64748b'};
+                    display: flex;
+                    align-items: center;
+                    justify-content: space-between;
+                  "
+                >
+                  <span>{pendingSoftfileSessions}</span>
+                  {#if pendingSoftfileSessions > 0}
+                    <span style="font-size: 10px; font-weight: 500; color: #94a3b8;">Tertunda</span>
+                  {:else}
+                    <span style="font-size: 10px; font-weight: 500; color: #16a34a;">Semua Terkirim</span>
+                  {/if}
+                </div>
+
+                <!-- Tombol Upload (Manual Trigger Upload Semua) -->
+                <button
+                  type="button"
+                  onclick={handleUploadAllPending}
+                  disabled={isUploadingPending || pendingSoftfileSessions === 0}
+                  style="
+                    padding: 9px 18px;
+                    border-radius: 12px;
+                    background: {NEU_BG};
+                    box-shadow: {neuCfg.btnSm};
+                    border: none;
+                    cursor: {isUploadingPending || pendingSoftfileSessions === 0 ? 'not-allowed' : 'pointer'};
+                    opacity: {isUploadingPending || pendingSoftfileSessions === 0 ? 0.6 : 1};
+                    font-family: 'Poppins', sans-serif;
+                    font-weight: 700;
+                    font-size: 12px;
+                    color: #1e293b;
+                    display: flex;
+                    align-items: center;
+                    gap: 6px;
+                    white-space: nowrap;
+                    transition: all 0.15s ease;
+                  "
+                  title="Upload antrean sesi yang tertunda ke server sekarang"
+                  onmousedown={(e) => {
+                    if (!isUploadingPending && pendingSoftfileSessions > 0) e.currentTarget.style.boxShadow = neuCfg.inset;
+                  }}
+                  onmouseup={(e) => {
+                    if (!isUploadingPending && pendingSoftfileSessions > 0) e.currentTarget.style.boxShadow = neuCfg.btnSm;
+                  }}
+                >
+                  <UploadCloud size={15} class={isUploadingPending ? 'animate-bounce text-indigo-600' : ''} />
+                  <span>{isUploadingPending ? 'Uploading...' : 'Upload'}</span>
+                </button>
+
+                <!-- Tombol Dialog Reupload Sesi Foto (Icon Refresh/List sesuai arrow referensi) -->
+                <button
+                  type="button"
+                  onclick={() => (isReuploadModalOpen = true)}
+                  style="
+                    width: 40px;
+                    height: 40px;
+                    border-radius: 12px;
+                    background: {NEU_BG};
+                    box-shadow: {neuCfg.btnSm};
+                    border: none;
+                    cursor: pointer;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    color: #2a2873;
+                    position: relative;
+                    transition: all 0.15s ease;
+                  "
+                  title="Buka Dialog Daftar Sesi Foto (7 Sesi Terakhir, Upload Ulang & Print Manual)"
+                  onmousedown={(e) => (e.currentTarget.style.boxShadow = neuCfg.inset)}
+                  onmouseup={(e) => (e.currentTarget.style.boxShadow = neuCfg.btnSm)}
+                >
+                  <RotateCw size={17} />
+                  {#if pendingSoftfileSessions > 0}
+                    <span
+                      style="
+                        position: absolute;
+                        top: -2px;
+                        right: -2px;
+                        width: 8px;
+                        height: 8px;
+                        border-radius: 50%;
+                        background: #ef4444;
+                        box-shadow: 0 0 6px rgba(239, 68, 68, 0.8);
+                      "
+                    ></span>
+                  {/if}
+                </button>
+
+                <!-- Tombol Buka Folder Penyimpanan Sesi Lokal di Windows Explorer -->
+                <button
+                  type="button"
+                  onclick={async () => {
+                    try {
+                      await invoke('open_sessions_dir', { relativePath: null });
+                    } catch (e) {
+                      console.error('Gagal buka folder sesi:', e);
+                    }
+                  }}
+                  style="
+                    width: 40px;
+                    height: 40px;
+                    border-radius: 12px;
+                    background: {NEU_BG};
+                    box-shadow: {neuCfg.btnSm};
+                    border: none;
+                    cursor: pointer;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    color: #2a2873;
+                    transition: all 0.15s ease;
+                  "
+                  title="Buka Folder Penyimpanan Sesi Foto Lokal di Windows Explorer"
+                  onmousedown={(e) => (e.currentTarget.style.boxShadow = neuCfg.inset)}
+                  onmouseup={(e) => (e.currentTarget.style.boxShadow = neuCfg.btnSm)}
+                >
+                  <FolderOpen size={17} />
+                </button>
+              </div>
+
+              <p style="font-size: 10px; color: #94a3b8; margin: 0;">
+                Klik tombol <strong>Upload</strong> untuk sinkronisasi manual, icon putar untuk <strong>7 sesi terakhir</strong> (print/upload ulang), atau icon folder untuk membuka file foto lokal di Windows Explorer.
+              </p>
+            </div>
+
+            <div style="height: 1px; background: rgba(200,210,224,0.7);"></div>
+
+            <!-- Antrean Cetak Foto Offline (Print Queue) -->
+            <div style="display: flex; flex-direction: column; gap: 6px;">
+              <div style="display: flex; align-items: center; justify-content: space-between;">
+                <h1 style="font-size: 10px; font-weight: 700; color: #334155; text-transform: uppercase; letter-spacing: 0.06em; margin: 0;">
+                  Antrean Cetak Foto Offline
+                </h1>
+                {#if pendingPrintJobs > 0}
+                  <span
+                    style="
+                      font-size: 10px;
+                      font-weight: 700;
+                      color: #7c2d12;
+                      background: #ffedd5;
+                      padding: 2px 8px;
+                      border-radius: 9999px;
+                    "
+                  >
+                    {pendingPrintJobs} lembar antre
+                  </span>
+                {/if}
+              </div>
+
+              <div style="display: flex; gap: 8px; align-items: center;">
+                <!-- Count Box -->
+                <div
+                  style="
+                    flex: 1;
+                    background: {NEU_BG};
+                    box-shadow: {neuCfg.inset};
+                    border-radius: 12px;
+                    padding: 9px 14px;
+                    font-size: 13px;
+                    font-weight: 700;
+                    color: {pendingPrintJobs > 0 ? '#ea580c' : '#64748b'};
+                    display: flex;
+                    align-items: center;
+                    justify-content: space-between;
+                  "
+                >
+                  <span>{pendingPrintJobs} lembar</span>
+                  {#if pendingPrintJobs > 0}
+                    <span style="font-size: 10px; font-weight: 500; color: #ea580c;">Tertunda</span>
+                  {:else}
+                    <span style="font-size: 10px; font-weight: 500; color: #16a34a;">Antrean Bersih</span>
+                  {/if}
+                </div>
+
+                <!-- Tombol Cetak Antrean Manual -->
+                <button
+                  type="button"
+                  onclick={handleFlushPrintQueue}
+                  disabled={isPrintingQueue || pendingPrintJobs === 0}
+                  style="
+                    padding: 9px 14px;
+                    border-radius: 12px;
+                    background: {NEU_BG};
+                    box-shadow: {neuCfg.btnSm};
+                    border: none;
+                    cursor: {isPrintingQueue || pendingPrintJobs === 0 ? 'not-allowed' : 'pointer'};
+                    opacity: {isPrintingQueue || pendingPrintJobs === 0 ? 0.6 : 1};
+                    font-family: 'Poppins', sans-serif;
+                    font-weight: 700;
+                    font-size: 12px;
+                    color: #1e293b;
+                    display: flex;
+                    align-items: center;
+                    gap: 6px;
+                    white-space: nowrap;
+                    transition: all 0.15s ease;
+                  "
+                  title="Cetak semua antrean foto sekarang"
+                  onmousedown={(e) => {
+                    if (!isPrintingQueue && pendingPrintJobs > 0) e.currentTarget.style.boxShadow = neuCfg.inset;
+                  }}
+                  onmouseup={(e) => {
+                    if (!isPrintingQueue && pendingPrintJobs > 0) e.currentTarget.style.boxShadow = neuCfg.btnSm;
+                  }}
+                >
+                  <Printer size={15} class={isPrintingQueue ? 'animate-bounce text-indigo-600' : ''} />
+                  <span>{isPrintingQueue ? 'Mencetak...' : 'Cetak'}</span>
+                </button>
+
+                <!-- Tombol Kosongkan / Batalkan Antrean -->
+                <button
+                  type="button"
+                  onclick={handleClearPrintQueue}
+                  disabled={isClearingPrintQueue || pendingPrintJobs === 0}
+                  style="
+                    padding: 9px 14px;
+                    border-radius: 12px;
+                    background: {NEU_BG};
+                    box-shadow: {neuCfg.btnSm};
+                    border: none;
+                    cursor: {isClearingPrintQueue || pendingPrintJobs === 0 ? 'not-allowed' : 'pointer'};
+                    opacity: {isClearingPrintQueue || pendingPrintJobs === 0 ? 0.6 : 1};
+                    font-family: 'Poppins', sans-serif;
+                    font-weight: 700;
+                    font-size: 12px;
+                    color: #dc2626;
+                    display: flex;
+                    align-items: center;
+                    gap: 6px;
+                    white-space: nowrap;
+                    transition: all 0.15s ease;
+                  "
+                  title="Kosongkan antrean cetak agar foto lama tidak tercetak otomatis"
+                  onmousedown={(e) => {
+                    if (!isClearingPrintQueue && pendingPrintJobs > 0) e.currentTarget.style.boxShadow = neuCfg.inset;
+                  }}
+                  onmouseup={(e) => {
+                    if (!isClearingPrintQueue && pendingPrintJobs > 0) e.currentTarget.style.boxShadow = neuCfg.btnSm;
+                  }}
+                >
+                  <Trash2 size={15} />
+                  <span>Kosongkan Antrean</span>
+                </button>
+              </div>
+
+              <p style="font-size: 10px; color: #94a3b8; margin: 0;">
+                Gunakan <strong>Kosongkan Antrean</strong> untuk membatalkan seluruh print tertunda dari sesi sebelumnya agar tidak menghabiskan kertas foto.
+              </p>
             </div>
 
             <div style="height: 1px; background: rgba(200,210,224,0.7);"></div>
@@ -1122,42 +1628,6 @@
                 Pop-up slider banner muncul otomatis saat tidak ada interaksi / klik pada layar awal.
               </p>
             </div>
-
-            <div style="height: 1px; background: rgba(200,210,224,0.7);"></div>
-
-            <!-- PIN change -->
-            <div style="display: flex; flex-direction: column; gap: 6px;">
-              <h1 style="font-size: 10px; font-weight: 700; color: #334155; text-transform: uppercase; letter-spacing: 0.06em;">PIN Admin</h1>
-              <div style="display: flex; gap: 10px;">
-                <input
-                  type="password"
-                  maxLength={4}
-                  value={boothConfig.config.pin}
-                  oninput={(e) => {
-                    const v = e.currentTarget.value;
-                    if (/^\d{0,4}$/.test(v)) update('pin', v);
-                  }}
-                  placeholder="••••"
-                  style="
-                    flex: 1;
-                    background: {NEU_BG};
-                    box-shadow: {neuCfg.inset};
-                    border-radius: 12px;
-                    padding: 10px 14px;
-                    border: none;
-                    outline: none;
-                    font-size: 14px;
-                    font-weight: 700;
-                    color: #334155;
-                    font-family: 'Poppins',sans-serif;
-                    letter-spacing: 0.2em;
-                  "
-                />
-              </div>
-              <p style="font-size: 10px; color: #94a3b8; margin: 0;">Masukkan 4 digit PIN baru. Perubahan tersimpan otomatis.</p>
-            </div>
-
-            <div style="height: 1px; background: rgba(200,210,224,0.7);"></div>
           </div>
         </div>
       </div>
@@ -1398,6 +1868,13 @@
       </div>
     </div>
   {/if}
+
+  <UpdateModal />
+  <ReuploadSessionsModal
+    bind:open={isReuploadModalOpen}
+    onClose={() => (isReuploadModalOpen = false)}
+    onUpdated={refreshPendingCount}
+  />
 </div>
 
 <style>

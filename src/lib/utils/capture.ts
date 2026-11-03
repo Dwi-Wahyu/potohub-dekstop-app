@@ -25,26 +25,39 @@ export async function runCaptureSequence(
     }, 2000);
 
     try {
-      const bytes = await cameraStore.capture();
+      let bytes = await cameraStore.capture();
+      // Retry otomatis 1x jika pada jepretan pertama kamera sedang transisi/busy
+      if (!bytes && cameraStore.cameraMode === 'usb') {
+        console.warn(`[runCaptureSequence] Capture slot ${i + 1} pertama null, retry dalam 500ms...`);
+        await new Promise((r) => setTimeout(r, 500));
+        bytes = await cameraStore.capture();
+      }
+
       const slotIndex = i;
-      if (bytes) {
+      if (bytes && bytes.length > 0) {
         const blob = new Blob([bytes], { type: 'image/jpeg' });
         const photoUrl = URL.createObjectURL(blob);
         boothFlow.photosTaken = [...boothFlow.photosTaken, photoUrl];
         if (onCapturePhoto) onCapturePhoto(photoUrl);
       } else {
-        // Fallback for demo or when capture returns empty bytes
-        const canvas = document.createElement('canvas');
-        canvas.width = 640;
-        canvas.height = 480;
-        const ctx = canvas.getContext('2d');
-        if (ctx) {
-          ctx.fillStyle = '#3b82f6';
-          ctx.fillRect(0, 0, canvas.width, canvas.height);
-          ctx.fillStyle = '#ffffff';
-          ctx.font = '30px sans-serif';
-          ctx.fillText(`Photo ${i + 1}`, 240, 240);
-          const photoUrl = canvas.toDataURL('image/jpeg');
+        // Fallback: Gunakan snapshot liveview terakhir jika tersedia agar customer tidak melihat placeholder kosong
+        let photoUrl = cameraStore.currentLiveviewUrl;
+        if (!photoUrl) {
+          const canvas = document.createElement('canvas');
+          canvas.width = 1200;
+          canvas.height = 800;
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            ctx.fillStyle = '#1e1b4b';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = '#ffffff';
+            ctx.font = 'bold 36px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText(`Photo ${i + 1}`, canvas.width / 2, canvas.height / 2);
+            photoUrl = canvas.toDataURL('image/jpeg');
+          }
+        }
+        if (photoUrl) {
           boothFlow.photosTaken = [...boothFlow.photosTaken, photoUrl];
           if (onCapturePhoto) onCapturePhoto(photoUrl);
         }

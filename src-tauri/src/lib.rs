@@ -1,3 +1,5 @@
+pub mod canon_edsdk;
+pub mod kiosk;
 mod cache;
 mod gphoto;
 mod media;
@@ -19,6 +21,24 @@ pub struct AppState {
 
 #[tauri::command]
 async fn connect_camera(state: State<'_, AppState>) -> Result<DeviceInfo, GphotoError> {
+    #[cfg(target_os = "windows")]
+    {
+        if canon_edsdk::platform::is_available() {
+            match canon_edsdk::platform::connect().await {
+                Ok((model, port)) => {
+                    return Ok(DeviceInfo {
+                        manufacturer: Some("Canon (EDSDK Native)".into()),
+                        productname: Some(format!("{} [{}]", model, port)),
+                    });
+                }
+                Err(e) => {
+                    log::warn!("[connect_camera] EDSDK connect info: {}", e);
+                    return Err(GphotoError::Connection(e));
+                }
+            }
+        }
+    }
+
     let (camera, info) = gphoto::connect().await?;
     *state.camera.lock().await = Some(camera);
     Ok(info)
@@ -26,18 +46,68 @@ async fn connect_camera(state: State<'_, AppState>) -> Result<DeviceInfo, Gphoto
 
 #[tauri::command]
 async fn detect_camera() -> Result<Vec<gphoto::DetectedCamera>, GphotoError> {
+    #[cfg(target_os = "windows")]
+    {
+        if canon_edsdk::platform::is_available() {
+            match canon_edsdk::platform::detect_cameras().await {
+                Ok(canon_cams) => {
+                    return Ok(canon_cams
+                        .into_iter()
+                        .map(|c| gphoto::DetectedCamera {
+                            model: c.model,
+                            port: c.port,
+                        })
+                        .collect());
+                }
+                Err(e) => {
+                    log::warn!("[detect_camera] EDSDK detect info: {}", e);
+                    return Ok(Vec::new());
+                }
+            }
+        }
+    }
+
     gphoto::detect().await
 }
 
 #[tauri::command]
 async fn disconnect_camera(state: State<'_, AppState>) -> Result<(), GphotoError> {
+    #[cfg(target_os = "windows")]
+    {
+        let _ = canon_edsdk::platform::disconnect().await;
+    }
     *state.camera.lock().await = None;
     Ok(())
 }
 
 #[tauri::command]
 async fn is_camera_connected(state: State<'_, AppState>) -> Result<bool, GphotoError> {
+    #[cfg(target_os = "windows")]
+    {
+        if canon_edsdk::platform::is_connected().await {
+            return Ok(true);
+        }
+    }
     Ok(state.camera.lock().await.is_some())
+}
+
+#[tauri::command]
+async fn open_log_dir(app: tauri::AppHandle) -> Result<String, String> {
+    let log_dir = app.path().app_log_dir().map_err(|e| e.to_string())?;
+    let log_file = log_dir.join("potohub.log");
+    #[cfg(target_os = "windows")]
+    {
+        let _ = std::process::Command::new("explorer.exe")
+            .arg(log_dir.to_string_lossy().as_ref())
+            .spawn();
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let _ = std::process::Command::new("xdg-open")
+            .arg(log_dir.to_string_lossy().as_ref())
+            .spawn();
+    }
+    Ok(log_file.to_string_lossy().to_string())
 }
 
 #[tauri::command]
@@ -125,6 +195,15 @@ async fn get_camera_setting(
     state: State<'_, AppState>,
     key: String,
 ) -> Result<serde_json::Value, GphotoError> {
+    #[cfg(target_os = "windows")]
+    {
+        if canon_edsdk::platform::is_available() {
+            return Ok(serde_json::json!({
+                "value": "auto",
+                "ability": ["auto"]
+            }));
+        }
+    }
     let guard = state.camera.lock().await;
     let camera = guard.as_ref().ok_or(GphotoError::NotConnected)?;
     gphoto::get_setting(camera, &key).await
@@ -136,6 +215,12 @@ async fn set_camera_setting(
     key: String,
     value: String,
 ) -> Result<(), GphotoError> {
+    #[cfg(target_os = "windows")]
+    {
+        if canon_edsdk::platform::is_available() {
+            return Ok(());
+        }
+    }
     let guard = state.camera.lock().await;
     let camera = guard.as_ref().ok_or(GphotoError::NotConnected)?;
     gphoto::set_setting(camera, &key, &value).await
@@ -146,6 +231,14 @@ async fn capture_photo(
     state: State<'_, AppState>,
     app: tauri::AppHandle,
 ) -> Result<Vec<u8>, GphotoError> {
+    #[cfg(target_os = "windows")]
+    {
+        if canon_edsdk::platform::is_available() {
+            let bytes = canon_edsdk::platform::capture_photo().await
+                .map_err(|e| GphotoError::Operation(e))?;
+            return Ok(bytes);
+        }
+    }
     let guard = state.camera.lock().await;
     let camera = guard.as_ref().ok_or(GphotoError::NotConnected)?;
     let save_dir = app
@@ -157,6 +250,14 @@ async fn capture_photo(
 
 #[tauri::command]
 async fn start_liveview(state: State<'_, AppState>) -> Result<(), GphotoError> {
+    #[cfg(target_os = "windows")]
+    {
+        if canon_edsdk::platform::is_available() {
+            canon_edsdk::platform::start_liveview().await
+                .map_err(|e| GphotoError::Operation(e))?;
+            return Ok(());
+        }
+    }
     let guard = state.camera.lock().await;
     let camera = guard.as_ref().ok_or(GphotoError::NotConnected)?;
     gphoto::set_viewfinder(camera, true).await
@@ -164,6 +265,13 @@ async fn start_liveview(state: State<'_, AppState>) -> Result<(), GphotoError> {
 
 #[tauri::command]
 async fn stop_liveview(state: State<'_, AppState>) -> Result<(), GphotoError> {
+    #[cfg(target_os = "windows")]
+    {
+        if canon_edsdk::platform::is_available() {
+            let _ = canon_edsdk::platform::stop_liveview().await;
+            return Ok(());
+        }
+    }
     let guard = state.camera.lock().await;
     let camera = guard.as_ref().ok_or(GphotoError::NotConnected)?;
     gphoto::set_viewfinder(camera, false).await
@@ -171,6 +279,15 @@ async fn stop_liveview(state: State<'_, AppState>) -> Result<(), GphotoError> {
 
 #[tauri::command]
 async fn get_liveview_frame(state: State<'_, AppState>) -> Result<Vec<u8>, GphotoError> {
+    #[cfg(target_os = "windows")]
+    {
+        if canon_edsdk::platform::is_available() {
+            let bytes = canon_edsdk::platform::get_liveview_frame().await
+                .map_err(|e| GphotoError::Operation(e))?;
+            state.liveview_buffer.lock().await.push(bytes.clone());
+            return Ok(bytes);
+        }
+    }
     let guard = state.camera.lock().await;
     let camera = guard.as_ref().ok_or(GphotoError::NotConnected)?;
     let bytes = gphoto::get_liveview_frame(camera).await?;
@@ -251,6 +368,33 @@ async fn get_printer_status(printer_name: String) -> Result<PrinterStatus, Print
 #[tauri::command]
 async fn open_printer_properties(printer_name: String) -> Result<(), PrinterError> {
     printer::open_printer_properties(&printer_name)
+}
+
+#[tauri::command]
+async fn open_secondary_printer_properties(
+    primary_printer: String,
+    current_secondary: Option<String>,
+) -> Result<String, PrinterError> {
+    let clean_primary = primary_printer.trim();
+    if clean_primary.is_empty() {
+        return Err(PrinterError::PrinterNotFound(
+            "Primary printer belum dipilih".into(),
+        ));
+    }
+
+    let target_printer = if let Some(ref sec) = current_secondary {
+        let trimmed = sec.trim();
+        if !trimmed.is_empty() && !trimmed.eq_ignore_ascii_case(clean_primary) {
+            trimmed.to_string()
+        } else {
+            printer::ensure_or_clone_secondary_printer(clean_primary)?
+        }
+    } else {
+        printer::ensure_or_clone_secondary_printer(clean_primary)?
+    };
+
+    printer::open_printer_properties(&target_printer)?;
+    Ok(target_printer)
 }
 
 #[tauri::command]
@@ -404,41 +548,8 @@ pub fn init_gphoto_environment() {
                 SetDllDirectoryW(wide_root.as_ptr());
             }
 
-            // Workaround 1 (UsbDk): Aktifkan backend UsbDk pada libusb secara otomatis jika UsbDk terpasang.
-            // Memungkinkan libgphoto2 mengakses kamera secara low-level tanpa perlu mengganti driver USB via Zadig.
-            set_c_and_win_env("LIBUSB_USBDK", "1");
-            set_c_and_win_env("LIBUSB_ENABLE_USBDK", "1");
-
-            type LibusbSetOptionFn = unsafe extern "C" fn(*mut std::ffi::c_void, i32) -> i32;
-            unsafe {
-                extern "system" {
-                    fn LoadLibraryA(lpLibFileName: *const std::os::raw::c_char) -> *mut std::ffi::c_void;
-                    fn GetProcAddress(
-                        hModule: *mut std::ffi::c_void,
-                        lpProcName: *const std::os::raw::c_char,
-                    ) -> *mut std::ffi::c_void;
-                }
-
-                let libusb_dll_name = std::ffi::CString::new("libusb-1.0.dll").unwrap();
-                let h_libusb = LoadLibraryA(libusb_dll_name.as_ptr());
-                if !h_libusb.is_null() {
-                    let fn_name = std::ffi::CString::new("libusb_set_option").unwrap();
-                    let proc = GetProcAddress(h_libusb, fn_name.as_ptr());
-                    if !proc.is_null() {
-                        let set_option: LibusbSetOptionFn = std::mem::transmute(proc);
-                        // 1 = LIBUSB_OPTION_USE_USBDK
-                        let res = set_option(std::ptr::null_mut(), 1);
-                        if res == 0 {
-                            println!("[gphoto2-setup] UsbDk backend AKTIF di libusb (Kamera USB terhubung tanpa Zadig)!");
-                        } else {
-                            println!(
-                                "[gphoto2-setup] UsbDk option return code {} - fallback ke WinUSB standar.",
-                                res
-                            );
-                        }
-                    }
-                }
-            }
+            // Catatan: Hook UsbDk dinonaktifkan karena koneksi kamera Canon di Windows sudah menggunakan Canon EDSDK Native
+            // yang berkomunikasi langsung melalui driver bawaan Windows WPD/PTP tanpa intervensi libusb/UsbDk.
 
             println!("[gphoto2-setup] CAMLIBS = {}", camlibs_str);
             println!("[gphoto2-setup] IOLIBS  = {}", iolibs_str);
@@ -593,16 +704,32 @@ pub fn run() {
         },
     ];
 
+    let default_panic = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        kiosk::restore_taskbar();
+        default_panic(info);
+    }));
+
     tauri::Builder::default()
         .plugin(
             tauri_plugin_log::Builder::new()
-                .level(tauri_plugin_log::log::LevelFilter::Debug)
+                .targets([
+                    tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Stdout),
+                    tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::LogDir {
+                        file_name: Some("potohub.log".into()),
+                    }),
+                    tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Webview),
+                ])
+                .level(log::LevelFilter::Debug)
+                .max_file_size(10_000_000)
+                .rotation_strategy(tauri_plugin_log::RotationStrategy::KeepOne)
                 .build(),
         )
         .plugin(tauri_plugin_http::init())
-        .plugin(tauri_plugin_sql::Builder::new().build())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .plugin(
             tauri_plugin_sql::Builder::default()
                 .add_migrations(
@@ -615,10 +742,10 @@ pub fn run() {
             camera: Mutex::new(None),
             liveview_buffer: Mutex::new(gphoto::LiveviewBuffer::new(12000)),
         })
-        .setup(|app| {
+        .setup(|_app| {
             #[cfg(target_os = "linux")]
             {
-                if let Some(window) = app.get_webview_window("main") {
+                if let Some(window) = _app.get_webview_window("main") {
                     let _ = window.with_webview(|webview| {
                         use webkit2gtk::{PermissionRequestExt, WebViewExt};
                         let gtk_webview = webview.inner();
@@ -661,16 +788,27 @@ pub fn run() {
             storage::save_session_file,
             storage::save_session_manifest,
             storage::read_session_file,
+            storage::get_sessions_dir,
+            storage::open_sessions_dir,
             get_printer_list,
             get_printer_status,
             open_printer_properties,
+            open_secondary_printer_properties,
             print_photo,
             print_photo_from_buffer,
             save_qr_result,
             is_development_mode,
             is_usbdk_installed,
             install_usbdk,
+            open_log_dir,
+            kiosk::set_kiosk_system_lock,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|_app_handle, event| match event {
+            tauri::RunEvent::Exit | tauri::RunEvent::ExitRequested { .. } => {
+                kiosk::restore_taskbar();
+            }
+            _ => {}
+        });
 }

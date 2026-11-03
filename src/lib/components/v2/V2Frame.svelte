@@ -14,7 +14,12 @@
   } from '$lib/api/boothClient';
   import { cachedFetch } from '$lib/utils/offlineCache';
   import ProgressiveImage from '$lib/components/shared/ProgressiveImage.svelte';
-  import { getTemplateLayers, getLayerZIndex } from '$lib/utils/templateComposite';
+  import {
+    getTemplateLayers,
+    getLayerZIndex,
+    getTemplatePreviewBoxStyle,
+    preloadAndResolveTemplateAssets
+  } from '$lib/utils/templateComposite';
 
   interface Props {
     onSelectFrame: (frameId: string) => void;
@@ -77,34 +82,50 @@
       if (timeLeft > 0) timeLeft--;
     }, 1000);
 
-    try {
-      const boothId = await requireActiveBoothId();
-      await cachedFetch(
-        `categories:${boothId}`,
-        () => fetchCategories(boothId),
-        (d) => { categoriesData = d; }
-      );
-      await cachedFetch(
-        `templates:${boothId}`,
-        () => fetchTemplates(boothId),
-        (d) => { templatesData = d; }
-      );
-      if (templatesData.length > 0) {
-        selectedFrame = templatesData[0].id;
+    const catalogPromise = (async () => {
+      try {
+        const boothId = await requireActiveBoothId();
+        await cachedFetch(
+          `categories:${boothId}`,
+          () => fetchCategories(boothId),
+          (d) => { categoriesData = d; }
+        );
+        await cachedFetch(
+          `templates:${boothId}`,
+          () => fetchTemplates(boothId),
+          (d) => {
+            templatesData = d;
+            preloadAndResolveTemplateAssets(d, categoriesData);
+          }
+        );
+        if (templatesData.length > 0) {
+          selectedFrame = templatesData[0].id;
+        }
+      } catch (err) {
+        console.error('[V2Frame] Failed to load dynamic catalog from backend:', err);
+      } finally {
+        loadingCatalog = false;
       }
-    } catch (err) {
-      console.error('[V2Frame] Failed to load dynamic catalog from backend:', err);
-    } finally {
-      loadingCatalog = false;
-    }
+    })();
 
     await cameraStore.startLiveview(videoEl);
     if (cameraStore.cameraMode === 'usb' || cameraStore.cameraMode === 'demo') {
+      const firstFrame = await cameraStore.getLiveviewFrame();
+      if (firstFrame) frameSrc = firstFrame;
+      let fetchingFrame = false;
       liveviewInterval = setInterval(async () => {
-        const url = await cameraStore.getLiveviewFrame();
-        if (url) frameSrc = url;
+        if (fetchingFrame) return;
+        fetchingFrame = true;
+        try {
+          const url = await cameraStore.getLiveviewFrame();
+          if (url) frameSrc = url;
+        } finally {
+          fetchingFrame = false;
+        }
       }, 150);
     }
+
+    await catalogPromise;
   });
 
   onDestroy(() => {
@@ -213,7 +234,7 @@
         {selectedTemplateObj?.name || 'Selected Frame'}
       </h3>
 
-      <div class="flex-1 flex items-center justify-center w-full min-h-0 p-1">
+      <div class="flex-1 flex items-center justify-center w-full min-h-0 p-1" style="container-type: size;">
         {#if selectedTemplateObj}
           {@const templateLayers = 'design_data' in selectedTemplateObj ? getTemplateLayers(selectedTemplateObj as BoothTemplate) : []}
           {@const bgLayer = templateLayers.find((l) => l.isBackground)}
@@ -222,8 +243,8 @@
           {@const tHeight = ('height' in selectedTemplateObj && selectedTemplateObj.height) || 1800}
 
           <div
-            class="relative h-full max-w-full overflow-hidden rounded-xl bg-black/40 shadow-[8px_8px_0_0_#000] border-[3px] border-black"
-            style="aspect-ratio: {tWidth} / {tHeight};"
+            class="relative overflow-hidden rounded-xl bg-black/40 shadow-[8px_8px_0_0_#000] border-[3px] border-black"
+            style={getTemplatePreviewBoxStyle(tWidth, tHeight)}
           >
             {#if templateLayers.length > 0}
               {#each templateLayers.filter((l: any) => !l.isQr) as layer, idx (layer.id ?? idx)}
@@ -241,7 +262,7 @@
                   "
                 >
                   {#if layer.isBackground}
-                    {@const layerBgUrl = layer.imageUrl || bgUrl}
+                    {@const layerBgUrl = uiConfig.resolveAssetUrl(layer.imageUrl || bgUrl)}
                     {#if layerBgUrl}
                       <img
                         src={layerBgUrl}
@@ -251,7 +272,7 @@
                     {/if}
                   {:else}
                     <div class="w-full h-full bg-black/40 relative overflow-hidden">
-                      {#if cameraStore.isLiveviewActive}
+                      {#if cameraStore.isLiveviewActive || frameSrc}
                         {#if cameraStore.cameraMode === 'webcam'}
                           <video
                             use:playStream={cameraStore.stream}
@@ -291,7 +312,7 @@
               >
                 {#each Array(cols * rows) as _, i}
                   <div class="border-2 border-black flex items-center justify-center overflow-hidden bg-black/30">
-                    {#if cameraStore.isLiveviewActive}
+                    {#if cameraStore.isLiveviewActive || frameSrc}
                       {#if cameraStore.cameraMode === 'webcam'}
                         <video
                           use:playStream={cameraStore.stream}

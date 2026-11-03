@@ -20,7 +20,7 @@ Laporan ini mendokumentasikan seluruh investigasi, analisis akar masalah, perbai
 * **Perubahan pada Backend API (`api`):**
   1. `src/storage.rs`: Menambahkan fungsi `object_exists(&self, key: &str) -> bool` menggunakan S3 `head_object` untuk mengecek ketersediaan file di R2 sebelum upload (idempotent), serta fungsi `put_object_bytes(&self, key: &str, bytes: Vec<u8>, content_type: &str)` untuk direct upload.
   2. `src/seed/templates.rs` & `src/seed/mod.rs`: Membaca aset gambar lokal (`footoo-boothlab-assets/template-image/template-{id}/{background.png, preview.png}`), mengunggah ke Cloudflare R2 (`assets/frames/template-{id}-{bg|preview}.png`), dan menyimpan URL publik R2 permanen ke database PostgreSQL.
-  3. `footoo-boothlab-assets/templates-data-real-page-1.json`: Memperbarui seluruh `image_url` dan `backgroundUrl` mengarah ke domain R2 project (`https://potohub-bucket.dwiwahyu.my.id/assets/frames/...`).
+  3. `footoo-boothlab-assets/templates-data-real-page-1.json`: Memperbarui seluruh `image_url` dan `backgroundUrl` mengarah ke domain R2 project (`https://bucket.potohub.com/assets/frames/...`).
 
 ---
 
@@ -89,7 +89,7 @@ Laporan ini mendokumentasikan seluruh investigasi, analisis akar masalah, perbai
 
 ### 4.1 Uji Akses R2 Object Storage
 ```bash
-$ curl -I https://potohub-bucket.dwiwahyu.my.id/assets/frames/template-32101-bg.png
+$ curl -I https://bucket.potohub.com/assets/frames/template-32101-bg.png
 HTTP/2 200 
 content-type: image/png
 content-length: 265266
@@ -130,7 +130,7 @@ $ cargo run --bin seed -- --clean
         "session_id": "4d6e1968-18f8-4a53-a192-3b92c6e61357",
         "media": [
           {
-            "file_url": "https://potohub-bucket.dwiwahyu.my.id/.../photo_1787855026251.jpg",
+            "file_url": "https://bucket.potohub.com/.../photo_1787855026251.jpg",
             "file_type": "Photo"
           }
         ],

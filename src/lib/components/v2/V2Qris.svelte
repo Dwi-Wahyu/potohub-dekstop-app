@@ -106,11 +106,6 @@
     await generateQr();
   });
 
-  function simulatePayment() {
-    paid = true;
-    setTimeout(() => onSuccess(), 1000);
-  }
-
   const STEPPER_LABELS = ['Tutorial', 'Payment', 'Frames', 'Photo Session', 'Edit & Filter', 'Scan File'];
   const activeIdx = 1;
   const DEFAULT_BG = '#fafafa';
@@ -250,13 +245,14 @@
       QR berlaku selama 15 menit
     </p>
 
-    <button
-      onclick={simulatePayment}
-      disabled={paid}
-      class="mt-8 px-16 py-4 bg-black text-white text-base font-bold tracking-[0.2em] uppercase rounded-full hover:bg-gray-900 transition-all shadow-[6px_6px_0_0_rgba(0,0,0,0.25)] hover:shadow-none hover:translate-x-[6px] hover:translate-y-[6px] active:scale-95 cursor-pointer border-none font-['Nunito',sans-serif]"
+    <!-- Status saja (bukan tombol): pembayaran dikonfirmasi otomatis lewat polling status transaksi -->
+    <div
+      class="mt-8 px-16 py-4 text-base font-bold tracking-[0.2em] uppercase rounded-full font-['Nunito',sans-serif] {paid
+        ? 'bg-black text-white'
+        : 'bg-transparent text-black/40 border-2 border-dashed border-black/20'}"
     >
-      {paid ? 'Pembayaran Berhasil! ✓' : 'Saya Sudah Bayar ✓'}
-    </button>
+      {paid ? 'Pembayaran Berhasil! ✓' : 'Menunggu Pembayaran…'}
+    </div>
 
     <button
       onclick={onBack}

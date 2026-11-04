@@ -9,6 +9,7 @@
   import ProgressiveImage from '$lib/components/shared/ProgressiveImage.svelte';
   import {
     getTemplateLayers,
+    getTotalPhotosNeeded,
     getLayerZIndex,
     getTemplatePreviewBoxStyle,
     preloadAndResolveTemplateAssets
@@ -82,7 +83,7 @@
   let viewMode = $state<'grid' | 'slider'>('grid');
 
   function photoCountOf(t: BoothTemplate): number {
-    return getTemplateLayers(t).filter((l) => !l.isBackground && !l.isQr).length || 1;
+    return getTotalPhotosNeeded(getTemplateLayers(t), 1);
   }
 
   function goFrame(delta: number) {
@@ -586,7 +587,7 @@
                 <div class="text-2xl font-extrabold text-[#f0edf8]">{fmtPrice(selectedCategory.base_price)}</div>
               </div>
               <div class="text-xs text-white/65 text-right">
-                {grid.count} foto<br />
+                {photoCountOf(selectedFrame)} foto<br />
                 <span class="text-[11px]">{selectedCategory.name}</span>
               </div>
             {:else}

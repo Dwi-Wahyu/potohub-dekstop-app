@@ -13,6 +13,7 @@
   } from '$lib/api/boothClient';
   import { cachedFetch } from '$lib/utils/offlineCache';
   import ProgressiveImage from '$lib/components/shared/ProgressiveImage.svelte';
+  import { getTotalPhotosNeeded } from '$lib/utils/templateComposite';
 
   import { uiConfig } from '$lib/stores/uiConfig.svelte';
 
@@ -221,8 +222,7 @@
         {#each visibleFrames as f, i}
           {@const isSel = selectedFrame === f.id}
           {@const bandColor = 'color' in f ? f.color : `hsl(${(i * 37) % 360}, 70%, 60%)`}
-          {@const photoSlots = 'design_data' in f && f.design_data ? f.design_data.filter((l: any) => !l.isBackground && !l.isQr) : []}
-          {@const photoCount = photoSlots.length || ('cols' in f ? (f as any).cols * (f as any).rows : 3)}
+          {@const photoCount = 'design_data' in f && f.design_data ? getTotalPhotosNeeded(f.design_data as any, 3) : ('cols' in f ? (f as any).cols * (f as any).rows : 3)}
           <!-- svelte-ignore a11y_click_events_have_key_events -->
           <!-- svelte-ignore a11y_no_static_element_interactions -->
           <div

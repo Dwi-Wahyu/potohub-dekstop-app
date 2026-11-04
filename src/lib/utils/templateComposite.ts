@@ -25,6 +25,27 @@ export interface TemplateDesignLayer {
 }
 
 /**
+ * Ekstrak urutan slot foto (1-based integer).
+ * Prioritas:
+ * 1. layer.order (jika number valid > 0)
+ * 2. regex angka dari layer.name ("Photo Area 2" -> 2)
+ * 3. fallback ke fallbackOrder
+ */
+export function getPhotoSlotOrder<T extends TemplateDesignLayer>(
+  layer: T,
+  fallbackOrder: number = 1
+): number {
+  if (typeof layer.order === 'number' && !isNaN(layer.order) && layer.order > 0) {
+    return Math.floor(layer.order);
+  }
+  if (typeof layer.name === 'string') {
+    const m = layer.name.match(/Photo Area (\d+)/i);
+    if (m) return parseInt(m[1], 10);
+  }
+  return fallbackOrder;
+}
+
+/**
  * Mengurutkan layer foto (bukan background, bukan QR) berdasarkan atribut `order`
  * yang di-assign admin di dashboard. Fallback ke `id` jika `order` tidak ada.
  * SATU-SATUNYA sumber kebenaran untuk urutan pengisian foto ke slot template —
@@ -36,31 +57,54 @@ export function getSortedPhotoSlots<T extends TemplateDesignLayer>(
   return (designData || [])
     .filter((l) => !l.isBackground && !l.isQr)
     .sort((a, b) => {
-      const orderA = typeof a.order === 'number' ? a.order : typeof a.id === 'number' ? a.id : 0;
-      const orderB = typeof b.order === 'number' ? b.order : typeof b.id === 'number' ? b.id : 0;
+      const orderA = getPhotoSlotOrder(a, typeof a.id === 'number' ? a.id : 0);
+      const orderB = getPhotoSlotOrder(b, typeof b.id === 'number' ? b.id : 0);
       return orderA - orderB;
     });
 }
 
 /**
+ * Mengambil daftar angka order unik (terurut naik) dari seluruh slot foto
+ */
+export function getUniquePhotoOrders<T extends TemplateDesignLayer>(photoSlots: T[]): number[] {
+  const orders = new Set<number>();
+  for (let i = 0; i < photoSlots.length; i++) {
+    orders.add(getPhotoSlotOrder(photoSlots[i], i + 1));
+  }
+  return Array.from(orders).sort((a, b) => a - b);
+}
+
+/**
+ * Menghitung total jumlah pengambilan foto (take count) yang dibutuhkan oleh template.
+ * Jika terdapat slot duplikat (misalnya 10 slot dengan 5 order berpasangan pada template 2" cut),
+ * total foto yang diambil dipangkas menjadi jumlah order unik (5 foto).
+ */
+export function getTotalPhotosNeeded<T extends TemplateDesignLayer>(
+  templateLayers: T[] | null | undefined,
+  defaultCount: number = 4
+): number {
+  const photoSlots = getSortedPhotoSlots(templateLayers);
+  if (photoSlots.length === 0) return defaultCount;
+  const uniqueOrders = getUniquePhotoOrders(photoSlots);
+  return uniqueOrders.length > 0 ? uniqueOrders.length : photoSlots.length;
+}
+
+/**
  * Mencari index foto untuk slot tertentu secara konsisten di semua komponen (V1, V2, V3, CropModal, Composite).
- * Menggunakan pencocokan referensi objek, id angka, order, atau koordinat x & y.
+ * Slot-slot yang memiliki order sama (misal pada template 2" cut) akan mengembalikan indeks yang sama persis,
+ * sehingga keduanya menampilkan foto yang sama.
  */
 export function findPhotoSlotIndex<T extends TemplateDesignLayer>(
   layer: T,
   photoSlots: T[]
 ): number {
-  const idx = photoSlots.findIndex((s) => {
-    if (s === layer) return true;
-    if (typeof s.id === 'number' && typeof layer.id === 'number' && s.id === layer.id) {
-      return true;
-    }
-    if (typeof s.order === 'number' && typeof layer.order === 'number' && s.order === layer.order) {
-      return true;
-    }
-    return Math.round(s.x ?? 0) === Math.round(layer.x ?? 0) && Math.round(s.y ?? 0) === Math.round(layer.y ?? 0);
-  });
-  return idx >= 0 ? idx : 0;
+  const uniqueOrders = getUniquePhotoOrders(photoSlots);
+  const order = getPhotoSlotOrder(layer, 1);
+  const idx = uniqueOrders.indexOf(order);
+  if (idx >= 0) return idx;
+
+  const rawIdx = photoSlots.findIndex((s) => (s.id != null && layer.id != null && s.id === layer.id) || s === layer);
+  return rawIdx >= 0 ? rawIdx : 0;
 }
 
 /**

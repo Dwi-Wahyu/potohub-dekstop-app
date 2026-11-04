@@ -88,140 +88,126 @@
     if (pollTimer) clearInterval(pollTimer);
   });
 
-  // Local state stub simulation - see §0 item 5
-  function simulatePayment() {
-    paid = true;
-    setTimeout(() => onSuccess(), 1500);
-  }
-
+  const QR_TOTAL_SECS = 5 * 60;
   const fmtPrice = (n: number) => `Rp ${n.toLocaleString('id-ID')}`;
-  const PAYMENT_METHODS = ['GoPay', 'OVO', 'DANA', 'ShopeePay', 'LinkAja', 'BRI', 'BCA', 'Mandiri', 'BNI'];
-  const DEFAULT_BG = 'linear-gradient(135deg, #1e1b4b 0%, #2a2873 50%, #312e81 100%)';
+  const DEFAULT_BG = '#121114';
   let effectiveBg = $derived(background ?? uiConfig.getStepStyle('payment').background ?? DEFAULT_BG);
+  let expired = $derived(qrSecs === 0);
+  let qrPct = $derived((qrSecs / QR_TOTAL_SECS) * 100);
+  let accent = $derived(uiConfig.config.primaryColor);
+  let summary = $derived(`Sesi foto photobooth · ${boothFlow.printQty || 1} cetak`);
 </script>
 
 <div
-  class="w-full h-full overflow-hidden flex flex-col relative font-['Plus_Jakarta_Sans',sans-serif] text-[#e6e1e5]"
+  class="w-full h-full overflow-hidden flex flex-col select-none font-['Poppins',sans-serif]"
   style:background={effectiveBg}
 >
-
-  <div class="relative z-10 flex flex-col h-full text-[#e6e1e5]">
-    <!-- Header -->
-    <header class="flex justify-between items-start px-12 pt-8 shrink-0">
+  <!-- Header -->
+  <header class="flex items-center justify-between px-8 pt-6 shrink-0">
+    <div class="flex items-center gap-4">
       <button
         onclick={onBack}
-        class="flex items-center gap-1.5 px-5 py-[9px] rounded-full bg-transparent border border-white/10 text-white/30 cursor-pointer font-['Plus_Jakarta_Sans',sans-serif] text-sm font-medium hover:border-white/20 hover:text-white/50"
+        class="flex items-center gap-1 pl-2.5 pr-4 py-2 rounded-xl bg-white/10 text-white/90 text-xs font-semibold hover:bg-white/15 transition-colors border-none cursor-pointer"
       >
-        <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+        <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
           <path d="M15.75 19.5L8.25 12l7.5-7.5" stroke-linecap="round" stroke-linejoin="round" />
         </svg>
         Kembali
       </button>
-
-      <div class="text-center flex-1 px-6">
-        <h1 class="m-0 mb-1.5 text-[28px] font-bold text-[#f0edf8]">
-          Scan QRIS Untuk Bayar
-        </h1>
-        <p class="m-0 text-[13px] text-[#e6e1e5]/50">
-          Pembayaran akan dikonfirmasi secara otomatis
-        </p>
-      </div>
-
-      <div class="flex items-center gap-2 bg-white/95 text-[#0f0e14] px-[22px] py-[11px] rounded-full font-bold text-base shrink-0 shadow-[0_6px_24px_rgba(0,0,0,0.4)]">
-        <svg width="15" height="15" fill="none" stroke={uiConfig.config.primaryColor} stroke-width="2.5" viewBox="0 0 24 24">
-          <path d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" stroke-linecap="round" stroke-linejoin="round" />
+      <span class="text-white text-xl italic font-semibold font-['Playfair_Display',Georgia,serif]">
+        {uiConfig.config.boothName}
+      </span>
+    </div>
+    <div class="flex items-center gap-2.5 bg-white rounded-xl pl-2 pr-4 py-1.5 shadow-lg">
+      <span class="w-8 h-8 rounded-lg flex items-center justify-center text-white" style:background={accent}>
+        <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+          <path d="M10 2h4M12 14l3-3M12 22a8 8 0 100-16 8 8 0 000 16z" stroke-linecap="round" stroke-linejoin="round" />
         </svg>
-        <span class="tabular-nums">{formatTime(secs)}</span>
-      </div>
-    </header>
+      </span>
+      <span class="flex flex-col leading-none">
+        <span class="text-[9px] font-medium text-[#555]">Sisa waktu sesi</span>
+        <span class="text-lg font-bold text-[#111] tabular-nums">{formatTime(secs)}</span>
+      </span>
+    </div>
+  </header>
 
-    <!-- QRIS Card -->
-    <main class="flex-grow min-h-0 flex items-center justify-center px-12 py-5">
-      <div
-        class={`bg-white rounded-3xl pt-7 px-8 pb-6 w-[340px] shadow-[0_32px_80px_rgba(0,0,0,0.6)] flex flex-col items-center gap-4 relative transition-all duration-300 ${
-          paid ? 'opacity-50 scale-95' : 'opacity-100 scale-100'
-        }`}
-      >
-        {#if paid}
-          <div class="absolute inset-0 rounded-3xl bg-green-500/12 flex items-center justify-center z-10">
-            <div class="w-[72px] h-[72px] rounded-full bg-green-500 flex items-center justify-center shadow-[0_0_32px_rgba(34,197,94,0.5)]">
-              <svg width="36" height="36" fill="none" stroke="white" stroke-width="3" viewBox="0 0 24 24">
-                <path d="M4.5 12.75l6 6 9-13.5" stroke-linecap="round" stroke-linejoin="round" />
-              </svg>
-            </div>
+  <!-- Card -->
+  <main class="flex-1 min-h-0 flex items-center justify-center px-8 py-6">
+    <div
+      class="bg-white rounded-3xl w-full max-w-[860px] grid grid-cols-[1.05fr_1fr] overflow-hidden shadow-[0_32px_80px_rgba(0,0,0,0.6)] transition-all duration-500 relative {paid ? 'scale-[0.98]' : ''}"
+    >
+      {#if paid}
+        <div class="absolute inset-0 z-10 bg-white/85 flex flex-col items-center justify-center gap-3">
+          <div class="w-20 h-20 rounded-full bg-green-500 flex items-center justify-center shadow-[0_0_32px_rgba(34,197,94,0.5)]">
+            <svg width="38" height="38" fill="none" stroke="white" stroke-width="3" viewBox="0 0 24 24">
+              <path d="M4.5 12.75l6 6 9-13.5" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
           </div>
-        {/if}
-
-        <div class="w-full flex justify-between items-start">
-          <div class="flex gap-1 font-bold text-xs">
-            <span class="bg-[#e53935] text-white px-2 py-1 rounded">Q</span>
-            <span class="bg-[#1565c0] text-white px-2 py-1 rounded">R</span>
-            <span class="bg-[#2e7d32] text-white px-2 py-1 rounded">I</span>
-            <span class="bg-[#f57c00] text-white px-2 py-1 rounded">S</span>
-          </div>
-          <div class="text-right">
-            <div class="font-extrabold text-base text-[#1a0e0e]">
-              {uiConfig.config.boothName}
-            </div>
-            <div class="text-[10px] text-gray-400">Photobooth</div>
-          </div>
+          <p class="m-0 text-[#111] font-bold">Pembayaran berhasil</p>
         </div>
+      {/if}
 
-        <div class="w-full h-px bg-gray-100"></div>
-
-        <div class="text-center">
-          <div class="text-[11px] text-gray-400 mb-0.5">Total Pembayaran</div>
-          <div class="text-[28px] font-extrabold text-gray-900 tracking-[-0.02em]">
-            {fmtPrice(totalPrice)}
-          </div>
-          <!-- {#if boothConfig.config.earlyPaymentPage && boothConfig.config.basePrice > 0}
-            <div class="text-[11px] text-gray-500 mt-0.5 font-medium">
-              Acuan Harga: Rp {boothConfig.config.basePrice.toLocaleString('id-ID')}
-            </div>
-          {/if} -->
+      <!-- Left: QR -->
+      <section class="p-7 flex flex-col gap-4 border-r border-[#ececec]">
+        <div class="flex items-center justify-between">
+          <span class="text-[#111] font-extrabold text-lg tracking-wide">QRIS</span>
+          <span class="text-[#444] text-[11px] font-semibold">{uiConfig.config.boothName} Photobooth</span>
         </div>
-
-
-        <!-- Dynamic QR Container -->
-        <div class="p-3 border-2 border-gray-100 rounded-2xl bg-white shadow-sm flex items-center justify-center min-w-[200px] min-h-[200px]">
+        <div class="border border-[#e5e5e5] rounded-2xl p-5 flex items-center justify-center flex-1 min-h-[240px]">
           {#if loadingQr}
-            <div class="flex flex-col items-center justify-center gap-2 p-6 text-gray-400 text-xs">
-              <div class="w-6 h-6 border-2 border-gray-300 border-t-[#e53935] rounded-full animate-spin"></div>
+            <div class="flex flex-col items-center justify-center gap-2 text-[#555] text-xs">
+              <div class="w-6 h-6 border-2 border-[#ddd] border-t-[#d0342c] rounded-full animate-spin"></div>
               <span>Membuat QRIS...</span>
             </div>
           {:else if qrDataUrl}
-            <img src={qrDataUrl} alt="QRIS" class="w-[190px] h-[190px] object-contain rounded-lg" />
+            <img
+              src={qrDataUrl}
+              alt="QRIS"
+              class="w-[210px] h-[210px] object-contain transition-opacity {expired ? 'opacity-20' : ''}"
+            />
           {:else}
-            <div class="text-xs text-red-500 p-4 text-center">
+            <div class="text-xs text-[#b42318] text-center">
               <span class="font-bold block mb-1">Gagal Memuat QRIS</span>
-              <span class="text-[10px] text-gray-500">{errorMessage || 'Koneksi ke gateway gagal'}</span>
+              <span class="text-[10px] text-[#555]">{errorMessage || 'Koneksi ke gateway gagal'}</span>
             </div>
           {/if}
         </div>
-
         {#if orderId}
-          <div class="text-[10px] text-gray-400 font-mono tracking-tight">
-            Ref: {orderId}
-          </div>
+          <p class="m-0 text-center text-[10px] text-[#555] font-mono tracking-wide">Ref: {orderId}</p>
         {/if}
+      </section>
 
-        <div class="flex items-center gap-1.5 text-[11px] text-gray-400">
-          <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-            <path d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" stroke-linecap="round" stroke-linejoin="round" />
-          </svg>
-          <span>QR berlaku {formatTime(qrSecs)}</span>
+      <!-- Right: details -->
+      <section class="p-7 flex flex-col gap-4">
+        <div>
+          <p class="m-0 text-[11px] text-[#444] font-medium">Total bayar</p>
+          <p class="m-0 text-[#111] font-bold text-4xl tracking-tight leading-tight">{fmtPrice(totalPrice)}</p>
+          <p class="m-0 text-[11px] text-[#555] mt-0.5">{summary}</p>
         </div>
 
-        <div class="w-full h-px bg-gray-100"></div>
-
-        <div class="flex flex-wrap gap-1.5 justify-center">
-          {#each PAYMENT_METHODS as m}
-            <span class="text-[9px] font-bold px-2 py-0.5 bg-gray-100 text-gray-700 rounded">
-              {m}
-            </span>
-          {/each}
+        <div class="rounded-xl p-3.5 bg-[#fdecec]">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-bold text-[#8f1d1d]">{expired ? 'QR kedaluwarsa' : 'QR berlaku'}</span>
+            <span class="text-2xl font-bold text-[#b42318] tabular-nums">{formatTime(qrSecs)}</span>
+          </div>
+          <div class="h-1.5 rounded-full bg-[#f5c6c6] mt-2 overflow-hidden">
+            <div class="h-full rounded-full bg-[#d0342c] transition-all duration-1000 ease-linear" style:width="{qrPct}%"></div>
+          </div>
+          <p class="m-0 flex items-center gap-1.5 text-[10px] text-[#8f1d1d] mt-2">
+            <span class="w-1.5 h-1.5 rounded-full bg-[#d0342c] animate-pulse"></span>
+            Menunggu pembayaran. Konfirmasi otomatis.
+          </p>
         </div>
-      </div>
-    </main>
-  </div>
+
+        <ol class="m-0 list-decimal pl-4 text-xs text-[#222] space-y-1.5">
+          <li>Buka e-wallet atau mobile banking.</li>
+          <li>Scan kode QRIS di samping.</li>
+          <li>Cek nominal, lalu bayar.</li>
+        </ol>
+        <p class="m-0 text-[10px] text-[#555] leading-relaxed">
+          Bisa pakai GoPay, OVO, DANA, ShopeePay, LinkAja, BCA, BRI, Mandiri, BNI, dan aplikasi lain yang mendukung QRIS.
+        </p>
+      </section>
+    </div>
+  </main>
 </div>

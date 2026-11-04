@@ -10,6 +10,8 @@
   import { cachedFetch } from '$lib/utils/offlineCache';
   import {
     getSortedPhotoSlots,
+    getTotalPhotosNeeded,
+    findPhotoSlotIndex,
     getTemplateLayers,
     getLayerZIndex,
     getTemplatePreviewBoxStyle
@@ -28,7 +30,7 @@
   let selectedTemplate = $state<BoothTemplate | null>(null);
   let templateLayers = $derived(getTemplateLayers(selectedTemplate));
   let photoSlots = $derived(getSortedPhotoSlots(templateLayers));
-  let totalPhotos = $derived(photoSlots.length > 0 ? photoSlots.length : 4);
+  let totalPhotos = $derived(getTotalPhotosNeeded(templateLayers, 4));
   let bgLayer = $derived(templateLayers.find((l) => l.isBackground));
   let bgUrl = $derived(bgLayer?.imageUrl || selectedTemplate?.frame_image_url || '');
 
@@ -438,8 +440,7 @@
               {#each templateLayers.filter((l) => !l.isQr) as layer, idx (layer.id ?? idx)}
                 {@const layerZIndex = getLayerZIndex(layer, templateLayers)}
                 {@const isPhotoSlot = !layer.isBackground}
-                {@const slotIdx = isPhotoSlot ? photoSlots.findIndex((s) => s.id === layer.id || s === layer) : -1}
-                {@const targetIdx = slotIdx >= 0 ? slotIdx : 0}
+                {@const targetIdx = isPhotoSlot ? findPhotoSlotIndex(layer, photoSlots) : 0}
                 <div
                   class={`absolute overflow-hidden ${layer.isBackground ? 'pointer-events-none' : ''}`}
                   style="

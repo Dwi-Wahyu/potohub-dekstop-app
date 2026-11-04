@@ -606,6 +606,13 @@ function applyRemoteSettings(settings: Record<string, any>) {
     ? general.skip_payment
     : (boothConfig.config.skipPayment ?? false);
 
+  const rawAppPassword = softfile.app_password;
+  const hasAppPassword = typeof settings?.has_app_password === 'boolean'
+    ? settings.has_app_password
+    : (typeof softfile?.has_app_password === 'boolean'
+      ? softfile.has_app_password
+      : (typeof rawAppPassword === 'string' ? rawAppPassword.trim().length > 0 : false));
+
   boothConfig.save({
     pin: general.pin ?? boothConfig.config.pin,
     cameraRotate:
@@ -629,6 +636,7 @@ function applyRemoteSettings(settings: Record<string, any>) {
     multiPrint: typeof print.multi_print === 'boolean' ? print.multi_print : boothConfig.config.multiPrint,
     paperThreshold: typeof paperReminder.threshold === 'number' ? paperReminder.threshold : boothConfig.config.paperThreshold,
     paperCount: typeof paperReminder.current_stock === 'number' ? paperReminder.current_stock : boothConfig.config.paperCount,
+    hasAppPassword,
   });
 }
 
@@ -766,6 +774,33 @@ export async function checkPaymentStatus(
     throw new Error(`Failed to check payment status: ${res.statusText}`);
   }
   return res.json();
+}
+
+// ── Report Problem (menu petugas) ──────────────────────────────────────────
+// Kontrak endpoint (belum ada di API, dibuat oleh tim backend):
+//   POST /booths/{boothId}/problem-reports
+//   Body: { incident_date: "YYYY-MM-DD", detail: string, app_version: string, reported_at: ISO8601 }
+//   Respons 2xx = laporan tersimpan. Selain itu laporan diantrekan lokal (lihat utils/problemReports.ts).
+export interface ProblemReportPayload {
+  incident_date: string;
+  detail: string;
+  app_version: string;
+  reported_at: string;
+}
+
+export async function submitProblemReport(boothId: string, payload: ProblemReportPayload): Promise<void> {
+  const res = await tauriFetch(`${API_BASE}/booths/${boothId}/problem-reports`, {
+    method: "POST",
+    headers: await getAuthHeaders("application/json"),
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const errData = await res.json().catch(() => null);
+    const msg = errData?.message || errData?.error || `Gagal mengirim laporan: ${res.status} ${res.statusText}`;
+    const err = new Error(msg);
+    (err as any).status = res.status;
+    throw err;
+  }
 }
 
 export type GalleryFileType = "photo" | "thumbnail" | "video" | "gif";

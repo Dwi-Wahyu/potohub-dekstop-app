@@ -17,6 +17,7 @@ import {
   isValidUUID,
 } from '$lib/api/boothClient';
 import { sendSoftfileEmail, sendSoftfileWA } from '$lib/utils/shared';
+import { generateThumbnailBlob } from '$lib/utils/imageThumbnail';
 import { invoke } from '@tauri-apps/api/core';
 import { info as logInfo, warn as logWarn, error as logError } from '@tauri-apps/plugin-log';
 
@@ -187,17 +188,32 @@ export async function processJob(job: OutboxJob): Promise<JobProcessOutcome> {
             compositeUploaded = true;
           } else if (asset.role === 'raw_photo' && !firstRawUploaded && uploaded?.file_url) {
             firstRawUploaded = true;
-            await uploadSessionMedia(
-              payload.boothId,
-              sessionId,
-              uploaded.file_url,
-              'thumbnail',
-              asset.width || 1200,
-              asset.height || 1800,
-              uploaded.file_size || blob.size,
-            ).catch((e) => {
-              console.warn('[offlineOutbox] Gagal register thumbnail:', e);
-            });
+            try {
+              const thumb = await generateThumbnailBlob(blob, 480, 0.75);
+              await uploadGalleryAsset(
+                payload.boothId,
+                sessionId,
+                'thumbnail',
+                thumb.blob,
+                'jpg',
+                'image/jpeg',
+                thumb.width,
+                thumb.height,
+              );
+            } catch (thumbErr) {
+              console.warn('[offlineOutbox] Gagal upload resized thumbnail, fallback:', thumbErr);
+              await uploadSessionMedia(
+                payload.boothId,
+                sessionId,
+                uploaded.file_url,
+                'thumbnail',
+                asset.width || 1200,
+                asset.height || 1800,
+                uploaded.file_size || blob.size,
+              ).catch((e) => {
+                console.warn('[offlineOutbox] Gagal register thumbnail:', e);
+              });
+            }
           }
         } catch (assetErr) {
           if (isNetworkTransportError(assetErr)) {

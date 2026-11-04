@@ -5,12 +5,14 @@ import { boothConfig } from '$lib/stores/boothConfig.svelte';
 import { uiConfig } from '$lib/stores/uiConfig.svelte';
 import { uploadGalleryAsset, uploadSessionMedia, isValidUUID, type BoothTemplate } from '$lib/api/boothClient';
 import { generateBlurPlaceholder } from './imagePlaceholder';
+import { generateThumbnailBlob } from './imageThumbnail';
 import { buildSessionGif } from './gif';
 import { saveLocalSessionAssets, saveInitialSessionPhotos } from './localSessionStorage';
 import {
   compositeTemplateVideoOverlay,
   getSortedPhotoSlots,
-  getTemplateLayers
+  getTemplateLayers,
+  findPhotoSlotIndex
 } from './templateComposite';
 
 export interface SlotRect {
@@ -212,16 +214,10 @@ export async function saveSessionAssets(
     boothFlow.isGeneratingVideo = true;
     videoPromise = (async () => {
       try {
-        await info(`[liveview] Membuat video composite dengan ${normalizedClips.length}/${photos.length} klip.`).catch(() => {});
-        const clipBytes = await Promise.all(
-          normalizedClips.map(async (url) =>
-            Array.from(new Uint8Array(await (await fetch(url)).arrayBuffer()))
-          )
-        );
-
         let effectiveWidth = templateWidth;
         let effectiveHeight = templateHeight;
         let effectiveSlotRects = slotRects;
+        let clipsToUse = normalizedClips;
 
         if (template) {
           effectiveWidth = template.width || templateWidth || 1200;
@@ -234,7 +230,22 @@ export async function saveSessionAssets(
             w: s.w || 200,
             h: s.h || 200,
           }));
+
+          // Petakan klip liveview untuk masing-masing slot sesuai indeks foto capture-nya
+          // (sehingga slot duplikat pada 2" cut mendapatkan klip yang selaras dan jumlah klip == jumlah slot)
+          const rawClips = clipsSnapshot.length > 0 ? clipsSnapshot : boothFlow.liveviewClips;
+          clipsToUse = sortedPhotoSlots.map((slot) => {
+            const targetIdx = findPhotoSlotIndex(slot, sortedPhotoSlots);
+            return rawClips[targetIdx] || fallbackClip;
+          });
         }
+
+        await info(`[liveview] Membuat video composite dengan ${clipsToUse.length} klip slot.`).catch(() => {});
+        const clipBytes = await Promise.all(
+          clipsToUse.map(async (url) =>
+            Array.from(new Uint8Array(await (await fetch(url)).arrayBuffer()))
+          )
+        );
 
         let bgBytes: number[] | null = null;
         if (template) {
@@ -316,6 +327,14 @@ export async function saveSessionAssets(
       await warn(`[saveSessionAssets] Gagal generate blur placeholder untuk thumbnail: ${String(err)}`).catch(() => {});
     }
 
+    // Generate file thumbnail JPEG terkompresi (~35KB) khusus untuk dashboard agar hemat bandwidth/memori
+    let thumbnailBlobResult: { blob: Blob; width: number; height: number } | null = null;
+    try {
+      thumbnailBlobResult = await generateThumbnailBlob(processedPhotoBlobs[0], 480, 0.75);
+    } catch (err) {
+      await warn(`[saveSessionAssets] Gagal generate resized thumbnail: ${String(err)}`).catch(() => {});
+    }
+
     for (let i = 0; i < processedPhotoBlobs.length; i++) {
       const blob = processedPhotoBlobs[i];
       try {
@@ -341,7 +360,38 @@ export async function saveSessionAssets(
       }
     }
 
-    if (firstUploadedMedia && firstUploadedMedia.file_url) {
+    // Unggah file thumbnail khusus yang ringan (~35KB) ke Cloudflare R2
+    if (thumbnailBlobResult) {
+      try {
+        await uploadGalleryAsset(
+          boothId,
+          sessionId,
+          'thumbnail',
+          thumbnailBlobResult.blob,
+          'jpg',
+          'image/jpeg',
+          thumbnailBlobResult.width,
+          thumbnailBlobResult.height,
+          firstBlurBase64
+        );
+        await info('[saveSessionAssets] Sukses upload resized thumbnail (~35KB) ke Cloudflare R2').catch(() => {});
+      } catch (e) {
+        await error(`[saveSessionAssets] Gagal upload resized thumbnail: ${String(e)}`).catch(() => {});
+        // Fallback jika upload thumbnail khusus gagal: tautkan foto mentah pertama
+        if (firstUploadedMedia && firstUploadedMedia.file_url) {
+          await uploadSessionMedia(
+            boothId,
+            sessionId,
+            firstUploadedMedia.file_url,
+            'thumbnail',
+            1200,
+            1800,
+            firstUploadedMedia.file_size || processedPhotoBlobs[0].size,
+            firstBlurBase64
+          ).catch(() => {});
+        }
+      }
+    } else if (firstUploadedMedia && firstUploadedMedia.file_url) {
       try {
         await uploadSessionMedia(
           boothId,
@@ -353,7 +403,7 @@ export async function saveSessionAssets(
           firstUploadedMedia.file_size || processedPhotoBlobs[0].size,
           firstBlurBase64
         );
-        await info('[saveSessionAssets] Sukses register metadata thumbnail foto mentah pertama ke database').catch(() => {});
+        await info('[saveSessionAssets] Sukses register metadata thumbnail fallback ke database').catch(() => {});
       } catch (e) {
         await error(`[saveSessionAssets] Gagal register metadata thumbnail ke database: ${String(e)}`).catch(() => {});
       }

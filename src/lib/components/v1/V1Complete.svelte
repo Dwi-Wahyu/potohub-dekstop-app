@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
   import QRCode from 'qrcode';
-  import { Printer, Send, Delete, Image, Film, Video } from '@lucide/svelte';
+  import { Printer, Delete, Film, Video } from '@lucide/svelte';
   import { uiConfig } from '$lib/stores/uiConfig.svelte';
   import { boothFlow } from '$lib/stores/booth.svelte';
   import { sendSoftfileEmail, sendSoftfileWA, formatTime, resolvePrinterConfigForTemplate } from '$lib/utils/shared';
@@ -442,64 +442,86 @@
     }
   }
 
-  const DEFAULT_BG = '#0d0d0d';
+  const DEFAULT_BG = '#121114';
   let effectiveBg = $derived(
     background ?? uiConfig.getStepStyle('download').background ?? uiConfig.getStepStyle('softfile').background ?? DEFAULT_BG
   );
+  let accent = $derived(uiConfig.config.primaryColor);
+  let validEmail = $derived(/^\S+@\S+\.\S+$/.test(email.trim()));
+
+  const PREVIEW_TABS = [
+    { id: 'strip', label: 'Strip' },
+    { id: 'gif', label: 'GIF' },
+    { id: 'liveview', label: 'Live view' }
+  ] as const;
 </script>
 
 <div
-  class="w-full h-full flex flex-col items-center justify-center select-none relative overflow-hidden text-[#e6e1e5]"
+  class="w-full h-full flex flex-col select-none relative overflow-hidden"
   style:background={effectiveBg}
   style:font-family="'Poppins', sans-serif"
 >
-  <!-- Timer pill -->
-  <div class="absolute top-6 right-6 -translate-x-1/2 flex items-center gap-2 bg-white/10 backdrop-blur-sm text-white/80 rounded-full px-5 py-2.5 text-sm font-semibold border border-white/10 z-10">
-    <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
-      <circle cx="12" cy="12" r="10" /><path d="M12 6v6h4.5" stroke-linecap="round" />
-    </svg>
-    {formatTime(secs)}
-  </div>
+  <!-- Header -->
+  <header class="flex items-center justify-between px-8 pt-6 shrink-0">
+    <span class="text-white text-xl italic font-semibold font-['Playfair_Display',Georgia,serif]">
+      {uiConfig.config.boothName}
+    </span>
+    <div class="flex items-center gap-2.5 bg-white rounded-xl pl-2 pr-4 py-1.5 shadow-lg">
+      <span class="w-8 h-8 rounded-lg flex items-center justify-center text-white" style:background={accent}>
+        <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+          <path d="M10 2h4M12 14l3-3M12 22a8 8 0 100-16 8 8 0 000 16z" stroke-linecap="round" stroke-linejoin="round" />
+        </svg>
+      </span>
+      <span class="flex flex-col leading-none">
+        <span class="text-[9px] font-medium text-[#555]">Sisa waktu</span>
+        <span class="text-lg font-bold text-[#111] tabular-nums">{formatTime(secs)}</span>
+      </span>
+    </div>
+  </header>
 
-  <!-- Main content -->
-  <div
-    class="flex items-center gap-10 transition-transform duration-300"
+  <main
+    class="flex-1 min-h-0 flex items-center justify-center px-8 py-5 transition-transform duration-300"
     style="transform: {kbOpen ? 'translateY(-120px)' : 'translateY(0)'};"
   >
-    <!-- Left: composited photo frame mockup with Toggle -->
-    <div class="flex flex-col items-center shrink-0">
-      <div
-        class="flex flex-col overflow-hidden bg-[#1a1a1a] border-[3px] border-[#e8e8e8] rounded-[24px] w-[280px] xl:w-[320px] max-w-[85vw] shadow-[0_24px_64px_rgba(0,0,0,0.7)]"
-      >
-        <div class="p-3 bg-[#111] flex items-center justify-center min-h-[380px]">
+    <div class="w-full max-w-[860px] h-full max-h-[520px] rounded-3xl overflow-hidden grid grid-cols-[1.4fr_1fr] shadow-[0_32px_80px_rgba(0,0,0,0.6)]">
+      <!-- Left: result -->
+      <section class="bg-[#1b1a1f] p-5 flex flex-col gap-3 min-h-0">
+        <div class="flex items-center justify-between">
+          <h2 class="m-0 text-white font-bold text-sm">Hasil fotomu</h2>
+          <div class="flex items-center gap-1 bg-white/5 rounded-xl p-1">
+            {#each PREVIEW_TABS as t}
+              <button
+                type="button"
+                onclick={() => (activePreviewTab = t.id)}
+                class="text-[10px] font-semibold px-3 py-1.5 rounded-lg transition-colors border-none cursor-pointer {activePreviewTab === t.id ? 'bg-white text-[#111]' : 'bg-transparent text-white/70 hover:text-white'}"
+              >
+                {t.label}
+              </button>
+            {/each}
+          </div>
+        </div>
+
+        <div class="flex-1 min-h-0 rounded-2xl bg-[#121114] flex items-center justify-center p-4">
           {#if activePreviewTab === 'strip'}
             {#if compositeUrl}
-              <img
-                src={compositeUrl}
-                alt="Hasil Foto Template"
-                class="w-full h-auto max-h-[60vh] object-contain rounded-xl block shadow-md"
-              />
+              <img src={compositeUrl} alt="Hasil Foto Template" class="max-w-full max-h-full object-contain rounded-sm block shadow-2xl" />
             {:else}
-              <div class="w-[200px] h-[300px] flex flex-col items-center justify-center gap-2 text-white/30 text-xs">
+              <div class="flex flex-col items-center justify-center gap-2 text-white/65 text-xs">
                 <div class="w-6 h-6 border-2 border-white/20 border-t-white rounded-full animate-spin"></div>
                 <span>Memproses Foto...</span>
               </div>
             {/if}
           {:else if activePreviewTab === 'gif'}
             {#if boothFlow.sessionGifUrl}
-              <img
-                src={boothFlow.sessionGifUrl}
-                alt="GIF Sesi Foto"
-                class="w-full h-auto max-h-[60vh] object-contain rounded-xl block shadow-md"
-              />
+              <img src={boothFlow.sessionGifUrl} alt="GIF Sesi Foto" class="max-w-full max-h-full object-contain rounded-lg block shadow-2xl" />
             {:else if boothFlow.isGeneratingGif}
-              <div class="w-[200px] h-[300px] flex flex-col items-center justify-center gap-2 text-white/30 text-xs">
+              <div class="flex flex-col items-center justify-center gap-2 text-white/65 text-xs">
                 <div class="w-6 h-6 border-2 border-white/20 border-t-white rounded-full animate-spin"></div>
                 <span>Memproses GIF...</span>
               </div>
             {:else}
-              <div class="w-[200px] h-[300px] flex flex-col items-center justify-center gap-2 text-white/30 text-xs p-4 text-center">
-                <Film size={28} class="opacity-40" />
+              <div class="flex flex-col items-center justify-center gap-2 text-white/65 text-xs text-center">
+                <Film size={28} class="opacity-60" />
                 <span>GIF tidak tersedia</span>
               </div>
             {/if}
@@ -511,220 +533,170 @@
                 loop
                 muted
                 playsinline
-                class="w-full h-auto max-h-[60vh] object-contain rounded-xl block shadow-md"
+                class="max-w-full max-h-full object-contain rounded-lg block shadow-2xl"
               ></video>
             {:else if boothFlow.isGeneratingVideo}
-              <div class="w-[200px] h-[300px] flex flex-col items-center justify-center gap-2 text-white/30 text-xs">
+              <div class="flex flex-col items-center justify-center gap-2 text-white/65 text-xs">
                 <div class="w-6 h-6 border-2 border-white/20 border-t-white rounded-full animate-spin"></div>
                 <span>Memproses Live View...</span>
               </div>
             {:else}
-              <div class="w-[200px] h-[300px] flex flex-col items-center justify-center gap-2 text-white/30 text-xs p-4 text-center">
-                <Video size={28} class="opacity-40" />
+              <div class="flex flex-col items-center justify-center gap-2 text-white/65 text-xs text-center">
+                <Video size={28} class="opacity-60" />
                 <span>Live View tidak tersedia</span>
               </div>
             {/if}
           {/if}
         </div>
-      </div>
+      </section>
 
-      <!-- Toggle buttons below card preview -->
-      <div class="mt-4 flex items-center gap-1.5 p-1 bg-white/10 backdrop-blur-md rounded-full border border-white/10 shadow-lg">
-        <button
-          type="button"
-          onclick={() => (activePreviewTab = 'strip')}
-          class="px-3.5 py-1.5 rounded-full text-xs font-semibold flex items-center gap-1.5 transition-all {activePreviewTab === 'strip' ? 'bg-white text-black shadow-md' : 'text-white/70 hover:text-white hover:bg-white/10'}"
+      <!-- Right: actions -->
+      <section class="bg-[#f6f4ef] p-5 flex flex-col gap-3 min-h-0 overflow-y-auto">
+        <!-- Status cetak -->
+        <div
+          class="flex items-center gap-3 rounded-xl p-3 {printStatus === 'SUCCESS'
+            ? 'bg-[#e3f1e6]'
+            : printStatus === 'QUEUED'
+              ? 'bg-[#fdf3dc]'
+              : 'bg-[#ebe8e1]'}"
         >
-          <Image size={14} />
-          <span>Strip</span>
-        </button>
-        <button
-          type="button"
-          onclick={() => (activePreviewTab = 'gif')}
-          class="px-3.5 py-1.5 rounded-full text-xs font-semibold flex items-center gap-1.5 transition-all {activePreviewTab === 'gif' ? 'bg-white text-black shadow-md' : 'text-white/70 hover:text-white hover:bg-white/10'}"
-        >
-          <Film size={14} />
-          <span>GIF</span>
-        </button>
-        <button
-          type="button"
-          onclick={() => (activePreviewTab = 'liveview')}
-          class="px-3.5 py-1.5 rounded-full text-xs font-semibold flex items-center gap-1.5 transition-all {activePreviewTab === 'liveview' ? 'bg-white text-black shadow-md' : 'text-white/70 hover:text-white hover:bg-white/10'}"
-        >
-          <Video size={14} />
-          <span>Live View</span>
-        </button>
-      </div>
-    </div>
-
-    <!-- Right: cards -->
-    <div class="flex flex-col gap-4 w-[340px]">
-      <div class="rounded-2xl p-6 flex flex-col gap-4 bg-white text-gray-900 shadow-xl">
-        {#if sent}
-          <div class="flex flex-col items-center gap-3">
-            <div class="flex items-center gap-2 w-full">
-              <div class="w-8 h-8 rounded-full bg-green-500 flex items-center justify-center shrink-0 text-white font-bold">
-                ✓
-              </div>
-              <div>
-                <p class="font-black text-[#111] text-sm leading-tight m-0">Softfile Dikirim!</p>
-                <p class="text-[#888] text-[11px] leading-tight truncate max-w-[220px] m-0">{email}</p>
-              </div>
-            </div>
-            <div class="w-full h-px bg-gray-100"></div>
-            <p class="text-[11px] text-gray-400 font-semibold tracking-wider uppercase m-0">Scan untuk Download</p>
-            <div class="p-3 rounded-2xl bg-white border border-gray-100 flex items-center justify-center">
-              {#if qrDataUrl}
-                <img src={qrDataUrl} alt="Softfile QR Code" class="w-[140px] h-[140px] object-contain" />
-              {:else}
-                <div class="w-[140px] h-[140px] flex items-center justify-center text-gray-400 text-xs">Loading QR...</div>
-              {/if}
-            </div>
-            <p class="text-[10px] text-gray-400 text-center m-0">
-              File tersedia 30 hari. Scan dengan kamera HP kamu.
-            </p>
+          <span
+            class="w-8 h-8 rounded-full flex items-center justify-center shrink-0 text-white {printStatus === 'SUCCESS'
+              ? 'bg-[#2f9e4f]'
+              : printStatus === 'QUEUED'
+                ? 'bg-[#c08a12]'
+                : 'bg-[#555]'}"
+          >
+            {#if printStatus === 'SUCCESS'}
+              <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7" stroke-linecap="round" stroke-linejoin="round" /></svg>
+            {:else}
+              <Printer size={16} />
+            {/if}
+          </span>
+          <div>
+            {#if printStatus === 'SUCCESS'}
+              <p class="m-0 text-[#111] text-xs font-bold leading-tight">Fotomu sudah dicetak</p>
+              <p class="m-0 text-[#3a5a42] text-[10px] leading-tight">Ambil di tray printer, bawah booth.</p>
+            {:else if printStatus === 'QUEUED'}
+              <p class="m-0 text-[#111] text-xs font-bold leading-tight">Foto masuk antrean cetak</p>
+              <p class="m-0 text-[#6b4e0a] text-[10px] leading-tight">Akan otomatis dicetak saat printer terhubung.</p>
+            {:else}
+              <p class="m-0 text-[#111] text-xs font-bold leading-tight">Fotomu sedang dicetak</p>
+              <p class="m-0 text-[#555] text-[10px] leading-tight">Harap tunggu beberapa saat lagi...</p>
+            {/if}
           </div>
-        {:else}
-          <div class="flex items-center gap-3">
-            <div class="w-10 h-10 rounded-full bg-[#1a1a1a] flex items-center justify-center shrink-0 text-white">
-              <Send size={16} />
-            </div>
-            <div>
-              <p class="font-black text-[#111] text-base leading-tight m-0">Download Softfile</p>
-              <p class="text-[#888] text-[12px] leading-tight mt-0.5 m-0">Pilih metode pengiriman file</p>
-            </div>
+        </div>
+
+        {#if !networkStatus.isOnline}
+          <OfflineBanner message="Sedang offline — softfile akan otomatis dikirim setelah koneksi pulih." />
+        {:else if softfileQueued}
+          <p class="m-0 text-[10px] text-[#8a5a00] font-semibold">Menunggu koneksi pulih untuk mengirim softfile…</p>
+        {/if}
+
+        <!-- Softfile QR -->
+        <p class="m-0 text-[#111] text-xs font-bold">Simpan softfile</p>
+        <div class="flex flex-col items-center gap-1.5">
+          <div class="p-2.5 rounded-xl bg-white border border-[#e5e5e5]">
+            {#if qrDataUrl}
+              <img src={qrDataUrl} alt="Softfile QR Code" class="w-[112px] h-[112px] object-contain block" />
+            {:else}
+              <div class="w-[112px] h-[112px] flex items-center justify-center text-[#555] text-[10px]">Memuat QR...</div>
+            {/if}
           </div>
+          <p class="m-0 text-[10px] text-[#555] text-center leading-snug">
+            Scan pakai kamera HP. Berisi foto, GIF, dan live view.
+          </p>
+        </div>
 
-          {#if !networkStatus.isOnline}
-            <div class="mt-1">
-              <OfflineBanner message="Sedang offline — softfile akan otomatis dikirim setelah koneksi pulih." />
-            </div>
-          {:else if softfileQueued}
-            <div class="text-xs text-amber-600 font-semibold mt-1">Menunggu koneksi pulih untuk mengirim softfile…</div>
-          {/if}
-
-          {#if qrDataUrl}
-            <div class="p-2 rounded-xl border border-gray-100 bg-gray-50 flex flex-col items-center justify-center">
-              <img src={qrDataUrl} alt="Softfile QR Code" class="w-[130px] h-[130px] object-contain" />
-              <p class="text-[10px] text-gray-400 text-center font-semibold mt-1 m-0">Scan dengan kamera HP</p>
-            </div>
-          {/if}
-
-          <!-- Form Email (Jika Aktif di Admin Dashboard) -->
-          {#if emailEnabled}
-            <div class="flex flex-col gap-1.5 w-full">
-              <div class="flex items-center justify-between text-[11px] font-bold text-gray-500 uppercase tracking-wider">
-                <span>Email</span>
-                {#if emailSent}
-                  <span class="text-green-600 font-bold">
-                    {networkStatus.isOnline ? '✓ Terkirim' : '⏳ Menunggu Koneksi'}
-                  </span>
-                {/if}
+        <!-- Email -->
+        {#if emailEnabled}
+          <div class="flex flex-col gap-1.5">
+            <p class="m-0 text-[#111] text-[10px] font-semibold">Atau kirim ke email</p>
+            {#if emailSent}
+              <div class="flex items-center gap-2 rounded-lg bg-[#e3f1e6] px-3 py-2.5 text-[11px] text-[#1f5d33] font-semibold">
+                <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7" stroke-linecap="round" stroke-linejoin="round" /></svg>
+                <span class="truncate">{networkStatus.isOnline ? 'Terkirim ke' : 'Menunggu koneksi ·'} {email}</span>
               </div>
+            {:else}
               <div class="flex gap-2">
                 <button
                   type="button"
                   onclick={() => { activeKbTarget = 'email'; kbOpen = true; numMode = false; }}
-                  class="flex-1 rounded-xl px-3 py-2.5 text-xs cursor-text border-2 text-left bg-[#f2f2f2] truncate"
-                  style="border-color: {activeKbTarget === 'email' && kbOpen ? '#2563eb' : 'transparent'};"
+                  class="flex-1 min-w-0 rounded-lg px-3 py-2.5 text-[11px] cursor-text bg-white border text-left truncate"
+                  style:color={email ? '#111' : '#777'}
+                  style:border-color={activeKbTarget === 'email' && kbOpen ? accent : '#e0e0e0'}
                 >
                   {email || 'nama@email.com'}
                 </button>
                 <button
                   type="button"
                   onclick={handleSendEmail}
-                  disabled={!email.trim() || emailSent}
-                  class="px-3 py-2.5 rounded-xl text-xs font-bold transition-all border-0 shrink-0"
-                  style="
-                    background: {email.trim() && !emailSent ? '#111' : '#e0e0e0'};
-                    color: {email.trim() && !emailSent ? '#fff' : '#999'};
-                    cursor: {email.trim() && !emailSent ? 'pointer' : 'default'};
-                  "
+                  disabled={!validEmail}
+                  class="px-4 rounded-lg text-[11px] font-bold transition-colors border-none"
+                  style:background={validEmail ? '#121114' : '#dcdcdc'}
+                  style:color={validEmail ? '#fff' : '#666'}
+                  style:cursor={validEmail ? 'pointer' : 'default'}
                 >
-                  {emailSent ? (networkStatus.isOnline ? 'Terkirim' : 'Menunggu Koneksi') : 'Kirim Email'}
+                  Kirim
                 </button>
               </div>
-            </div>
-          {/if}
+            {/if}
+          </div>
+        {/if}
 
-          <!-- Form WhatsApp (Jika Aktif di Admin Dashboard) -->
-          {#if whatsappEnabled}
-            <div class="flex flex-col gap-1.5 w-full">
-              <div class="flex items-center justify-between text-[11px] font-bold text-gray-500 uppercase tracking-wider">
-                <span>WhatsApp</span>
-                {#if waSent}
-                  <span class="text-green-600 font-bold">
-                    {networkStatus.isOnline ? '✓ Terkirim' : '⏳ Menunggu Koneksi'}
-                  </span>
-                {/if}
+        <!-- WhatsApp (fitur tambahan di luar Figma, aktif lewat admin dashboard) -->
+        {#if whatsappEnabled}
+          <div class="flex flex-col gap-1.5">
+            <p class="m-0 text-[#111] text-[10px] font-semibold">Atau kirim ke WhatsApp</p>
+            {#if waSent}
+              <div class="flex items-center gap-2 rounded-lg bg-[#e3f1e6] px-3 py-2.5 text-[11px] text-[#1f5d33] font-semibold">
+                <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7" stroke-linecap="round" stroke-linejoin="round" /></svg>
+                <span class="truncate">{networkStatus.isOnline ? 'Terkirim ke' : 'Menunggu koneksi ·'} {phone}</span>
               </div>
+            {:else}
               <div class="flex gap-2">
                 <button
                   type="button"
                   onclick={() => { activeKbTarget = 'phone'; kbOpen = true; numMode = true; }}
-                  class="flex-1 rounded-xl px-3 py-2.5 text-xs cursor-text border-2 text-left bg-[#f2f2f2] truncate"
-                  style="border-color: {activeKbTarget === 'phone' && kbOpen ? '#2563eb' : 'transparent'};"
+                  class="flex-1 min-w-0 rounded-lg px-3 py-2.5 text-[11px] cursor-text bg-white border text-left truncate"
+                  style:color={phone ? '#111' : '#777'}
+                  style:border-color={activeKbTarget === 'phone' && kbOpen ? accent : '#e0e0e0'}
                 >
                   {phone || '08123456789'}
                 </button>
                 <button
                   type="button"
                   onclick={handleSendWA}
-                  disabled={!phone.trim() || waSent}
-                  class="px-3 py-2.5 rounded-xl text-xs font-bold transition-all border-0 shrink-0"
-                  style="
-                    background: {phone.trim() && !waSent ? '#16a34a' : '#e0e0e0'};
-                    color: {phone.trim() && !waSent ? '#fff' : '#999'};
-                    cursor: {phone.trim() && !waSent ? 'pointer' : 'default'};
-                  "
+                  disabled={!phone.trim()}
+                  class="px-4 rounded-lg text-[11px] font-bold transition-colors border-none"
+                  style:background={phone.trim() ? '#121114' : '#dcdcdc'}
+                  style:color={phone.trim() ? '#fff' : '#666'}
+                  style:cursor={phone.trim() ? 'pointer' : 'default'}
                 >
-                  {waSent ? (networkStatus.isOnline ? 'Terkirim' : 'Menunggu Koneksi') : 'Kirim WA'}
+                  Kirim
                 </button>
               </div>
-            </div>
-          {/if}
-
-          {#if sendError}
-            <p class="text-[11px] text-red-500 font-bold m-0 mt-1">{sendError}</p>
-          {/if}
+            {/if}
+          </div>
         {/if}
-      </div>
 
-      <!-- Print status card -->
-      <div class="rounded-2xl px-5 py-4 flex items-center gap-4 bg-[#1c1c1e] border border-[#2a2a2a]">
-        <div class="w-11 h-11 rounded-full {printStatus === 'SUCCESS' ? 'bg-green-500/20 text-green-400' : printStatus === 'QUEUED' ? 'bg-amber-500/20 text-amber-400' : 'bg-[#2a2a2a] text-white/80'} flex items-center justify-center shrink-0">
-          {#if printStatus === 'SUCCESS'}
-            <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          {:else}
-            <Printer size={20} />
-          {/if}
-        </div>
-        <div>
-          {#if printStatus === 'SUCCESS'}
-            <p class="text-white font-bold text-sm leading-tight m-0">Fotomu berhasil dicetak!</p>
-            <p class="text-green-400 text-[12px] mt-0.5 m-0">Silakan ambil fotomu di tray printer.</p>
-          {:else if printStatus === 'QUEUED'}
-            <p class="text-white font-bold text-sm leading-tight m-0">Foto masuk antrean cetak</p>
-            <p class="text-amber-400 text-[12px] mt-0.5 m-0">Akan otomatis dicetak saat printer terhubung.</p>
-          {:else}
-            <p class="text-white font-bold text-sm leading-tight m-0">Fotomu sedang dicetak</p>
-            <p class="text-white/40 text-[12px] mt-0.5 m-0">Harap tunggu beberapa saat lagi...</p>
-          {/if}
-        </div>
-      </div>
+        {#if sendError}
+          <p class="m-0 text-[10px] text-[#b42318] font-bold">{sendError}</p>
+        {/if}
 
-      <!-- Selesai button -->
-      <button
-        onclick={() => {
-          kbOpen = false;
-          onNewSession();
-        }}
-        class="w-full py-4 rounded-2xl font-bold text-base tracking-wide bg-[#1c1c1e] text-white border border-[#333] cursor-pointer hover:bg-[#2a2a2a]"
-      >
-        Selesai
-      </button>
+        <button
+          onclick={() => {
+            kbOpen = false;
+            onNewSession();
+          }}
+          class="mt-auto w-full py-3.5 rounded-xl font-bold text-sm active:scale-[0.98] transition-transform border-none cursor-pointer text-white shrink-0"
+          style:background={accent}
+        >
+          Selesai
+        </button>
+      </section>
     </div>
-  </div>
+  </main>
 
   <!-- On-Screen Keyboard -->
   {#if kbOpen}

@@ -37,6 +37,7 @@ export interface BoothCfg {
   primaryPrinter: string;
   secondaryPrinter: string;
   multiPrint: boolean;
+  hasAppPassword?: boolean;
 }
 
 export const DEFAULT_CFG: BoothCfg = {

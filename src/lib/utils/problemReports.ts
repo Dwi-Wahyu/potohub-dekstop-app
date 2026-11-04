@@ -31,16 +31,30 @@ export function countPendingProblemReports(): number {
   return readQueue().length;
 }
 
-/** Kirim laporan; true = terkirim ke server, false = disimpan di perangkat untuk dikirim nanti. */
-export async function sendProblemReport(payload: ProblemReportPayload): Promise<boolean> {
+export interface ProblemReportResult {
+  ok: boolean;
+  status: 'sent' | 'queued' | 'error';
+  message?: string;
+}
+
+/** Kirim laporan; ok = true jika terkirim ke server, queued jika disimpan lokal saat offline, error jika gagal validasi/konfigurasi. */
+export async function sendProblemReport(payload: ProblemReportPayload): Promise<ProblemReportResult> {
   const boothId = (await getActiveBoothId()) ?? 'default';
   try {
     await submitProblemReport(boothId, payload);
-    return true;
-  } catch (e) {
+    return { ok: true, status: 'sent' };
+  } catch (e: any) {
+    if (e?.status === 400 || e?.status === 401 || e?.status === 404) {
+      console.warn('[problemReports] Gagal validasi laporan:', e);
+      return {
+        ok: false,
+        status: 'error',
+        message: e?.message || 'Laporan tidak dapat dikirim karena konfigurasi belum lengkap.',
+      };
+    }
     console.warn('[problemReports] Laporan diantrekan lokal:', e);
     writeQueue([...readQueue(), { ...payload, booth_id: boothId }]);
-    return false;
+    return { ok: false, status: 'queued' };
   }
 }
 
@@ -55,8 +69,10 @@ export async function flushProblemReports(): Promise<number> {
     try {
       await submitProblemReport(booth_id, payload);
       sent++;
-    } catch {
-      remaining.push(item);
+    } catch (e: any) {
+      if (e?.status !== 400) {
+        remaining.push(item);
+      }
     }
   }
   writeQueue(remaining);

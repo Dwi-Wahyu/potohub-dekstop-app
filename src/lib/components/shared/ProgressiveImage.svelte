@@ -49,8 +49,9 @@
       {alt}
       loading="lazy"
       decoding="async"
+      draggable="false"
       onload={handleLoad}
-      class="w-full h-full object-{objectFit} {isLoaded || !blurSrc ? 'opacity-100' : 'opacity-0'}"
+      class="w-full h-full object-{objectFit} pointer-events-none select-none {isLoaded || !blurSrc ? 'opacity-100' : 'opacity-0'}"
     />
   {/if}
 </div>

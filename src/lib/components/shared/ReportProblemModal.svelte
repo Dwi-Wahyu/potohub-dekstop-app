@@ -1,7 +1,8 @@
 <script lang="ts">
-  import { X, Check, Send, RefreshCw, CalendarDays, CloudOff } from '@lucide/svelte';
+  import { X, Check, Send, RefreshCw, CalendarDays, CloudOff, AlertTriangle } from '@lucide/svelte';
   import { sendProblemReport } from '$lib/utils/problemReports';
   import { updaterStore } from '$lib/utils/updater.svelte';
+  import { boothConfig } from '$lib/stores/boothConfig.svelte';
 
   interface Props {
     onClose: () => void;
@@ -26,21 +27,28 @@
   let date = $state(todayISO());
   let detail = $state('');
   let sending = $state(false);
-  // 'sent' = diterima server, 'queued' = disimpan di perangkat (endpoint belum ada / offline)
-  let result = $state<'sent' | 'queued' | null>(null);
-  let valid = $derived(detail.trim().length >= 10 && !!date);
+  let errorMessage = $state<string | null>(null);
+  // 'sent' = diterima server, 'queued' = disimpan di perangkat, 'error' = ditolak / belum dikonfigurasi
+  let result = $state<'sent' | 'queued' | 'error' | null>(null);
+
+  const isAppPasswordMissing = $derived(boothConfig.config.hasAppPassword === false);
+  let valid = $derived(detail.trim().length >= 10 && !!date && !isAppPasswordMissing);
 
   async function submit() {
     if (!valid || sending) return;
     sending = true;
-    const ok = await sendProblemReport({
+    errorMessage = null;
+    const res = await sendProblemReport({
       incident_date: date,
       detail: detail.trim(),
       app_version: updaterStore.currentVersion || '',
       reported_at: new Date().toISOString()
     });
     sending = false;
-    result = ok ? 'sent' : 'queued';
+    result = res.status;
+    if (res.status === 'error') {
+      errorMessage = res.message || 'Laporan tidak dapat dikirim karena konfigurasi belum lengkap.';
+    }
   }
 
   const labelStyle = 'font-size: 13px; font-weight: 700; color: #334155; text-transform: uppercase; letter-spacing: 0.08em;';
@@ -75,28 +83,40 @@
         <div
           class="rp-check"
           style="width: 112px; height: 112px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
-            background: {result === 'sent' ? 'linear-gradient(145deg,#34d27b,#16a34a)' : 'linear-gradient(145deg,#fbbf24,#d97706)'};
-            box-shadow: {result === 'sent' ? '0 12px 26px rgba(22,163,74,0.4)' : '0 12px 26px rgba(217,119,6,0.4)'};"
+            background: {result === 'sent' ? 'linear-gradient(145deg,#34d27b,#16a34a)' : result === 'queued' ? 'linear-gradient(145deg,#fbbf24,#d97706)' : 'linear-gradient(145deg,#f87171,#dc2626)'};
+            box-shadow: {result === 'sent' ? '0 12px 26px rgba(22,163,74,0.4)' : result === 'queued' ? '0 12px 26px rgba(217,119,6,0.4)' : '0 12px 26px rgba(220,38,38,0.4)'};"
         >
           {#if result === 'sent'}
             <Check size={64} color="#fff" strokeWidth={3.5} />
-          {:else}
+          {:else if result === 'queued'}
             <CloudOff size={56} color="#fff" strokeWidth={2.5} />
+          {:else}
+            <AlertTriangle size={56} color="#fff" strokeWidth={2.5} />
           {/if}
         </div>
         <div>
           {#if result === 'sent'}
             <h2 style="margin: 0; font-size: 26px; font-weight: 700; color: #1e293b;">Laporan Terkirim</h2>
             <p style="margin: 8px 0 0; font-size: 16px; color: #475569; line-height: 1.5;">Terima kasih. Tim teknis akan segera menindaklanjuti.</p>
-          {:else}
+          {:else if result === 'queued'}
             <h2 style="margin: 0; font-size: 26px; font-weight: 700; color: #1e293b;">Laporan Tersimpan</h2>
             <p style="margin: 8px 0 0; font-size: 16px; color: #475569; line-height: 1.5;">
               Laporan belum bisa dikirim ke server dan disimpan di perangkat ini. Laporan akan dikirim otomatis saat menu petugas dibuka lagi dan server sudah siap.
             </p>
+          {:else}
+            <h2 style="margin: 0; font-size: 26px; font-weight: 700; color: #991b1b;">Laporan Tidak Dapat Terkirim</h2>
+            <p style="margin: 8px 0 0; font-size: 15px; color: #475569; line-height: 1.5;">
+              {errorMessage || 'Pengaturan App Password belum dikonfigurasi di Admin Dashboard.'}
+            </p>
           {/if}
         </div>
-        <div style="width: 100%; display: flex;">
-          <button class="rp-btn" style={btnStyle(true)} onclick={onClose}>Tutup</button>
+        <div style="width: 100%; display: flex; gap: 12px;">
+          {#if result === 'error'}
+            <button class="rp-btn" style={btnStyle(false)} onclick={() => { result = null; }}>Kembali</button>
+            <button class="rp-btn" style={btnStyle(true)} onclick={onClose}>Tutup</button>
+          {:else}
+            <button class="rp-btn" style={btnStyle(true)} onclick={onClose}>Tutup</button>
+          {/if}
         </div>
       </div>
     {:else}
@@ -114,6 +134,16 @@
           <h2 style="margin: 0; font-size: 26px; font-weight: 700; color: #1e293b;">Laporkan Masalah</h2>
           <p style="margin: 4px 0 0; font-size: 15px; color: #475569;">Ceritakan kendala yang terjadi pada mesin ini.</p>
         </div>
+
+        {#if isAppPasswordMissing}
+          <div style="background: #fff1f2; border: 1.5px solid #fecdd3; border-radius: 18px; padding: 14px 18px; display: flex; align-items: flex-start; gap: 12px;">
+            <AlertTriangle size={22} color="#e11d48" style="flex-shrink: 0; margin-top: 2px;" />
+            <div style="font-size: 14px; color: #9f1239; line-height: 1.45;">
+              <strong>App Password Belum Diisi</strong><br />
+              Pengaturan email (App Password) belum diisi pada menu Settings di Admin Dashboard. Laporan kendala tidak dapat dikirim sebelum App Password dilengkapi.
+            </div>
+          </div>
+        {/if}
 
         <label style="display: flex; flex-direction: column; gap: 10px;">
           <span style={labelStyle}>Tanggal Kejadian</span>

@@ -606,6 +606,13 @@ function applyRemoteSettings(settings: Record<string, any>) {
     ? general.skip_payment
     : (boothConfig.config.skipPayment ?? false);
 
+  const rawAppPassword = softfile.app_password;
+  const hasAppPassword = typeof settings?.has_app_password === 'boolean'
+    ? settings.has_app_password
+    : (typeof softfile?.has_app_password === 'boolean'
+      ? softfile.has_app_password
+      : (typeof rawAppPassword === 'string' ? rawAppPassword.trim().length > 0 : false));
+
   boothConfig.save({
     pin: general.pin ?? boothConfig.config.pin,
     cameraRotate:
@@ -629,6 +636,7 @@ function applyRemoteSettings(settings: Record<string, any>) {
     multiPrint: typeof print.multi_print === 'boolean' ? print.multi_print : boothConfig.config.multiPrint,
     paperThreshold: typeof paperReminder.threshold === 'number' ? paperReminder.threshold : boothConfig.config.paperThreshold,
     paperCount: typeof paperReminder.current_stock === 'number' ? paperReminder.current_stock : boothConfig.config.paperCount,
+    hasAppPassword,
   });
 }
 
@@ -787,7 +795,11 @@ export async function submitProblemReport(boothId: string, payload: ProblemRepor
     body: JSON.stringify(payload),
   });
   if (!res.ok) {
-    throw new Error(`Gagal mengirim laporan: ${res.status} ${res.statusText}`);
+    const errData = await res.json().catch(() => null);
+    const msg = errData?.message || errData?.error || `Gagal mengirim laporan: ${res.status} ${res.statusText}`;
+    const err = new Error(msg);
+    (err as any).status = res.status;
+    throw err;
   }
 }
 

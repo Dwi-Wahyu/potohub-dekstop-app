@@ -41,7 +41,16 @@ export async function runCaptureSequence(
         if (onCapturePhoto) onCapturePhoto(photoUrl);
       } else {
         // Fallback: Gunakan snapshot liveview terakhir jika tersedia agar customer tidak melihat placeholder kosong
-        let photoUrl = cameraStore.currentLiveviewUrl;
+        let photoUrl = '';
+        if (cameraStore.currentLiveviewUrl) {
+          try {
+            const resp = await fetch(cameraStore.currentLiveviewUrl);
+            const blob = await resp.blob();
+            photoUrl = URL.createObjectURL(blob);
+          } catch {
+            photoUrl = '';
+          }
+        }
         if (!photoUrl) {
           const canvas = document.createElement('canvas');
           canvas.width = 1200;

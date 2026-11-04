@@ -176,7 +176,15 @@
         const blob = new Blob([bytes], { type: 'image/jpeg' });
         photoUrl = URL.createObjectURL(blob);
       } else {
-        photoUrl = cameraStore.currentLiveviewUrl || '';
+        if (cameraStore.currentLiveviewUrl) {
+          try {
+            const resp = await fetch(cameraStore.currentLiveviewUrl);
+            const blob = await resp.blob();
+            photoUrl = URL.createObjectURL(blob);
+          } catch {
+            photoUrl = '';
+          }
+        }
         if (!photoUrl) {
           const canvas = document.createElement('canvas');
           canvas.width = 1200;

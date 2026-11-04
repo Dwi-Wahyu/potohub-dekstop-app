@@ -411,6 +411,7 @@ pub mod platform {
         }
         let api = &*(in_context as *const EdsdkApi);
 
+        log::info!("[Canon-EDSDK] Object Event diterima: {:#X}", in_event);
         if in_event == kEdsObjectEvent_DirItemRequestTransfer || in_event == kEdsObjectEvent_DirItemCreated {
             let mut sender_guard = CAPTURE_TRANSFER_SENDER.lock().unwrap();
             if sender_guard.is_some() {
@@ -802,8 +803,8 @@ pub mod platform {
                                 device = kEdsEvfOutputDevice_PC | kEdsEvfOutputDevice_TFT;
                             }
 
-                            if device == 0 || device == kEdsEvfOutputDevice_PC {
-                                device = kEdsEvfOutputDevice_PC | kEdsEvfOutputDevice_TFT; // 3
+                            if device == 0 {
+                                device = kEdsEvfOutputDevice_PC;
                             }
 
                             let mut err = (api.SetPropertyData)(camera, kEdsPropID_Evf_OutputDevice, 0, 4, &device as *const u32 as *const c_void);
@@ -820,7 +821,7 @@ pub mod platform {
                             }
 
                             if err != EDS_ERR_OK {
-                                for alt_val in [3u32, 2u32] {
+                                for alt_val in [2u32, 3u32] {
                                     err = (api.SetPropertyData)(camera, kEdsPropID_Evf_OutputDevice, 0, 4, &alt_val as *const u32 as *const c_void);
                                     if err == EDS_ERR_OK {
                                         break;
@@ -973,14 +974,34 @@ pub mod platform {
 
                         let mut non_af_attempted = false;
                         unsafe {
-                            let err = (api.SendCommand)(camera, kEdsCameraCommand_TakePicture, 0);
+                            let mut err = EDS_ERR_DEVICE_BUSY;
+                            for attempt in 0..5 {
+                                pump_messages();
+                                err = (api.SendCommand)(camera, kEdsCameraCommand_TakePicture, 0);
+                                if err == EDS_ERR_OK {
+                                    log::info!("[Canon-Worker] TakePicture berhasil pada percobaan {}", attempt + 1);
+                                    break;
+                                }
+                                if err != EDS_ERR_DEVICE_BUSY {
+                                    break;
+                                }
+                                std::thread::sleep(Duration::from_millis(80));
+                            }
                             if err != EDS_ERR_OK {
                                 log::warn!("[Canon-Worker] TakePicture gagal ({:#X}), mencoba ShutterButton Halfway -> Completely_NonAF...", err);
                                 non_af_attempted = true;
                                 let _ = (api.SendCommand)(camera, kEdsCameraCommand_PressShutterButton, kEdsCameraCommand_ShutterButton_Halfway_NonAF);
                                 std::thread::sleep(Duration::from_millis(100));
                                 pump_messages();
-                                let _ = (api.SendCommand)(camera, kEdsCameraCommand_PressShutterButton, kEdsCameraCommand_ShutterButton_Completely_NonAF);
+                                let mut c_err = (api.SendCommand)(camera, kEdsCameraCommand_PressShutterButton, kEdsCameraCommand_ShutterButton_Completely_NonAF);
+                                log::info!("[Canon-Worker] Shutter Completely_NonAF: {:#X}", c_err);
+                                if c_err != EDS_ERR_OK {
+                                    let _ = (api.SendCommand)(camera, kEdsCameraCommand_PressShutterButton, kEdsCameraCommand_ShutterButton_Halfway);
+                                    std::thread::sleep(Duration::from_millis(80));
+                                    pump_messages();
+                                    c_err = (api.SendCommand)(camera, kEdsCameraCommand_PressShutterButton, kEdsCameraCommand_ShutterButton_Completely);
+                                    log::info!("[Canon-Worker] Shutter Completely standar: {:#X}", c_err);
+                                }
                                 std::thread::sleep(Duration::from_millis(250));
                                 pump_messages();
                                 let _ = (api.SendCommand)(camera, kEdsCameraCommand_PressShutterButton, kEdsCameraCommand_ShutterButton_OFF);
@@ -996,7 +1017,7 @@ pub mod platform {
                             pump_messages();
 
                             let cap_err = CAPTURE_ERROR_PARAM.swap(0, Ordering::SeqCst);
-                            if cap_err != 0 && !non_af_attempted {
+                            if (cap_err != 0 || (start.elapsed() > Duration::from_millis(3500) && photo_data.is_none())) && !non_af_attempted {
                                 non_af_attempted = true;
                                 log::warn!("[Canon-Worker] State event CaptureError ({:#X}), memicu ulang shutter tanpa AF (Completely_NonAF)...", cap_err);
                                 unsafe {
@@ -1006,7 +1027,15 @@ pub mod platform {
                                     let _ = (api.SendCommand)(camera, kEdsCameraCommand_PressShutterButton, kEdsCameraCommand_ShutterButton_Halfway_NonAF);
                                     std::thread::sleep(Duration::from_millis(100));
                                     pump_messages();
-                                    let _ = (api.SendCommand)(camera, kEdsCameraCommand_PressShutterButton, kEdsCameraCommand_ShutterButton_Completely_NonAF);
+                                    let mut c_err = (api.SendCommand)(camera, kEdsCameraCommand_PressShutterButton, kEdsCameraCommand_ShutterButton_Completely_NonAF);
+                                log::info!("[Canon-Worker] Shutter Completely_NonAF: {:#X}", c_err);
+                                if c_err != EDS_ERR_OK {
+                                    let _ = (api.SendCommand)(camera, kEdsCameraCommand_PressShutterButton, kEdsCameraCommand_ShutterButton_Halfway);
+                                    std::thread::sleep(Duration::from_millis(80));
+                                    pump_messages();
+                                    c_err = (api.SendCommand)(camera, kEdsCameraCommand_PressShutterButton, kEdsCameraCommand_ShutterButton_Completely);
+                                    log::info!("[Canon-Worker] Shutter Completely standar: {:#X}", c_err);
+                                }
                                     std::thread::sleep(Duration::from_millis(250));
                                     pump_messages();
                                     let _ = (api.SendCommand)(camera, kEdsCameraCommand_PressShutterButton, kEdsCameraCommand_ShutterButton_OFF);

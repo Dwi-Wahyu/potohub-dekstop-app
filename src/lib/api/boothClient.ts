@@ -768,6 +768,29 @@ export async function checkPaymentStatus(
   return res.json();
 }
 
+// ── Report Problem (menu petugas) ──────────────────────────────────────────
+// Kontrak endpoint (belum ada di API, dibuat oleh tim backend):
+//   POST /booths/{boothId}/problem-reports
+//   Body: { incident_date: "YYYY-MM-DD", detail: string, app_version: string, reported_at: ISO8601 }
+//   Respons 2xx = laporan tersimpan. Selain itu laporan diantrekan lokal (lihat utils/problemReports.ts).
+export interface ProblemReportPayload {
+  incident_date: string;
+  detail: string;
+  app_version: string;
+  reported_at: string;
+}
+
+export async function submitProblemReport(boothId: string, payload: ProblemReportPayload): Promise<void> {
+  const res = await tauriFetch(`${API_BASE}/booths/${boothId}/problem-reports`, {
+    method: "POST",
+    headers: await getAuthHeaders("application/json"),
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    throw new Error(`Gagal mengirim laporan: ${res.status} ${res.statusText}`);
+  }
+}
+
 export type GalleryFileType = "photo" | "thumbnail" | "video" | "gif";
 
 export function toPascalCaseMediaType(

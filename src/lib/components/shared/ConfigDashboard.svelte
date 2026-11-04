@@ -1,27 +1,28 @@
 <script lang="ts">
-  import { onMount, onDestroy, tick } from 'svelte';
+  import { onMount, onDestroy, tick, type Snippet } from 'svelte';
   import {
     Monitor,
     ClockCheck,
+    Clock,
     ChevronLeft,
+    ChevronRight,
     ChevronDown,
-    CheckCircle2,
-    Save,
-    FlipHorizontal2,
     Printer,
     RotateCw,
     Eye,
+    EyeOff,
     Camera,
-    X,
     Settings,
     RefreshCw,
     Layers,
     UploadCloud,
     FolderOpen,
-    Trash2
+    Trash2,
+    Flag
   } from '@lucide/svelte';
   import UpdateModal from '$lib/components/shared/UpdateModal.svelte';
   import ReuploadSessionsModal from '$lib/components/shared/ReuploadSessionsModal.svelte';
+  import ReportProblemModal from '$lib/components/shared/ReportProblemModal.svelte';
   import { updaterStore } from '$lib/utils/updater.svelte';
   import { goto } from '$app/navigation';
   import { boothConfig, type BoothCfg } from '$lib/stores/boothConfig.svelte';
@@ -37,6 +38,7 @@
   import { invoke } from '@tauri-apps/api/core';
   import { flushOutbox } from '$lib/utils/offlineOutbox';
   import { flushPrintQueue } from '$lib/utils/printQueue';
+  import { flushProblemReports } from '$lib/utils/problemReports';
   import { cameraStore } from '$lib/camera.svelte';
   import { printerStore } from '$lib/printer.svelte';
   import { getLiveviewTransformStyle } from '$lib/utils/shared';
@@ -60,6 +62,11 @@
   let isUploadingPending = $state(false);
   let isPrintingQueue = $state(false);
   let isClearingPrintQueue = $state(false);
+  let isReportOpen = $state(false);
+
+  // Halaman: utama atau "Pengaturan sesi" (sesuai desain Figma)
+  let view = $state<'main' | 'session'>('main');
+  let sessionDraft = $state({ countdownSecs: 3, idleBannerTimeoutMins: 2, paperCount: 100, paperThreshold: 20 });
 
   const NEU_BG = '#ebf0f7';
   const NEU_PRIMARY = '#2a2873';
@@ -77,12 +84,11 @@
     }
   }
 
-  function handleManualSave() {
-    boothConfig.save();
-    saveNotice = 'Pengaturan Berhasil Disimpan!';
+  function showNotice(msg: string, ms = 3500) {
+    saveNotice = msg;
     setTimeout(() => {
-      saveNotice = null;
-    }, 2500);
+      if (saveNotice === msg) saveNotice = null;
+    }, ms);
   }
 
   function formatDate(isoString: string): string {
@@ -127,15 +133,9 @@
     try {
       const res = await flushPrintQueue({ force: true });
       await refreshPendingCount();
-      saveNotice = `Proses cetak selesai! ${res.processed} lembar dicetak${res.errors > 0 ? `, ${res.errors} gagal` : ''}.`;
-      setTimeout(() => {
-        saveNotice = null;
-      }, 3500);
+      showNotice(`Proses cetak selesai! ${res.processed} lembar dicetak${res.errors > 0 ? `, ${res.errors} gagal` : ''}.`);
     } catch (err) {
-      saveNotice = `Cetak antrean gagal: ${String(err)}`;
-      setTimeout(() => {
-        saveNotice = null;
-      }, 3500);
+      showNotice(`Cetak antrean gagal: ${String(err)}`);
     } finally {
       isPrintingQueue = false;
     }
@@ -150,15 +150,9 @@
     try {
       const cleared = await clearAllPendingPrintJobs();
       await refreshPendingCount();
-      saveNotice = `Berhasil membatalkan ${cleared} antrean cetak foto!`;
-      setTimeout(() => {
-        saveNotice = null;
-      }, 3500);
+      showNotice(`Berhasil membatalkan ${cleared} antrean cetak foto!`);
     } catch (err) {
-      saveNotice = `Gagal membatalkan antrean: ${String(err)}`;
-      setTimeout(() => {
-        saveNotice = null;
-      }, 3500);
+      showNotice(`Gagal membatalkan antrean: ${String(err)}`);
     } finally {
       isClearingPrintQueue = false;
     }
@@ -169,17 +163,11 @@
     isUploadingPending = true;
     try {
       const outboxRes = await flushOutbox({ force: true });
-      const printRes = await flushPrintQueue({ force: true });
+      await flushPrintQueue({ force: true });
       await refreshPendingCount();
-      saveNotice = `Sinkronisasi selesai! ${outboxRes.processed} upload diproses.`;
-      setTimeout(() => {
-        saveNotice = null;
-      }, 3500);
+      showNotice(`Sinkronisasi selesai! ${outboxRes.processed} upload diproses.`);
     } catch (err) {
-      saveNotice = `Sinkronisasi gagal: ${String(err)}`;
-      setTimeout(() => {
-        saveNotice = null;
-      }, 3500);
+      showNotice(`Sinkronisasi gagal: ${String(err)}`);
     } finally {
       isUploadingPending = false;
     }
@@ -190,22 +178,13 @@
     await update('cameraMode', 'usb');
   }
 
-  async function handleUseWebcam() {
-    fallbackMode = null;
-    await update('cameraMode', 'webcam');
-  }
-
-  async function handleUseUsb() {
-    fallbackMode = null;
-    await update('cameraMode', 'usb');
-  }
-
   async function handleUseFallback(mode: 'demo') {
     fallbackMode = mode;
     await update('cameraMode', mode);
   }
 
-  function handleOpenManualSettings() {
+  async function handleOpenManualSettings() {
+    await closePreview();
     goto('/camera-manual-settings');
   }
 
@@ -214,39 +193,30 @@
     try {
       await printerStore.openPrinterProperties(printerName);
     } catch (err) {
-      saveNotice = `Gagal membuka preferensi printer: ${String(err)}`;
-      setTimeout(() => {
-        saveNotice = null;
-      }, 4000);
+      showNotice(`Gagal membuka preferensi printer: ${String(err)}`, 4000);
     }
   }
 
   async function handleOpenSecondaryPrinterProperties() {
     if (!printerStore.selectedPrinter) {
-      saveNotice = 'Pilih Primary Printer terlebih dahulu sebelum mengatur Secondary Printer';
-      setTimeout(() => {
-        saveNotice = null;
-      }, 4000);
+      showNotice('Pilih Primary Printer terlebih dahulu sebelum mengatur Secondary Printer', 4000);
       return;
     }
     try {
       await printerStore.openSecondaryPrinterProperties();
     } catch (err) {
-      saveNotice = `Gagal membuka preferensi secondary printer: ${String(err)}`;
-      setTimeout(() => {
-        saveNotice = null;
-      }, 4000);
+      showNotice(`Gagal membuka preferensi secondary printer: ${String(err)}`, 4000);
     }
   }
 
-  // State & Handlers untuk Dialog Live Preview Kamera
+  // Preview kamera di dalam kartu Kamera (desain Figma). Logika liveview sama dengan dialog lama.
   let isPreviewOpen = $state(false);
   let previewFrameSrc = $state<string | null>(null);
   let previewInterval: ReturnType<typeof setInterval> | null = null;
   let previewVideoEl = $state<HTMLVideoElement | null>(null);
 
-  async function openPreviewDialog() {
-    if (cameraStore.status !== 'connected') return;
+  async function openPreview() {
+    if (cameraStore.status !== 'connected' || isPreviewOpen) return;
     isPreviewOpen = true;
     previewFrameSrc = null;
 
@@ -271,7 +241,8 @@
     }
   }
 
-  async function closePreviewDialog() {
+  async function closePreview() {
+    if (!isPreviewOpen) return;
     isPreviewOpen = false;
     if (previewInterval) {
       clearInterval(previewInterval);
@@ -281,9 +252,31 @@
     await cameraStore.stopLiveview();
   }
 
+  function togglePreview() {
+    if (isPreviewOpen) void closePreview();
+    else void openPreview();
+  }
+
+  function openSessionSettings() {
+    sessionDraft = {
+      countdownSecs: boothConfig.config.countdownSecs,
+      idleBannerTimeoutMins: boothConfig.config.idleBannerTimeoutMins,
+      paperCount: boothConfig.config.paperCount,
+      paperThreshold: boothConfig.config.paperThreshold
+    };
+    void closePreview();
+    view = 'session';
+  }
+
+  function saveSessionSettings() {
+    boothConfig.save({ ...sessionDraft });
+    view = 'main';
+    showNotice('Pengaturan sesi disimpan!', 2500);
+  }
+
   function handleKeydown(e: KeyboardEvent) {
-    if (e.key === 'Escape' && isPreviewOpen) {
-      void closePreviewDialog();
+    if (e.key === 'Escape' && view === 'session') {
+      view = 'main';
     }
   }
 
@@ -296,6 +289,7 @@
     boothName = uiConfig.config.boothName || boothName;
     void refreshPendingCount();
     void handleSync();
+    void flushProblemReports().catch(() => 0);
     await cameraStore.checkDevMode();
     void cameraStore.detect();
     void printerStore.loadPrinters();
@@ -314,832 +308,471 @@
   });
 
   const ROTATE_OPTS = ['0° (Default)', '90° CW', '180°', '90° CCW'];
+  const ROTATE_LABELS = ['0°', '90°', '180°', '270°'];
+  const IDLE_OPTS = [1, 2, 3, 5, 10];
+  const FILTER_OPTS: { key: keyof BoothCfg; label: string }[] = [
+    { key: 'filterBW', label: 'B&W' },
+    { key: 'filterSepia', label: 'Sepia' },
+    { key: 'filterVivid', label: 'Vivid' },
+    { key: 'filterRetro', label: 'Retro' },
+    { key: 'filterCool', label: 'Cool' }
+  ];
+
+  let cameraName = $derived(
+    cameraStore.cameraMode === 'webcam'
+      ? 'Webcam Laptop'
+      : cameraStore.detectedCameras[0]?.model || cameraStore.device?.productname || 'Belum ada kamera'
+  );
+  let cameraConnected = $derived(cameraStore.status === 'connected');
+  let paperPct = $derived(
+    Math.min(100, Math.round((boothConfig.config.paperCount / Math.max(100, boothConfig.config.paperCount)) * 100))
+  );
+  let lowPaper = $derived(boothConfig.config.paperCount <= boothConfig.config.paperThreshold);
+  let printerReadyCount = $derived(
+    (printerStore.selectedPrinter ? 1 : 0) + (printerStore.secondaryPrinter ? 1 : 0)
+  );
+
+  // Gaya bersama (diambil dari desain Figma)
+  const cardStyle = `background: ${NEU_BG}; box-shadow: ${neuCfg.card}; border-radius: 20px; padding: 20px;`;
+  const iconBoxStyle = `width: 42px; height: 42px; border-radius: 12px; background: ${NEU_BG}; box-shadow: ${neuCfg.btnSm}; display: flex; align-items: center; justify-content: center; color: ${NEU_PRIMARY}; flex-shrink: 0;`;
+  const btnBaseStyle = `min-height: 44px; padding: 0 18px; border-radius: 12px; background: ${NEU_BG}; box-shadow: ${neuCfg.btn}; border: none; cursor: pointer; font-family: 'Poppins',sans-serif; font-weight: 700; font-size: 13px; color: #334155; display: flex; align-items: center; gap: 8px; touch-action: manipulation;`;
+  const btnPrimaryStyle = `${btnBaseStyle} background: linear-gradient(135deg, #3d3aa0, ${NEU_PRIMARY}); color: white; box-shadow: 0 4px 14px rgba(42,40,115,0.35);`;
+  const titleStyle = 'margin: 0; font-size: 15px; font-weight: 700; color: #1e293b;';
+  const subStyle = 'margin: 0; font-size: 11px; color: #475569;';
+  const headerBtnStyle = 'position: relative; height: 40px; padding: 0 16px; border-radius: 12px; background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.25); cursor: pointer; color: white; font-family: \'Poppins\',sans-serif; font-weight: 600; font-size: 13px; display: flex; align-items: center; gap: 6px;';
+  const selectStyle = `width: 100%; appearance: none; background: ${NEU_BG}; box-shadow: ${neuCfg.inset}; border-radius: 12px; padding: 11px 32px 11px 14px; border: none; outline: none; font-size: 13px; font-weight: 600; color: #334155; font-family: 'Poppins',sans-serif; cursor: pointer;`;
 </script>
 
-<div class="w-screen h-screen overflow-hidden relative">
+{#snippet featureRow(label: string, value: boolean, onToggle: (() => void) | null, indent = false)}
   <div
-    style="
-      width: 100%;
-      height: 100%;
-      background: {NEU_BG};
-      display: flex;
-      flex-direction: column;
-      font-family: 'Poppins', sans-serif;
-      overflow: hidden;
-    "
+    role="switch"
+    aria-checked={value}
+    aria-label={label}
+    tabindex={onToggle ? 0 : -1}
+    onclick={() => onToggle?.()}
+    onkeydown={(e) => {
+      if (onToggle && (e.key === 'Enter' || e.key === ' ')) {
+        e.preventDefault();
+        onToggle();
+      }
+    }}
+    style="display: flex; align-items: center; gap: 12px; padding: 9px 0; padding-left: {indent ? 22 : 0}px; cursor: {onToggle ? 'pointer' : 'default'}; user-select: none; touch-action: manipulation;"
   >
-    <!-- Header bar -->
-    <div
-      style="
-        background: linear-gradient(135deg, #3d3aa0, {NEU_PRIMARY});
-        display: flex;
-        align-items: center;
-        padding: 0 28px;
-        height: 60px;
-        flex-shrink: 0;
-        box-shadow: 0 4px 20px rgba(42,40,115,0.3);
-        gap: 16px;
-      "
+    <span style="flex: 1; font-size: 13px; font-weight: 600; color: {value ? '#1e293b' : '#5b6b82'}; transition: color .15s;">{label}</span>
+    <span
+      style="position: relative; width: 46px; height: 26px; border-radius: 999px; background: {value ? NEU_PRIMARY : NEU_BG}; box-shadow: {value ? 'inset 2px 2px 5px rgba(0,0,0,0.3)' : neuCfg.inset}; transition: background .2s; flex-shrink: 0; opacity: {onToggle ? 1 : 0.7};"
     >
-      <button
-        onclick={onBack}
-        style="
-          width: 36px;
-          height: 36px;
-          border-radius: 10px;
-          background: rgba(255,255,255,0.15);
-          border: none;
-          cursor: pointer;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          color: white;
-          flex-shrink: 0;
-        "
-      >
-        <ChevronLeft size={20} />
-      </button>
-      <h1
-        style="
-          flex: 1;
-          margin: 0;
-          color: white;
-          font-weight: 700;
-          font-size: 1rem;
-          letter-spacing: 0.02em;
-        "
-      >
-        Pengaturan Mesin
-      </h1>
-      <button
-        onclick={onLogout}
-        style="
-          padding: 8px 20px;
-          border-radius: 10px;
-          background: rgba(255,255,255,0.15);
-          border: 1px solid rgba(255,255,255,0.25);
-          cursor: pointer;
-          color: white;
-          font-family: 'Poppins',sans-serif;
-          font-weight: 600;
-          font-size: 13px;
-        "
-      >
-        Logout
-      </button>
+      <span
+        style="position: absolute; top: 3px; left: {value ? 23 : 3}px; width: 20px; height: 20px; border-radius: 50%; background: {value ? 'white' : '#cbd5e1'}; box-shadow: 1px 1px 4px rgba(0,0,0,0.3); transition: left .2s, background .2s;"
+      ></span>
+    </span>
+  </div>
+{/snippet}
+
+{#snippet stepper(value: number, min: number, max: number, onChange: (v: number) => void, unit = '')}
+  {@const stepBtn = `width: 44px; height: 44px; border-radius: 12px; background: ${NEU_BG}; box-shadow: ${neuCfg.btnSm}; border: none; cursor: pointer; font-weight: 700; font-size: 20px; color: #334155; touch-action: manipulation;`}
+  <div style="display: flex; align-items: center; gap: 14px;">
+    <button type="button" onclick={() => onChange(Math.max(min, value - 1))} style={stepBtn}>−</button>
+    <span style="display: flex; align-items: baseline; justify-content: center; gap: 4px; min-width: 72px;">
+      <input
+        type="number"
+        {min}
+        {max}
+        {value}
+        oninput={(e) => {
+          const v = parseInt(e.currentTarget.value, 10);
+          if (!isNaN(v)) onChange(Math.min(max, Math.max(min, v)));
+        }}
+        style="width: 52px; text-align: center; font-size: 17px; font-weight: 700; color: #1e293b; background: transparent; border: none; outline: none; font-family: 'Poppins', sans-serif; padding: 0;"
+      />
+      {#if unit}<span style="font-size: 13px; font-weight: 600; color: #475569;">{unit}</span>{/if}
+    </span>
+    <button type="button" onclick={() => onChange(Math.min(max, value + 1))} style={stepBtn}>+</button>
+  </div>
+{/snippet}
+
+{#snippet sessionRow(name: string, desc: string, last: boolean, control: Snippet)}
+  <div style="display: flex; align-items: center; gap: 16px; padding: 16px 0; border-bottom: {last ? 'none' : '1px solid rgba(200,210,224,0.7)'};">
+    <div style="flex: 1;">
+      <p style={titleStyle}>{name}</p>
+      <p style={subStyle}>{desc}</p>
     </div>
+    {@render control()}
+  </div>
+{/snippet}
 
-    <!-- Body -->
-    <div
-      style="
-        flex: 1;
-        overflow: hidden;
-        display: flex;
-        flex-direction: column;
-        padding: 20px 24px;
-        gap: 16px;
-      "
-    >
-      <!-- Info card -->
-      <div
-        style="
-          background: {NEU_BG};
-          box-shadow: {neuCfg.card};
-          border-radius: 20px;
-          padding: 14px 22px;
-          display: flex;
-          align-items: center;
-          gap: 24px;
-          flex-wrap: wrap;
-          flex-shrink: 0;
-        "
-      >
-        <div style="display: flex; align-items: center; gap: 10px;">
-          <div
-            style="
-              width: 40px;
-              height: 40px;
-              border-radius: 12px;
-              background: {NEU_BG};
-              box-shadow: {neuCfg.btn};
-              display: flex;
-              align-items: center;
-              justify-content: center;
-              color: {NEU_PRIMARY};
-              flex-shrink: 0;
-            "
-          >
-            <Monitor size={17} />
-          </div>
-          <div>
-            <p style="font-size: 11px; font-weight: 700; color: #334155; margin: 0;">Nama Device</p>
-            <p style="font-size: 11px; color: #64748b; margin: 0;">{boothName}</p>
-          </div>
-        </div>
-
-        <div style="width: 1px; height: 30px; background: rgba(200,210,224,0.7); flex-shrink: 0;"></div>
-
-        <div style="display: flex; align-items: center; gap: 10px;">
-          <div
-            style="
-              width: 40px;
-              height: 40px;
-              border-radius: 12px;
-              background: {NEU_BG};
-              box-shadow: {neuCfg.btn};
-              display: flex;
-              align-items: center;
-              justify-content: center;
-              color: {NEU_PRIMARY};
-              flex-shrink: 0;
-            "
-          >
-            <ClockCheck size={17} />
-          </div>
-          <div>
-            <p style="font-size: 11px; font-weight: 700; color: #334155; margin: 0;">Last Synchronized At</p>
-            <p style="font-size: 11px; color: #64748b; margin: 0;">
-                {#if syncStatus}
-                 {syncStatus}
-                {:else if lastSyncedAt}
-                 {lastSyncedAt}
-                {:else}
-                 Belum pernah sync
-                {/if}
-            </p>
-          </div>
-        </div>
-
-        <div style="width: 1px; height: 30px; background: rgba(200,210,224,0.7); flex-shrink: 0;"></div>
-
-        <div style="display: flex; align-items: center; gap: 10px;">
-          <div
-            style="
-              width: 40px;
-              height: 40px;
-              border-radius: 12px;
-              background: {NEU_BG};
-              box-shadow: {neuCfg.btn};
-              display: flex;
-              align-items: center;
-              justify-content: center;
-              color: {NEU_PRIMARY};
-              flex-shrink: 0;
-            "
-          >
-            <Layers size={17} />
-          </div>
-          <div>
-            <p style="font-size: 11px; font-weight: 700; color: #334155; margin: 0;">Version</p>
-            <p style="font-size: 11px; color: #64748b; margin: 0; display: flex; align-items: center; gap: 6px;">
-              v{updaterStore.currentVersion}
-              {#if updaterStore.hasUpdate}
-                <span
-                  style="
-                    padding: 1px 6px;
-                    border-radius: 999px;
-                    background: #f59e0b;
-                    color: white;
-                    font-size: 9px;
-                    font-weight: 700;
-                  "
-                >
-                  Update
-                </span>
-              {/if}
-            </p>
-          </div>
-        </div>
-
-        <div style="flex: 1;"></div>
-
-        {#if pendingJobs > 0}
-          <div
-            style="
-              padding: 6px 14px;
-              border-radius: 9999px;
-              background: #fef3c7;
-              color: #92400e;
-              font-size: 11px;
-              font-weight: 700;
-              display: flex;
-              align-items: center;
-              gap: 6px;
-            "
-          >
-            <span style="width: 8px; height: 8px; border-radius: 9999px; background: #f59e0b;"></span>
-            Pending Sync Offline: {pendingJobs}
-          </div>
-        {/if}
-
-        {#if pendingPrintJobs > 0}
-          <div
-            style="
-              padding: 6px 14px;
-              border-radius: 9999px;
-              background: #ede9fe;
-              color: #5b21b6;
-              font-size: 11px;
-              font-weight: 700;
-              display: flex;
-              align-items: center;
-              gap: 6px;
-            "
-          >
-            <Printer size={12} />
-            Pending Cetak: {pendingPrintJobs}
-          </div>
-        {/if}
-
+<div class="w-screen h-screen overflow-hidden relative">
+  <div style="width: 100%; height: 100%; background: {NEU_BG}; display: flex; flex-direction: column; font-family: 'Poppins', sans-serif; overflow: hidden;">
+    {#if view === 'session'}
+      <!-- ── Halaman Pengaturan Sesi ── -->
+      <div style="background: linear-gradient(135deg, #3d3aa0, {NEU_PRIMARY}); display: flex; align-items: center; padding: 0 24px; height: 68px; flex-shrink: 0; box-shadow: 0 4px 20px rgba(42,40,115,0.3); gap: 14px;">
         <button
-          onclick={() => updaterStore.checkForUpdates(false)}
-          style="
-            position: relative;
-            padding: 8px 18px;
-            border-radius: 12px;
-            background: {NEU_BG};
-            box-shadow: {neuCfg.btn};
-            border: none;
-            cursor: pointer;
-            font-family: 'Poppins', sans-serif;
-            font-weight: 700;
-            font-size: 13px;
-            color: #334155;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-          "
+          type="button"
+          onclick={() => (view = 'main')}
+          aria-label="Kembali"
+          style="width: 40px; height: 40px; border-radius: 12px; background: rgba(255,255,255,0.15); border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; color: white; flex-shrink: 0;"
         >
-          <RefreshCw size={15} class={updaterStore.isChecking ? 'animate-spin' : ''} />
-          Check Updates
-          {#if updaterStore.hasUpdate}
-            <span
-              style="
-                position: absolute;
-                top: 4px;
-                right: 4px;
-                width: 8px;
-                height: 8px;
-                border-radius: 50%;
-                background: #ef4444;
-                box-shadow: 0 0 6px rgba(239, 68, 68, 0.7);
-              "
-            ></span>
-          {/if}
+          <ChevronLeft size={20} />
         </button>
-
-        <button
-          onclick={handleSync}
-          style="
-            padding: 8px 20px;
-            border-radius: 12px;
-            background: {NEU_BG};
-            box-shadow: {neuCfg.btn};
-            border: none;
-            cursor: pointer;
-            font-family: 'Poppins',sans-serif;
-            font-weight: 700;
-            font-size: 13px;
-            color: #334155;
-          "
-        >
-          Sync
-        </button>
+        <div style="flex: 1; min-width: 0;">
+          <h1 style="margin: 0; color: white; font-weight: 700; font-size: 1.05rem; line-height: 1.2;">Pengaturan sesi</h1>
+          <p style="margin: 0; color: rgba(255,255,255,0.75); font-size: 11px;">Pengaturan Mesin › Sesi</p>
+        </div>
       </div>
 
-      <!-- Two-column content -->
-      <div style="flex: 1; min-height: 0; display: flex; gap: 16px;">
-        <!-- Left: Fitur Aktif -->
-        <div style="width: 34%; flex-shrink: 0; display: flex; flex-direction: column; gap: 8px;">
-          <p style="font-size: 10px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.1em; margin: 4px 0 0 0;">
-            Fitur Aktif
-          </p>
-          <div
-            class="custom-scrollbar"
-            style="
-              flex: 1;
-              background: {NEU_BG};
-              box-shadow: {neuCfg.card};
-              border-radius: 20px;
-              padding: 14px 14px 72px 14px;
-              overflow-y: auto;
-              display: flex;
-              flex-direction: column;
-              gap: 8px;
-            "
-          >
-            <div
-              style="
-                display: flex;
-                align-items: center;
-                gap: 10px;
-                background: {NEU_BG};
-                box-shadow: {neuCfg.btnSm};
-                border-radius: 12px;
-                padding: 10px 14px;
-              "
-            >
-              <div style="width: 17px; height: 17px; border-radius: 50%; border: 2px solid #22c55e; background: #22c55e; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
-                <div style="width: 6px; height: 6px; border-radius: 50%; background: white;"></div>
+      <div class="custom-scrollbar" style="flex: 1; overflow-y: auto; padding: 24px;">
+        <div style="max-width: 760px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px;">
+          <div style="{cardStyle} padding: 4px 22px;">
+            {#snippet countdownCtl()}
+              {@render stepper(sessionDraft.countdownSecs, 1, 99, (v) => (sessionDraft.countdownSecs = v), 'dtk')}
+            {/snippet}
+            {@render sessionRow('Countdown antar foto', 'Jeda sebelum foto berikutnya diambil.', false, countdownCtl)}
+
+            {#snippet idleCtl()}
+              <div style="display: flex; gap: 4px; padding: 4px; border-radius: 14px; background: {NEU_BG}; box-shadow: {neuCfg.inset};">
+                {#each IDLE_OPTS as m}
+                  {@const on = sessionDraft.idleBannerTimeoutMins === m}
+                  <button
+                    type="button"
+                    onclick={() => (sessionDraft.idleBannerTimeoutMins = m)}
+                    style="min-width: 48px; height: 40px; border-radius: 10px; border: none; cursor: pointer; font-family: 'Poppins',sans-serif; font-weight: 700; font-size: 13px; background: {on ? NEU_BG : 'transparent'}; box-shadow: {on ? neuCfg.btnSm : 'none'}; color: {on ? NEU_PRIMARY : '#475569'}; touch-action: manipulation;"
+                  >{m} m</button>
+                {/each}
               </div>
-              <span style="font-size: 13px; font-weight: 600; color: #334155; flex: 1;">Scan Ticket</span>
+            {/snippet}
+            {@render sessionRow(
+              'Banner idle muncul setelah',
+              IDLE_OPTS.includes(sessionDraft.idleBannerTimeoutMins)
+                ? 'Jika layar awal tidak disentuh.'
+                : `Jika layar awal tidak disentuh. Saat ini: ${sessionDraft.idleBannerTimeoutMins} menit.`,
+              false,
+              idleCtl
+            )}
+
+            {#snippet paperCtl()}
+              {@render stepper(sessionDraft.paperCount, 0, 999, (v) => (sessionDraft.paperCount = v))}
+            {/snippet}
+            {@render sessionRow('Stok kertas', 'Isi sesuai jumlah lembar setelah ganti roll.', false, paperCtl)}
+
+            {#snippet thresholdCtl()}
+              {@render stepper(sessionDraft.paperThreshold, 1, 100, (v) => (sessionDraft.paperThreshold = v))}
+            {/snippet}
+            {@render sessionRow('Peringatan kertas hampir habis', 'Muncul saat stok tersisa sebanyak ini.', true, thresholdCtl)}
+          </div>
+
+          <div style="display: flex; justify-content: flex-end; gap: 10px;">
+            <button type="button" style={btnBaseStyle} onclick={() => (view = 'main')}>Batal</button>
+            <button type="button" style={btnPrimaryStyle} onclick={saveSessionSettings}>Simpan</button>
+          </div>
+        </div>
+      </div>
+    {:else}
+      <!-- ── Halaman utama Pengaturan Mesin ── -->
+      <div style="background: linear-gradient(135deg, #3d3aa0, {NEU_PRIMARY}); display: flex; align-items: center; padding: 0 24px; height: 68px; flex-shrink: 0; box-shadow: 0 4px 20px rgba(42,40,115,0.3); gap: 14px;">
+        <button
+          type="button"
+          onclick={onBack}
+          aria-label="Kembali"
+          style="width: 40px; height: 40px; border-radius: 12px; background: rgba(255,255,255,0.15); border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; color: white; flex-shrink: 0;"
+        >
+          <ChevronLeft size={20} />
+        </button>
+        <div style="flex: 1; min-width: 0;">
+          <h1 style="margin: 0; color: white; font-weight: 700; font-size: 1.05rem; line-height: 1.2;">Pengaturan Mesin</h1>
+          <p style="margin: 0; color: rgba(255,255,255,0.75); font-size: 11px;">{boothName || 'Booth'} · v{updaterStore.currentVersion}</p>
+        </div>
+        <button type="button" style={headerBtnStyle} onclick={() => updaterStore.checkForUpdates(false)}>
+          <RefreshCw size={15} class={updaterStore.isChecking ? 'animate-spin' : ''} />Cek update
+          {#if updaterStore.hasUpdate}
+            <span style="position: absolute; top: -4px; right: -4px; width: 12px; height: 12px; border-radius: 50%; background: #ef4444; border: 2px solid #3d3aa0;"></span>
+          {/if}
+        </button>
+        <button type="button" style={headerBtnStyle} onclick={() => (isReportOpen = true)}>
+          <Flag size={15} />Report Problem
+        </button>
+        <button type="button" style={headerBtnStyle} onclick={onLogout}>Logout</button>
+      </div>
+
+      {#if pendingJobs > 0}
+        <div role="alert" style="display: flex; align-items: center; gap: 12px; padding: 10px 24px; background: #fff7e0; border-bottom: 1px solid #f5d98a; flex-shrink: 0;">
+          <span style="width: 10px; height: 10px; border-radius: 50%; background: #f59e0b; flex-shrink: 0;"></span>
+          <div style="flex: 1;">
+            <p style="margin: 0; font-size: 13px; font-weight: 700; color: #78350f;">{pendingJobs} data menunggu sync</p>
+            <p style="margin: 0; font-size: 11px; color: #92400e;">Terakhir sync {lastSyncedAt ?? 'belum pernah'}</p>
+          </div>
+          <button type="button" style="{btnPrimaryStyle} min-height: 40px;" onclick={handleSync} disabled={syncStatus === 'Syncing...'}>
+            <RefreshCw size={15} class={syncStatus === 'Syncing...' ? 'animate-spin' : ''} />
+            {syncStatus === 'Syncing...' ? 'Menyinkronkan...' : `Sync sekarang (${pendingJobs})`}
+          </button>
+        </div>
+      {/if}
+
+      <div class="custom-scrollbar" style="flex: 1; overflow-y: auto; padding: 24px;">
+        <!-- Kartu info -->
+        <div style="{cardStyle} max-width: 1400px; margin: 0 auto 20px; display: flex; align-items: center; gap: 28px; padding: 14px 20px; flex-wrap: wrap;">
+          <div style="display: flex; align-items: center; gap: 10px;">
+            <div style="{iconBoxStyle} width: 36px; height: 36px;"><Monitor size={16} /></div>
+            <div><p style="{subStyle} font-weight: 700;">Nama device</p><p style="{subStyle} font-size: 12px;">{boothName || '-'}</p></div>
+          </div>
+          <div style="display: flex; align-items: center; gap: 10px;">
+            <div style="{iconBoxStyle} width: 36px; height: 36px;"><ClockCheck size={16} /></div>
+            <div>
+              <p style="{subStyle} font-weight: 700;">Last synchronized at</p>
+              <p style="{subStyle} font-size: 12px;">{syncStatus || lastSyncedAt || 'Belum pernah sync'}</p>
+            </div>
+          </div>
+          <div style="display: flex; align-items: center; gap: 10px;">
+            <div style="{iconBoxStyle} width: 36px; height: 36px;"><Layers size={16} /></div>
+            <div>
+              <p style="{subStyle} font-weight: 700;">Version</p>
+              <p style="{subStyle} font-size: 12px; display: flex; align-items: center; gap: 6px;">
+                v{updaterStore.currentVersion}
+                {#if updaterStore.hasUpdate}
+                  <span style="padding: 1px 6px; border-radius: 999px; background: #f59e0b; color: white; font-size: 9px; font-weight: 700;">Update</span>
+                {/if}
+              </p>
+            </div>
+          </div>
+          <div style="flex: 1;"></div>
+          <span style="padding: 5px 12px; border-radius: 999px; background: #fff7e0; color: #78350f; font-size: 11px; font-weight: 700;">Pending sync offline: {pendingJobs}</span>
+          {#if pendingPrintJobs > 0}
+            <span style="padding: 5px 12px; border-radius: 999px; background: #ede9fe; color: #5b21b6; font-size: 11px; font-weight: 700; display: flex; align-items: center; gap: 6px;">
+              <Printer size={12} />Pending cetak: {pendingPrintJobs}
+            </span>
+          {/if}
+          <button type="button" style="{btnBaseStyle} min-height: 36px;" onclick={handleSync} disabled={syncStatus === 'Syncing...'}>
+            <RefreshCw size={14} class={syncStatus === 'Syncing...' ? 'animate-spin' : ''} />Sync
+          </button>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 260px minmax(0,1fr) minmax(0,1fr); gap: 20px; align-items: start; max-width: 1400px; margin: 0 auto;">
+          <!-- Fitur aktif -->
+          <div style={cardStyle}>
+            <p style="{titleStyle} margin-bottom: 6px;">Fitur aktif</p>
+            {@render featureRow('Scan tiket', true, null)}
+            {@render featureRow('Pop-up banner idle', boothConfig.config.enableIdleBanner, () => update('enableIdleBanner', !boothConfig.config.enableIdleBanner))}
+            {@render featureRow('Pembayaran (Cashless)', !boothConfig.config.skipPayment, null)}
+            {@render featureRow('Filter foto', boothConfig.config.photoFilter, () => update('photoFilter', !boothConfig.config.photoFilter))}
+            {#if boothConfig.config.photoFilter}
+              <div style="display: flex; flex-wrap: wrap; gap: 6px; padding-left: 22px; padding-bottom: 6px;">
+                {#each FILTER_OPTS as f}
+                  {@const on = Boolean(boothConfig.config[f.key])}
+                  <button
+                    type="button"
+                    onclick={() => update(f.key, !on as never)}
+                    style="padding: 5px 12px; border-radius: 999px; border: none; cursor: pointer; font-family: 'Poppins',sans-serif; font-size: 11px; font-weight: 600; background: {NEU_BG}; box-shadow: {on ? neuCfg.btnSm : neuCfg.inset}; color: {on ? NEU_PRIMARY : '#5b6b82'}; touch-action: manipulation;"
+                  >{f.label}</button>
+                {/each}
+              </div>
+            {/if}
+            {@render featureRow('Mirror kamera', boothConfig.config.mirrorOn, () => update('mirrorOn', !boothConfig.config.mirrorOn))}
+            {@render featureRow('Flip vertikal', boothConfig.config.flipVertical, () => update('flipVertical', !boothConfig.config.flipVertical))}
+            {@render featureRow('Video liveview clip', boothConfig.config.enableLiveviewVideo, () => update('enableLiveviewVideo', !boothConfig.config.enableLiveviewVideo))}
+            {@render featureRow('GIF sesi animasi', boothConfig.config.enableSessionGif, () => update('enableSessionGif', !boothConfig.config.enableSessionGif))}
+            <div style="height: 1px; background: rgba(200,210,224,0.7); margin: 10px 0;"></div>
+            <p style="{subStyle} font-size: 10px;">Geser toggle untuk mengaktifkan atau menonaktifkan fitur. Scan tiket & pembayaran diatur dari dashboard web.</p>
+          </div>
+
+          <!-- Kamera -->
+          <div style={cardStyle}>
+            <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 14px;">
+              <div style={iconBoxStyle}><Camera size={18} /></div>
+              <div style="flex: 1; min-width: 0;">
+                <p style={titleStyle}>Kamera</p>
+                <p style="{subStyle} white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{cameraName} · {cameraStore.cameraMode === 'webcam' ? 'Webcam' : 'USB'}</p>
+              </div>
+              {#if cameraConnected}
+                <button type="button" style="{btnBaseStyle} min-height: 34px; padding: 0 12px; font-size: 12px;" onclick={togglePreview}>
+                  {#if isPreviewOpen}<EyeOff size={14} />Sembunyikan preview{:else}<Eye size={14} />Lihat preview{/if}
+                </button>
+              {/if}
+              <span style="padding: 4px 12px; border-radius: 999px; font-size: 11px; font-weight: 700; white-space: nowrap; background: {cameraConnected ? 'rgba(34,197,94,0.14)' : 'rgba(239,68,68,0.12)'}; color: {cameraConnected ? '#15803d' : '#b91c1c'};">
+                {cameraConnected ? 'Terhubung' : cameraStore.status === 'connecting' ? 'Menghubungkan…' : 'Tidak terhubung'}
+              </span>
             </div>
 
-            <button
-              type="button"
-              onclick={() => update('enableIdleBanner', !boothConfig.config.enableIdleBanner)}
-              style="
-                display: flex;
-                align-items: center;
-                gap: 10px;
-                background: {NEU_BG};
-                box-shadow: {neuCfg.btnSm};
-                border-radius: 12px;
-                padding: 10px 14px;
-                border: none;
-                cursor: pointer;
-                text-align: left;
-                width: 100%;
-              "
-            >
-              <div style="width: 17px; height: 17px; border-radius: 50%; border: 2px solid {boothConfig.config.enableIdleBanner ? '#22c55e' : '#c8d2e0'}; background: {boothConfig.config.enableIdleBanner ? '#22c55e' : 'transparent'}; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
-                {#if boothConfig.config.enableIdleBanner}
-                  <div style="width: 6px; height: 6px; border-radius: 50%; background: white;"></div>
-                {/if}
-              </div>
-              <span style="font-size: 13px; font-weight: 600; color: {boothConfig.config.enableIdleBanner ? '#334155' : '#94a3b8'}; flex: 1;">
-                Pop-up Banner Idle
-              </span>
-            </button>
-
-            <!-- Take Photo group -->
-            <div
-              style="
-                background: {NEU_BG};
-                box-shadow: {neuCfg.inset};
-                border-radius: 14px;
-                padding: 10px 12px;
-                display: flex;
-                flex-direction: column;
-                gap: 6px;
-              "
-            >
-              <div style="display: flex; align-items: center; gap: 8px; padding-bottom: 4px; border-bottom: 1px solid rgba(200,210,224,0.5);">
-                <CheckCircle2 size={16} class="text-[#22c55e]" strokeWidth={2.5} />
-                <span style="font-size: 13px; font-weight: 600; color: #334155;">Take Photo</span>
-              </div>
-              <div style="display: flex; flex-direction: column; gap: 4px; padding-top: 2px;">
-                <button
-                  type="button"
-                  onclick={() => update('photoFilter', !boothConfig.config.photoFilter)}
-                  style="display: flex; align-items: center; gap: 10px; background: {NEU_BG}; box-shadow: {neuCfg.inset}; border-radius: 10px; padding: 7px 12px; border: none; cursor: pointer; text-align: left;"
-                >
-                  <div style="width: 14px; height: 14px; border-radius: 50%; border: 2px solid {boothConfig.config.photoFilter ? '#22c55e' : '#c8d2e0'}; background: {boothConfig.config.photoFilter ? '#22c55e' : 'transparent'}; flex-shrink: 0; display: flex; align-items: center; justify-content: center;">
-                    {#if boothConfig.config.photoFilter}
-                      <div style="width: 6px; height: 6px; border-radius: 50%; background: white;"></div>
-                    {/if}
-                  </div>
-                  <span style="font-size: 12px; font-weight: 500; color: {boothConfig.config.photoFilter ? '#334155' : '#94a3b8'}; flex: 1;">Filter Foto</span>
-                </button>
-
-                {#if boothConfig.config.photoFilter}
-                  <div style="padding-left: 22px; display: flex; flex-direction: column; gap: 3px;">
-                    {#each [
-                      { key: 'filterBW', label: 'Black & White' },
-                      { key: 'filterSepia', label: 'Sepia' },
-                      { key: 'filterVivid', label: 'Vivid' },
-                      { key: 'filterRetro', label: 'Retro' },
-                      { key: 'filterCool', label: 'Cool' }
-                    ] as f}
-                      <button
-                        type="button"
-                        onclick={() => update(f.key as keyof BoothCfg, !boothConfig.config[f.key as keyof BoothCfg])}
-                        style="display: flex; align-items: center; gap: 10px; background: {NEU_BG}; box-shadow: {neuCfg.inset}; border-radius: 10px; padding: 5px 10px; border: none; cursor: pointer; text-align: left;"
-                      >
-                        <div style="width: 12px; height: 12px; border-radius: 50%; border: 2px solid {boothConfig.config[f.key as keyof BoothCfg] ? '#22c55e' : '#c8d2e0'}; background: {boothConfig.config[f.key as keyof BoothCfg] ? '#22c55e' : 'transparent'}; flex-shrink: 0;"></div>
-                        <span style="font-size: 11px; color: #475569;">{f.label}</span>
-                      </button>
-                    {/each}
+            {#if isPreviewOpen}
+              <div style="position: relative; height: 220px; border-radius: 16px; background: #171733; box-shadow: {neuCfg.inset}; display: flex; align-items: center; justify-content: center; overflow: hidden;">
+                <span style="position: absolute; top: 10px; left: 10px; z-index: 2; padding: 3px 10px; border-radius: 8px; background: rgba(0,0,0,0.6); color: white; font-size: 11px; font-weight: 600;">
+                  Rotasi {ROTATE_LABELS[Math.max(0, ROTATE_OPTS.indexOf(boothConfig.config.cameraRotate))]}
+                </span>
+                {#if cameraStore.cameraMode === 'webcam'}
+                  <video
+                    bind:this={previewVideoEl}
+                    autoplay
+                    playsinline
+                    muted
+                    class="max-w-full max-h-full object-contain"
+                    style="transform: {getLiveviewTransformStyle(boothConfig.config, cameraStore.cameraMode)};"
+                  ></video>
+                {:else if previewFrameSrc}
+                  <img
+                    src={previewFrameSrc}
+                    alt="Live preview kamera"
+                    class="max-w-full max-h-full object-contain"
+                    style="transform: {getLiveviewTransformStyle(boothConfig.config, cameraStore.cameraMode)};"
+                  />
+                {:else}
+                  <div style="display: flex; flex-direction: column; align-items: center; gap: 8px; color: rgba(255,255,255,0.7); font-size: 12px;">
+                    <RotateCw size={28} class="animate-spin" />
+                    Mengambil liveview dari kamera...
                   </div>
                 {/if}
+                <span style="position: absolute; bottom: 10px; right: 10px; z-index: 2; padding: 3px 10px; border-radius: 8px; background: rgba(0,0,0,0.6); color: white; font-size: 11px; font-family: monospace;">
+                  {cameraStore.cameraMode.toUpperCase()} · Mirror {boothConfig.config.mirrorOn ? 'on' : 'off'}
+                </span>
+              </div>
+            {:else if !cameraConnected}
+              <div style="border-radius: 16px; background: {NEU_BG}; box-shadow: {neuCfg.inset}; padding: 14px 16px; display: flex; flex-direction: column; gap: 8px;">
+                {#if cameraStore.detectedCameras.length > 0}
+                  <span style="font-size: 12px; font-weight: 700; color: #16a34a;">{cameraStore.detectedCameras[0].model}</span>
+                  <span style="font-size: 10px; color: #5b6b82; font-family: monospace;">{cameraStore.detectedCameras[0].port}</span>
+                  <button type="button" style="{btnPrimaryStyle} justify-content: center;" onclick={handleConnectDetected} disabled={cameraStore.status === 'connecting'}>
+                    {cameraStore.status === 'connecting' ? 'Menghubungkan...' : 'Hubungkan Kamera Ini'}
+                  </button>
+                {:else}
+                  <p style="{subStyle} font-size: 12px;">{cameraStore.isDetecting ? 'Mencari kamera via USB…' : 'Tidak ada kamera USB terdeteksi.'}</p>
+                  {#if cameraStore.detectError}
+                    <p style="font-size: 10px; color: #dc2626; margin: 0;">{cameraStore.detectError}</p>
+                  {/if}
+                {/if}
+              </div>
+            {/if}
 
-                <button
-                  type="button"
-                  onclick={() => update('mirrorOn', !boothConfig.config.mirrorOn)}
-                  style="display: flex; align-items: center; gap: 10px; background: {NEU_BG}; box-shadow: {neuCfg.inset}; border-radius: 10px; padding: 7px 12px; border: none; cursor: pointer; text-align: left;"
-                >
-                  <div style="width: 14px; height: 14px; border-radius: 50%; border: 2px solid {boothConfig.config.mirrorOn ? '#22c55e' : '#c8d2e0'}; background: {boothConfig.config.mirrorOn ? '#22c55e' : 'transparent'}; flex-shrink: 0; display: flex; align-items: center; justify-content: center;">
-                    {#if boothConfig.config.mirrorOn}
-                      <div style="width: 6px; height: 6px; border-radius: 50%;"></div>
-                    {/if}
-                  </div>
-                  <span style="font-size: 12px; font-weight: 500; color: #334155;">Mirror Kamera</span>
-                </button>
+            <div style="display: flex; gap: 10px; margin-top: 14px;">
+              <button
+                type="button"
+                style="{btnPrimaryStyle} flex: 1; justify-content: center; opacity: {cameraConnected && cameraStore.cameraMode === 'usb' ? 1 : 0.5};"
+                onclick={handleOpenManualSettings}
+                disabled={!(cameraConnected && cameraStore.cameraMode === 'usb')}
+              >
+                Atur ISO / Shutter / F
+              </button>
+              <button
+                type="button"
+                style="{btnBaseStyle} flex: 0 0 auto; justify-content: center;"
+                onclick={() => cameraStore.detect()}
+                disabled={cameraStore.isDetecting}
+                title="Deteksi ulang kamera USB"
+              >
+                <RotateCw size={14} class={cameraStore.isDetecting ? 'animate-spin' : ''} />
+                {cameraStore.isDetecting ? 'Mendeteksi...' : 'Refresh'}
+              </button>
+            </div>
 
-                <button
-                  type="button"
-                  onclick={() => update('enableLiveviewVideo', !boothConfig.config.enableLiveviewVideo)}
-                  style="display: flex; align-items: center; gap: 10px; background: {NEU_BG}; box-shadow: {neuCfg.inset}; border-radius: 10px; padding: 7px 12px; border: none; cursor: pointer; text-align: left;"
-                >
-                  <div style="width: 14px; height: 14px; border-radius: 50%; border: 2px solid {boothConfig.config.enableLiveviewVideo ? '#22c55e' : '#c8d2e0'}; background: {boothConfig.config.enableLiveviewVideo ? '#22c55e' : 'transparent'}; flex-shrink: 0;"></div>
-                  <span style="font-size: 12px; font-weight: 500; color: #334155;">Video Liveview Clip</span>
-                </button>
-
-                <button
-                  type="button"
-                  onclick={() => update('enableSessionGif', !boothConfig.config.enableSessionGif)}
-                  style="display: flex; align-items: center; gap: 10px; background: {NEU_BG}; box-shadow: {neuCfg.inset}; border-radius: 10px; padding: 7px 12px; border: none; cursor: pointer; text-align: left;"
-                >
-                  <div style="width: 14px; height: 14px; border-radius: 50%; border: 2px solid {boothConfig.config.enableSessionGif ? '#22c55e' : '#c8d2e0'}; background: {boothConfig.config.enableSessionGif ? '#22c55e' : 'transparent'}; flex-shrink: 0;"></div>
-                  <span style="font-size: 12px; font-weight: 500; color: #334155;">GIF Sesi Animasi</span>
-                </button>
+            <div style="display: flex; align-items: center; gap: 12px; margin-top: 16px;">
+              <span style="font-size: 13px; font-weight: 600; color: #334155; flex: 0 0 auto;">Rotasi tampilan</span>
+              <div style="flex: 1; display: flex; gap: 4px; padding: 4px; border-radius: 14px; background: {NEU_BG}; box-shadow: {neuCfg.inset};">
+                {#each ROTATE_OPTS as o, i}
+                  {@const on = boothConfig.config.cameraRotate === o}
+                  <button
+                    type="button"
+                    onclick={() => update('cameraRotate', o)}
+                    style="flex: 1; height: 40px; border-radius: 10px; border: none; cursor: pointer; font-family: 'Poppins',sans-serif; font-weight: 700; font-size: 13px; background: {on ? NEU_BG : 'transparent'}; box-shadow: {on ? neuCfg.btnSm : 'none'}; color: {on ? NEU_PRIMARY : '#475569'}; touch-action: manipulation;"
+                  >{ROTATE_LABELS[i]}</button>
+                {/each}
               </div>
             </div>
           </div>
-        </div>
 
-        <!-- Right: General Setting -->
-        <div style="flex: 1; display: flex; flex-direction: column; gap: 8px;">
-          <p style="font-size: 10px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.1em; margin: 4px 0 0 0;">
-            General Setting
-          </p>
-          <div
-            class="custom-scrollbar"
-            style="
-              flex: 1;
-              background: {NEU_BG};
-              box-shadow: {neuCfg.card};
-              border-radius: 20px;
-              padding: 18px 18px 72px 18px;
-              overflow-y: auto;
-              display: flex;
-              flex-direction: column;
-              gap: 14px;
-            "
-          >
-            <!-- Mode Kamera: auto-detect via libgphoto2, bukan pilihan manual -->
-            <div style="display: flex; flex-direction: column; gap: 8px;">
-              <div style="display: flex; align-items: center; justify-content: space-between;">
-                <h1 style="font-size: 10px; font-weight: 700; color: #334155; text-transform: uppercase; letter-spacing: 0.06em; margin: 0;">
-                  Kamera Terdeteksi
-                </h1>
-                <button
-                  type="button"
-                  onclick={() => cameraStore.detect()}
-                  disabled={cameraStore.isDetecting}
-                  style="
-                    font-size: 10px;
-                    font-weight: 600;
-                    color: #2a2873;
-                    background: {NEU_BG};
-                    box-shadow: {neuCfg.btnSm};
-                    border: none;
-                    border-radius: 8px;
-                    padding: 4px 10px;
-                    cursor: pointer;
-                  "
-                >
-                  {cameraStore.isDetecting ? 'Mendeteksi...' : 'Refresh'}
-                </button>
+          <!-- Printer / stok kertas -->
+          <div style={cardStyle}>
+            <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 14px;">
+              <div style={iconBoxStyle}><Printer size={18} /></div>
+              <div style="flex: 1;">
+                <p style={titleStyle}>Printer</p>
+                <p style={subStyle}>{printerReadyCount === 0 ? 'Belum ada printer dipilih' : `${printerReadyCount} printer siap cetak`}</p>
               </div>
+              <button
+                type="button"
+                onclick={() => printerStore.loadPrinters()}
+                disabled={printerStore.isDetecting}
+                style="{btnBaseStyle} min-height: 34px; padding: 0 12px; font-size: 12px;"
+                title="Deteksi ulang printer"
+              >
+                <RotateCw size={13} class={printerStore.isDetecting ? 'animate-spin' : ''} />
+                {printerStore.isDetecting ? 'Mendeteksi...' : 'Refresh'}
+              </button>
+            </div>
 
-              {#if cameraStore.detectedCameras.length > 0}
-                <!-- Kamera USB ketemu: tampilkan nama model langsung dengan tombol preview di sampingnya -->
-                <div style="display: flex; align-items: stretch; gap: 8px;">
-                  <div style="flex: 1; background: {NEU_BG}; box-shadow: {neuCfg.inset}; border-radius: 12px; padding: 10px 14px; display: flex; flex-direction: column; justify-content: center; gap: 4px;">
-                    <span style="font-size: 12px; font-weight: 700; color: #16a34a;">
-                      {cameraStore.detectedCameras[0].model}
+            {#if printerStore.printers.length > 0}
+              {#each [1, 2] as n}
+                {@const isPrimary = n === 1}
+                {@const model = isPrimary ? printerStore.selectedPrinter : printerStore.secondaryPrinter}
+                {@const off = !model}
+                {@const ready = isPrimary ? printerStore.status?.is_ready : printerStore.secondaryStatus?.is_ready}
+                <div style="border-radius: 16px; background: {NEU_BG}; box-shadow: {neuCfg.btnSm}; padding: 14px; margin-bottom: 14px;">
+                  <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px;">
+                    <span style="width: 22px; height: 22px; border-radius: 7px; background: {isPrimary ? NEU_PRIMARY : 'rgba(42,40,115,0.1)'}; color: {isPrimary ? 'white' : NEU_PRIMARY}; font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center;">{n}</span>
+                    <span style="flex: 1; font-size: 13px; font-weight: 700; color: #1e293b;">
+                      {#if isPrimary}Printer utama{:else}Printer kedua <span style="font-weight: 400; color: #475569;">(opsional)</span>{/if}
                     </span>
-                    <span style="font-size: 10px; color: #94a3b8; font-family: monospace;">
-                      {cameraStore.detectedCameras[0].port}
+                    <span style="font-size: 11px; font-weight: 700; color: {off ? '#5b6b82' : ready ? '#15803d' : '#b45309'};">
+                      {off ? 'Nonaktif' : ready ? 'Siap' : 'Offline'}
                     </span>
                   </div>
-
-                  {#if cameraStore.status === 'connected'}
+                  <div style="display: flex; gap: 8px;">
+                    <div style="position: relative; flex: 1;">
+                      <select
+                        value={model ?? ''}
+                        onchange={(e) => {
+                          const val = e.currentTarget.value || null;
+                          if (isPrimary) {
+                            printerStore.selectedPrinter = val;
+                            boothConfig.save({ primaryPrinter: val || '' });
+                          } else {
+                            printerStore.secondaryPrinter = val;
+                            boothConfig.save({ secondaryPrinter: val || '' });
+                          }
+                          printerStore.refreshStatus();
+                        }}
+                        style={selectStyle}
+                      >
+                        {#if !isPrimary}<option value="">Tidak digunakan</option>{/if}
+                        {#each printerStore.printers as p}
+                          <option value={p}>{p}</option>
+                        {/each}
+                      </select>
+                      <ChevronDown size={14} color="#5b6b82" style="position: absolute; right: 12px; top: 50%; transform: translateY(-50%); pointer-events: none;" />
+                    </div>
                     <button
                       type="button"
-                      onclick={openPreviewDialog}
-                      style="
-                        background: {NEU_BG};
-                        box-shadow: {neuCfg.btn};
-                        border: none;
-                        border-radius: 12px;
-                        padding: 0 14px;
-                        display: flex;
-                        align-items: center;
-                        gap: 6px;
-                        font-size: 11px;
-                        font-weight: 700;
-                        color: {NEU_PRIMARY};
-                        cursor: pointer;
-                        font-family: 'Poppins', sans-serif;
-                        white-space: nowrap;
-                        flex-shrink: 0;
-                        transition: transform 0.15s ease, box-shadow 0.15s ease;
-                      "
-                      title="Buka dialog preview kamera langsung"
+                      title={isPrimary ? 'Buka Printer Properties & Preferences (aktifkan 2-inch cut)' : 'Buka Secondary Printer Preferences (aktifkan 2-inch cut)'}
+                      disabled={!printerStore.selectedPrinter}
+                      onclick={() => (isPrimary ? handleOpenPrinterProperties(printerStore.selectedPrinter) : handleOpenSecondaryPrinterProperties())}
+                      style="width: 44px; height: 44px; border-radius: 12px; background: {NEU_BG}; box-shadow: {neuCfg.btnSm}; border: none; display: flex; align-items: center; justify-content: center; flex-shrink: 0; cursor: {printerStore.selectedPrinter ? 'pointer' : 'not-allowed'}; color: {printerStore.selectedPrinter ? '#334155' : '#5b6b82'}; opacity: {printerStore.selectedPrinter ? 1 : 0.5};"
                     >
-                      <Eye size={15} />
-                      <span>Lihat Preview</span>
+                      <Settings size={16} />
                     </button>
+                  </div>
+                  {#if !isPrimary && !off}
+                    <p style="{subStyle} margin-top: 8px;">Klik ⚙ untuk mengaktifkan 2-inch cut (strip 2x6).</p>
                   {/if}
                 </div>
-
-                {#if boothConfig.config.cameraMode === 'usb' && cameraStore.status === 'connected'}
-                  <div style="display: flex; align-items: center; gap: 8px;">
-                    <span style="font-size: 11px; color: #16a34a; flex: 1;">Kamera aktif & terhubung</span>
-                    <button
-                      type="button"
-                      onclick={handleOpenManualSettings}
-                      style="
-                        font-size: 11px; font-weight: 700; color: white;
-                        background: linear-gradient(135deg, #3d3aa0, {NEU_PRIMARY});
-                        border: none; border-radius: 10px; padding: 8px 14px; cursor: pointer;
-                      "
-                    >
-                      Atur ISO / Shutter / F
-                    </button>
-                  </div>
-                {:else}
-                  <button
-                    type="button"
-                    onclick={handleConnectDetected}
-                    disabled={cameraStore.status === 'connecting'}
-                    style="
-                      font-size: 12px; font-weight: 700; color: white;
-                      background: linear-gradient(135deg, #3d3aa0, {NEU_PRIMARY});
-                      border: none; border-radius: 12px; padding: 10px 14px; cursor: pointer;
-                    "
-                  >
-                    {cameraStore.status === 'connecting' ? 'Menghubungkan...' : 'Hubungkan Kamera Ini'}
-                  </button>
-                {/if}
-              {:else}
-                <!-- Tidak ada DSLR terdeteksi via USB -->
-                <p style="font-size: 11px" class="text-gray-400">
-                  {cameraStore.isDetecting ? 'Mencari kamera via USB…' : 'Tidak ada kamera USB terdeteksi.'}
-                </p>
-                {#if cameraStore.detectError}
-                  <p style="font-size: 10px; color: #dc2626; margin: 0;">{cameraStore.detectError}</p>
-                {/if}
-
-                {#if cameraStore.isDevMode || boothConfig.config.cameraMode === 'webcam'}
-                  <div style="background: rgba(59, 130, 246, 0.08); border: 1px dashed rgba(59, 130, 246, 0.4); border-radius: 12px; padding: 12px; display: flex; flex-direction: column; gap: 8px;">
-                    <div style="display: flex; align-items: center; justify-content: space-between;">
-                      <span style="font-size: 11px; font-weight: 700; color: #2563eb;">
-                        🛠 Mode Pengembang (Webcam)
-                      </span>
-                      {#if boothConfig.config.cameraMode === 'webcam' && cameraStore.status === 'connected'}
-                        <span style="font-size: 10px; font-weight: 600; color: #16a34a; background: #dcfce7; padding: 2px 6px; border-radius: 6px;">
-                          Webcam Aktif
-                        </span>
-                      {/if}
-                    </div>
-                    <p style="font-size: 10px; color: #64748b; margin: 0; line-height: 1.4;">
-                      Kamera laptop siap digunakan untuk capture foto, liveframe, animasi GIF, dan pengujian cetak photo strip.
-                    </p>
-                    <div style="display: flex; gap: 8px;">
-                      {#if boothConfig.config.cameraMode === 'webcam' && cameraStore.status === 'connected'}
-                        <button
-                          type="button"
-                          onclick={openPreviewDialog}
-                          style="
-                            font-size: 11px; font-weight: 700; color: white;
-                            background: linear-gradient(135deg, #2563eb, #1d4ed8);
-                            border: none; border-radius: 8px;
-                            padding: 6px 14px; cursor: pointer;
-                            display: flex; align-items: center; gap: 6px;
-                          "
-                        >
-                          <Eye size={14} />
-                          <span>Lihat Preview</span>
-                        </button>
-                        <button
-                          type="button"
-                          onclick={handleUseUsb}
-                          style="
-                            font-size: 11px; font-weight: 600; color: #475569;
-                            background: white; border: 1px solid #cbd5e1; border-radius: 8px;
-                            padding: 6px 12px; cursor: pointer;
-                          "
-                        >
-                          Beralih ke DSLR (USB)
-                        </button>
-                      {:else}
-                        <button
-                          type="button"
-                          onclick={handleUseWebcam}
-                          disabled={cameraStore.status === 'connecting'}
-                          style="
-                            font-size: 11px; font-weight: 700; color: white;
-                            background: linear-gradient(135deg, #2563eb, #1d4ed8);
-                            border: none; border-radius: 8px; padding: 6px 12px; cursor: pointer;
-                          "
-                        >
-                          {cameraStore.status === 'connecting' ? 'Menghubungkan...' : 'Aktifkan Webcam Laptop'}
-                        </button>
-                      {/if}
-                    </div>
-                  </div>
-                {/if}
-              {/if}
-            </div>
-
-            <div style="height: 1px; background: rgba(200,210,224,0.7);"></div>
-
-            <!-- Printer Terdeteksi -->
-            <div style="display: flex; flex-direction: column; gap: 10px;">
-              <div style="display: flex; align-items: center; justify-content: space-between;">
-                <h1 style="font-size: 10px; font-weight: 700; color: #334155; text-transform: uppercase; letter-spacing: 0.06em; margin: 0; display: flex; align-items: center; gap: 5px;">
-                  <Printer size={13} color="#475569" />
-                  Konfigurasi Printer
-                </h1>
-                <button
-                  type="button"
-                  onclick={() => printerStore.loadPrinters()}
-                  disabled={printerStore.isDetecting}
-                  style="
-                    font-size: 10px;
-                    font-weight: 600;
-                    color: #2a2873;
-                    background: {NEU_BG};
-                    box-shadow: {neuCfg.btnSm};
-                    border: none;
-                    border-radius: 8px;
-                    padding: 4px 10px;
-                    cursor: {printerStore.isDetecting ? 'not-allowed' : 'pointer'};
-                    display: flex;
-                    align-items: center;
-                    gap: 5px;
-                    opacity: {printerStore.isDetecting ? 0.7 : 1};
-                  "
-                >
-                  <RotateCw size={11} class={printerStore.isDetecting ? 'animate-spin' : ''} />
-                  <span>{printerStore.isDetecting ? 'Mendeteksi...' : 'Refresh'}</span>
-                </button>
-              </div>
-
-              {#if printerStore.printers.length > 0}
-                <!-- Primary Printer Dropdown -->
-                <div style="display: flex; flex-direction: column; gap: 4px;">
-                  <span style="font-size: 10px; font-weight: 600; color: #64748b;">Primary Printer (Default):</span>
-                  <div style="display: flex; align-items: center; gap: 8px;">
-                    <div style="position: relative; flex: 1;">
-                      <select
-                        value={printerStore.selectedPrinter ?? ''}
-                        onchange={(e) => {
-                          const val = e.currentTarget.value || null;
-                          printerStore.selectedPrinter = val;
-                          boothConfig.save({ primaryPrinter: val || '' });
-                          printerStore.refreshStatus();
-                        }}
-                        style="
-                          width: 100%;
-                          appearance: none;
-                          background: {NEU_BG};
-                          box-shadow: {neuCfg.inset};
-                          border-radius: 12px;
-                          padding: 10px 36px 10px 14px;
-                          border: none;
-                          outline: none;
-                          font-size: 12px;
-                          font-weight: 600;
-                          color: {printerStore.status?.is_ready ? '#16a34a' : '#475569'};
-                          font-family: 'Poppins',sans-serif;
-                          cursor: pointer;
-                        "
-                      >
-                        {#each printerStore.printers as p}
-                          <option value={p}>
-                            {p} {printerStore.selectedPrinter === p && printerStore.status?.is_ready ? '(Ready)' : printerStore.selectedPrinter === p ? '(Offline)' : ''}
-                          </option>
-                        {/each}
-                      </select>
-                      <ChevronDown size={14} color="#94a3b8" style="position: absolute; right: 12px; top: 50%; transform: translateY(-50%); pointer-events: none;" />
-                    </div>
-
-                    <!-- Tombol Pengaturan Printer (Gear) -->
-                    <button
-                      type="button"
-                      title="Buka Pengaturan Printer Properties & Preferences (Aktifkan 2-Inch Cut)"
-                      disabled={!printerStore.selectedPrinter}
-                      onclick={() => handleOpenPrinterProperties(printerStore.selectedPrinter)}
-                      style="
-                        display: flex;
-                        align-items: center;
-                        justify-content: center;
-                        width: 38px;
-                        height: 38px;
-                        border-radius: 10px;
-                        background: {NEU_BG};
-                        box-shadow: {neuCfg.btnSm};
-                        border: none;
-                        cursor: {printerStore.selectedPrinter ? 'pointer' : 'not-allowed'};
-                        color: {printerStore.selectedPrinter ? '#334155' : '#94a3b8'};
-                        opacity: {printerStore.selectedPrinter ? 1 : 0.5};
-                        flex-shrink: 0;
-                        transition: all 0.15s ease;
-                      "
-                      onmousedown={(e) => {
-                        if (printerStore.selectedPrinter) e.currentTarget.style.boxShadow = neuCfg.inset;
-                      }}
-                      onmouseup={(e) => {
-                        if (printerStore.selectedPrinter) e.currentTarget.style.boxShadow = neuCfg.btnSm;
-                      }}
-                    >
-                      <Settings size={16} />
-                    </button>
-                  </div>
-                </div>
-
-                <!-- Secondary Printer Dropdown -->
-                <div style="display: flex; flex-direction: column; gap: 4px;">
-                  <span style="font-size: 10px; font-weight: 600; color: #64748b;">Secondary Printer (Opsional):</span>
-                  <div style="display: flex; align-items: center; gap: 8px;">
-                    <div style="position: relative; flex: 1;">
-                      <select
-                        value={printerStore.secondaryPrinter ?? ''}
-                        onchange={(e) => {
-                          const val = e.currentTarget.value || null;
-                          printerStore.secondaryPrinter = val;
-                          boothConfig.save({ secondaryPrinter: val || '' });
-                          printerStore.refreshStatus();
-                        }}
-                        style="
-                          width: 100%;
-                          appearance: none;
-                          background: {NEU_BG};
-                          box-shadow: {neuCfg.inset};
-                          border-radius: 12px;
-                          padding: 10px 36px 10px 14px;
-                          border: none;
-                          outline: none;
-                          font-size: 12px;
-                          font-weight: 600;
-                          color: {printerStore.secondaryPrinter && printerStore.secondaryStatus?.is_ready ? '#16a34a' : '#475569'};
-                          font-family: 'Poppins',sans-serif;
-                          cursor: pointer;
-                        "
-                      >
-                        <option value="">-- Nonaktif (Gunakan Primary) --</option>
-                        {#each printerStore.printers as p}
-                          <option value={p}>
-                            {p} {printerStore.secondaryPrinter === p && printerStore.secondaryStatus?.is_ready ? '(Ready)' : printerStore.secondaryPrinter === p ? '(Offline)' : ''}
-                          </option>
-                        {/each}
-                      </select>
-                      <ChevronDown size={14} color="#94a3b8" style="position: absolute; right: 12px; top: 50%; transform: translateY(-50%); pointer-events: none;" />
-                    </div>
-
-                    <!-- Tombol Pengaturan Printer (Gear) -->
-                    <button
-                      type="button"
-                      title="Buka Pengaturan Secondary Printer Preferences (Aktifkan 2-Inch Cut)"
-                      disabled={!printerStore.selectedPrinter}
-                      onclick={() => handleOpenSecondaryPrinterProperties()}
-                      style="
-                        display: flex;
-                        align-items: center;
-                        justify-content: center;
-                        width: 38px;
-                        height: 38px;
-                        border-radius: 10px;
-                        background: {NEU_BG};
-                        box-shadow: {neuCfg.btnSm};
-                        border: none;
-                        cursor: {printerStore.selectedPrinter ? 'pointer' : 'not-allowed'};
-                        color: {printerStore.selectedPrinter ? '#334155' : '#94a3b8'};
-                        opacity: {printerStore.selectedPrinter ? 1 : 0.5};
-                        flex-shrink: 0;
-                        transition: all 0.15s ease;
-                      "
-                      onmousedown={(e) => {
-                        if (printerStore.selectedPrinter) e.currentTarget.style.boxShadow = neuCfg.inset;
-                      }}
-                      onmouseup={(e) => {
-                        if (printerStore.selectedPrinter) e.currentTarget.style.boxShadow = neuCfg.btnSm;
-                      }}
-                    >
-                      <Settings size={16} />
-                    </button>
-                  </div>
-                </div>
-
-                <p style="font-size: 10px; color: #64748b; margin: 2px 0 0 0; line-height: 1.4;">
-                  💡 <em>Klik tombol icon gear (⚙️) untuk membuka Printer Properties / Preferences Windows guna mengaktifkan fitur <strong>2 inch cut</strong> (photo strip).</em>
-                </p>
-              {:else}
-                <p style="font-size: 11px; margin: 4px 0;" class="text-gray-400">
-                  {printerStore.isDetecting ? 'Mencari printer via USB…' : 'Tidak ada printer terdeteksi.'}
-                </p>
+              {/each}
+            {:else}
+              <div style="border-radius: 16px; background: {NEU_BG}; box-shadow: {neuCfg.inset}; padding: 14px 16px; margin-bottom: 14px;">
+                <p style="{subStyle} font-size: 12px;">{printerStore.isDetecting ? 'Mencari printer via USB…' : 'Tidak ada printer terdeteksi.'}</p>
                 {#if printerStore.errorMessage}
-                  <p style="font-size: 10px; color: #dc2626; margin: 0;">{printerStore.errorMessage}</p>
+                  <p style="font-size: 10px; color: #dc2626; margin: 4px 0 0;">{printerStore.errorMessage}</p>
                 {/if}
-              {/if}
+              </div>
+            {/if}
+
+            <div style="display: flex; align-items: baseline; justify-content: space-between;">
+              <span style="font-size: 13px; color: #334155;">Stok kertas</span>
+              <span style="font-size: 16px; font-weight: 700; color: {lowPaper ? '#ef4444' : '#1e293b'};">{boothConfig.config.paperCount} lembar</span>
             </div>
+            <div style="height: 10px; border-radius: 999px; background: {NEU_BG}; box-shadow: {neuCfg.inset}; margin: 10px 0 8px; overflow: hidden;">
+              <div style="width: {paperPct}%; height: 100%; border-radius: 999px; background: {lowPaper ? '#ef4444' : `linear-gradient(90deg, #3d3aa0, ${NEU_PRIMARY})`};"></div>
+            </div>
+            <p style={subStyle}>Peringatan muncul di {boothConfig.config.paperThreshold} lembar.</p>
+          </div>
+        </div>
 
-            <div style="height: 1px; background: rgba(200,210,224,0.7);"></div>
-
+        <div style="max-width: 1400px; margin: 20px auto 0; display: flex; flex-direction: column; gap: 16px;">
+          <!-- Softfile: blok "Session Pending Softfile Upload" + dialog 7 sesi terakhir dipertahankan apa adanya (permintaan Wahyu) -->
+          <div style={cardStyle}>
             <!-- Session Pending Softfile Upload (Sesuai Referensi Layout) -->
             <div style="display: flex; flex-direction: column; gap: 6px;">
               <div style="display: flex; align-items: center; justify-content: space-between;">
@@ -1298,9 +931,10 @@
                 Klik tombol <strong>Upload</strong> untuk sinkronisasi manual, icon putar untuk <strong>7 sesi terakhir</strong> (print/upload ulang), atau icon folder untuk membuka file foto lokal di Windows Explorer.
               </p>
             </div>
+          </div>
 
-            <div style="height: 1px; background: rgba(200,210,224,0.7);"></div>
-
+          <!-- Antrean cetak offline (tidak ada di Figma, dipertahankan) -->
+          <div style={cardStyle}>
             <!-- Antrean Cetak Foto Offline (Print Queue) -->
             <div style="display: flex; flex-direction: column; gap: 6px;">
               <div style="display: flex; align-items: center; justify-content: space-between;">
@@ -1423,449 +1057,33 @@
                 Gunakan <strong>Kosongkan Antrean</strong> untuk membatalkan seluruh print tertunda dari sesi sebelumnya agar tidak menghabiskan kertas foto.
               </p>
             </div>
-
-            <div style="height: 1px; background: rgba(200,210,224,0.7);"></div>
-
-            <!-- Rotasi Kamera -->
-            <div style="display: flex; flex-direction: column; gap: 5px;">
-              <h1 style="font-size: 10px; font-weight: 700; color: #334155; text-transform: uppercase; letter-spacing: 0.06em;">
-                Rotasi Tampilan Kamera
-              </h1>
-              <div style="position: relative;">
-                <select
-                  value={boothConfig.config.cameraRotate}
-                  onchange={(e) => update('cameraRotate', e.currentTarget.value)}
-                  style="
-                    width: 100%;
-                    appearance: none;
-                    background: {NEU_BG};
-                    box-shadow: {neuCfg.inset};
-                    border-radius: 12px;
-                    padding: 10px 36px 10px 14px;
-                    border: none;
-                    outline: none;
-                    font-size: 12px;
-                    font-weight: 500;
-                    color: #475569;
-                    font-family: 'Poppins',sans-serif;
-                    cursor: pointer;
-                  "
-                >
-                  {#each ROTATE_OPTS as o}
-                    <option value={o}>{o}</option>
-                  {/each}
-                </select>
-                <ChevronDown size={14} color="#94a3b8" style="position: absolute; right: 12px; top: 50%; transform: translateY(-50%); pointer-events: none;" />
-              </div>
-            </div>
-
-            <div style="height: 1px; background: rgba(200,210,224,0.7);"></div>
-
-            <!-- Countdown + Paper counts -->
-            <div style="display: flex; gap: 12px;">
-              <!-- Countdown -->
-              <div style="display: flex; flex-direction: column; gap: 5px; flex: 1;">
-                <h1 style="font-size: 10px; font-weight: 700; color: #334155; text-transform: uppercase; letter-spacing: 0.06em;">Next Countdown (dtk)</h1>
-                <div style="display: flex; align-items: center; gap: 6px;">
-                  <button onclick={() => update('countdownSecs', Math.max(1, boothConfig.config.countdownSecs - 1))} style="width: 32px; height: 32px; border-radius: 9px; background: {NEU_BG}; box-shadow: {neuCfg.btnSm}; border: none; cursor: pointer; font-weight: 700; font-size: 16px; color: #334155; display: flex; align-items: center; justify-content: center;">−</button>
-                  <input
-                    type="number"
-                    min={1}
-                    max={99}
-                    value={boothConfig.config.countdownSecs}
-                    oninput={(e) => {
-                      const val = parseInt(e.currentTarget.value, 10);
-                      if (!isNaN(val) && val >= 1) {
-                        update('countdownSecs', val);
-                      }
-                    }}
-                    style="
-                      flex: 1;
-                      width: 100%;
-                      background: {NEU_BG};
-                      box-shadow: {neuCfg.inset};
-                      border-radius: 10px;
-                      padding: 6px 0;
-                      text-align: center;
-                      font-size: 13px;
-                      font-weight: 700;
-                      color: #334155;
-                      border: none;
-                      outline: none;
-                      font-family: 'Poppins', sans-serif;
-                    "
-                  />
-                  <button onclick={() => update('countdownSecs', Math.min(99, boothConfig.config.countdownSecs + 1))} style="width: 32px; height: 32px; border-radius: 9px; background: {NEU_BG}; box-shadow: {neuCfg.btnSm}; border: none; cursor: pointer; font-weight: 700; font-size: 16px; color: #334155; display: flex; align-items: center; justify-content: center;">+</button>
-                </div>
-              </div>
-
-              <!-- Stok Kertas -->
-              <div style="display: flex; flex-direction: column; gap: 5px; flex: 1;">
-                <h1 style="font-size: 10px; font-weight: 700; color: #334155; text-transform: uppercase; letter-spacing: 0.06em;">Stok Kertas</h1>
-                <div style="display: flex; align-items: center; gap: 6px;">
-                  <button onclick={() => update('paperCount', Math.max(0, boothConfig.config.paperCount - 1))} style="width: 32px; height: 32px; border-radius: 9px; background: {NEU_BG}; box-shadow: {neuCfg.btnSm}; border: none; cursor: pointer; font-weight: 700; font-size: 16px; color: #334155; display: flex; align-items: center; justify-content: center;">−</button>
-                  <input
-                    type="number"
-                    min={0}
-                    max={999}
-                    value={boothConfig.config.paperCount}
-                    oninput={(e) => {
-                      const val = parseInt(e.currentTarget.value, 10);
-                      if (!isNaN(val) && val >= 0) {
-                        update('paperCount', val);
-                      }
-                    }}
-                    style="
-                      flex: 1;
-                      width: 100%;
-                      background: {NEU_BG};
-                      box-shadow: {neuCfg.inset};
-                      border-radius: 10px;
-                      padding: 6px 0;
-                      text-align: center;
-                      font-size: 13px;
-                      font-weight: 700;
-                      color: #334155;
-                      border: none;
-                      outline: none;
-                      font-family: 'Poppins', sans-serif;
-                    "
-                  />
-                  <button onclick={() => update('paperCount', Math.min(999, boothConfig.config.paperCount + 1))} style="width: 32px; height: 32px; border-radius: 9px; background: {NEU_BG}; box-shadow: {neuCfg.btnSm}; border: none; cursor: pointer; font-weight: 700; font-size: 16px; color: #334155; display: flex; align-items: center; justify-content: center;">+</button>
-                </div>
-              </div>
-
-              <!-- Batas Peringatan -->
-              <div style="display: flex; flex-direction: column; gap: 5px; flex: 1;">
-                <h1 style="font-size: 10px; font-weight: 700; color: #334155; text-transform: uppercase; letter-spacing: 0.06em;">Batas Peringatan</h1>
-                <div style="display: flex; align-items: center; gap: 6px;">
-                  <button onclick={() => update('paperThreshold', Math.max(1, boothConfig.config.paperThreshold - 1))} style="width: 32px; height: 32px; border-radius: 9px; background: {NEU_BG}; box-shadow: {neuCfg.btnSm}; border: none; cursor: pointer; font-weight: 700; font-size: 16px; color: #334155; display: flex; align-items: center; justify-content: center;">−</button>
-                  <input
-                    type="number"
-                    min={1}
-                    max={100}
-                    value={boothConfig.config.paperThreshold}
-                    oninput={(e) => {
-                      const val = parseInt(e.currentTarget.value, 10);
-                      if (!isNaN(val) && val >= 1) {
-                        update('paperThreshold', val);
-                      }
-                    }}
-                    style="
-                      flex: 1;
-                      width: 100%;
-                      background: {NEU_BG};
-                      box-shadow: {neuCfg.inset};
-                      border-radius: 10px;
-                      padding: 6px 0;
-                      text-align: center;
-                      font-size: 13px;
-                      font-weight: 700;
-                      color: #334155;
-                      border: none;
-                      outline: none;
-                      font-family: 'Poppins', sans-serif;
-                    "
-                  />
-                  <button onclick={() => update('paperThreshold', Math.min(100, boothConfig.config.paperThreshold + 1))} style="width: 32px; height: 32px; border-radius: 9px; background: {NEU_BG}; box-shadow: {neuCfg.btnSm}; border: none; cursor: pointer; font-weight: 700; font-size: 16px; color: #334155; display: flex; align-items: center; justify-content: center;">+</button>
-                </div>
-              </div>
-            </div>
-
-            <div style="height: 1px; background: rgba(200,210,224,0.7);"></div>
-
-            <!-- Timeout Banner Idle -->
-            <div style="display: flex; flex-direction: column; gap: 6px;">
-              <div style="display: flex; justify-content: space-between; align-items: center;">
-                <h1 style="font-size: 10px; font-weight: 700; color: #334155; text-transform: uppercase; letter-spacing: 0.06em; margin: 0;">
-                  Timeout Pop-up Banner Idle
-                </h1>
-                <span style="font-size: 11px; font-weight: 600; color: #64748b;">
-                  {boothConfig.config.idleBannerTimeoutMins} Menit
-                </span>
-              </div>
-              <div style="display: flex; align-items: center; gap: 8px;">
-                <div style="display: flex; align-items: center; gap: 6px; flex: 1;">
-                  <button
-                    onclick={() => update('idleBannerTimeoutMins', Math.max(1, boothConfig.config.idleBannerTimeoutMins - 1))}
-                    style="width: 32px; height: 32px; border-radius: 9px; background: {NEU_BG}; box-shadow: {neuCfg.btnSm}; border: none; cursor: pointer; font-weight: 700; font-size: 16px; color: #334155; display: flex; align-items: center; justify-content: center;"
-                  >−</button>
-                  <div
-                    style="flex: 1; background: {NEU_BG}; box-shadow: {neuCfg.inset}; border-radius: 10px; padding: 6px 0; text-align: center; font-size: 13px; font-weight: 700; color: #334155;"
-                  >
-                    {boothConfig.config.idleBannerTimeoutMins} Menit
-                  </div>
-                  <button
-                    onclick={() => update('idleBannerTimeoutMins', Math.min(60, boothConfig.config.idleBannerTimeoutMins + 1))}
-                    style="width: 32px; height: 32px; border-radius: 9px; background: {NEU_BG}; box-shadow: {neuCfg.btnSm}; border: none; cursor: pointer; font-weight: 700; font-size: 16px; color: #334155; display: flex; align-items: center; justify-content: center;"
-                  >+</button>
-                </div>
-                <!-- Quick presets -->
-                <div style="display: flex; gap: 4px;">
-                  {#each [1, 2, 3, 5, 10] as m}
-                    <button
-                      type="button"
-                      onclick={() => update('idleBannerTimeoutMins', m)}
-                      style="
-                        padding: 6px 9px;
-                        border-radius: 8px;
-                        background: {NEU_BG};
-                        box-shadow: {boothConfig.config.idleBannerTimeoutMins === m ? neuCfg.inset : neuCfg.btnSm};
-                        border: none;
-                        cursor: pointer;
-                        font-size: 11px;
-                        font-family: 'Poppins', sans-serif;
-                        font-weight: {boothConfig.config.idleBannerTimeoutMins === m ? 700 : 500};
-                        color: {boothConfig.config.idleBannerTimeoutMins === m ? '#2a2873' : '#64748b'};
-                      "
-                    >
-                      {m}m
-                    </button>
-                  {/each}
-                </div>
-              </div>
-              <p style="font-size: 10px; color: #94a3b8; margin: 0;">
-                Pop-up slider banner muncul otomatis saat tidak ada interaksi / klik pada layar awal.
-              </p>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- Floating Save Button -->
-  <div
-    style="
-      position: fixed;
-      bottom: 24px;
-      right: 28px;
-      z-index: 50;
-      display: flex;
-      align-items: center;
-      gap: 10px;
-    "
-  >
-    {#if saveNotice}
-      <div
-        style="
-          background: #22c55e;
-          color: white;
-          padding: 10px 18px;
-          border-radius: 12px;
-          font-size: 12px;
-          font-weight: 700;
-          box-shadow: 0 4px 16px rgba(34, 197, 94, 0.35);
-        "
-      >
-        {saveNotice}
-      </div>
-    {/if}
-
-    <button
-      type="button"
-      onclick={handleManualSave}
-      style="
-        padding: 14px 26px;
-        border-radius: 16px;
-        background: linear-gradient(135deg, #3d3aa0, {NEU_PRIMARY});
-        border: none;
-        cursor: pointer;
-        font-family: 'Poppins', sans-serif;
-        font-weight: 700;
-        font-size: 13px;
-        color: white;
-        box-shadow: 0 8px 24px rgba(42,40,115,0.4);
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        transition: transform 0.15s ease, box-shadow 0.15s ease;
-      "
-      onmouseenter={(e) => (e.currentTarget.style.transform = 'translateY(-2px)')}
-      onmouseleave={(e) => (e.currentTarget.style.transform = 'translateY(0)')}
-    >
-      <Save size={18} />
-      <span>Simpan Pengaturan</span>
-    </button>
-  </div>
-
-  <!-- Dialog Live Preview Kamera -->
-  {#if isPreviewOpen}
-    <div
-      class="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-6 animate-in fade-in duration-200"
-      onclick={(e) => {
-        if (e.target === e.currentTarget) closePreviewDialog();
-      }}
-      onkeydown={handleKeydown}
-      role="dialog"
-      tabindex="-1"
-      aria-modal="true"
-      aria-label="Dialog Live Preview Kamera"
-    >
-      <div
-        style="
-          width: 100%;
-          max-width: 680px;
-          background: {NEU_BG};
-          box-shadow: 0 25px 60px rgba(0,0,0,0.4), {neuCfg.card};
-          border-radius: 24px;
-          overflow: hidden;
-          display: flex;
-          flex-direction: column;
-          border: 1px solid rgba(255,255,255,0.4);
-        "
-      >
-        <!-- Dialog Header -->
-        <div
-          style="
-            background: linear-gradient(135deg, #3d3aa0, {NEU_PRIMARY});
-            padding: 16px 22px;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            color: white;
-            box-shadow: 0 4px 16px rgba(42,40,115,0.25);
-          "
-        >
-          <div style="display: flex; align-items: center; gap: 12px;">
-            <div
-              style="
-                width: 36px;
-                height: 36px;
-                border-radius: 12px;
-                background: rgba(255,255,255,0.18);
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                color: white;
-              "
-            >
-              <Camera size={19} />
-            </div>
-            <div>
-              <h3 style="margin: 0; font-size: 14px; font-weight: 700; letter-spacing: 0.02em;">
-                Live Preview Kamera Langsung
-              </h3>
-              <p style="margin: 0; font-size: 11px; opacity: 0.85;">
-                {cameraStore.device?.manufacturer || cameraStore.device?.productname || cameraStore.detectedCameras[0]?.model || 'Kamera Terhubung'}
-              </p>
-            </div>
           </div>
 
+          <!-- Pengaturan sesi -->
           <button
             type="button"
-            onclick={closePreviewDialog}
-            style="
-              width: 34px;
-              height: 34px;
-              border-radius: 10px;
-              background: rgba(255,255,255,0.15);
-              border: none;
-              display: flex;
-              align-items: center;
-              justify-content: center;
-              color: white;
-              cursor: pointer;
-              transition: background 0.15s ease;
-            "
-            title="Tutup Preview (Esc)"
+            onclick={openSessionSettings}
+            style="{cardStyle} display: flex; align-items: center; gap: 14px; padding: 16px 20px; border: none; cursor: pointer; text-align: left; font-family: 'Poppins',sans-serif; width: 100%; touch-action: manipulation;"
           >
-            <X size={18} />
+            <div style={iconBoxStyle}><Clock size={18} /></div>
+            <div style="flex: 1;">
+              <p style={titleStyle}>Pengaturan sesi</p>
+              <p style={subStyle}>
+                Countdown {boothConfig.config.countdownSecs} dtk · Banner idle {boothConfig.config.idleBannerTimeoutMins} menit · Peringatan kertas {boothConfig.config.paperThreshold}
+              </p>
+            </div>
+            <ChevronRight size={18} color="#475569" />
           </button>
         </div>
-
-        <!-- Dialog Body: Screen Display -->
-        <div style="padding: 20px; display: flex; flex-direction: column; gap: 14px;">
-          <div
-            style="
-              width: 100%;
-              height: 400px;
-              background: #090d16;
-              box-shadow: {neuCfg.inset};
-              border-radius: 18px;
-              display: flex;
-              align-items: center;
-              justify-content: center;
-              position: relative;
-              overflow: hidden;
-              border: 1px solid rgba(0,0,0,0.1);
-            "
-          >
-            <!-- Live Indicator Badge -->
-            <div
-              style="
-                position: absolute;
-                top: 14px;
-                left: 14px;
-                background: rgba(15, 23, 42, 0.75);
-                backdrop-filter: blur(6px);
-                padding: 4px 10px;
-                border-radius: 9999px;
-                display: flex;
-                align-items: center;
-                gap: 6px;
-                z-index: 10;
-                border: 1px solid rgba(255,255,255,0.15);
-              "
-            >
-              <span style="width: 8px; height: 8px; border-radius: 9999px; background: #22c55e; box-shadow: 0 0 8px #22c55e;" class="animate-pulse"></span>
-              <span style="font-size: 10px; font-weight: 700; color: white; text-transform: uppercase; letter-spacing: 0.05em;">Live View</span>
-            </div>
-
-            <!-- Video / Image Preview Frame -->
-            {#if cameraStore.cameraMode === 'webcam'}
-              <video
-                bind:this={previewVideoEl}
-                autoplay
-                playsinline
-                muted
-                class="max-w-full max-h-full object-contain"
-                style="transform: {getLiveviewTransformStyle(boothConfig.config, cameraStore.cameraMode)};"
-              ></video>
-            {:else if previewFrameSrc}
-              <img
-                src={previewFrameSrc}
-                alt="Live preview kamera"
-                class="max-w-full max-h-full object-contain"
-                style="transform: {getLiveviewTransformStyle(boothConfig.config, cameraStore.cameraMode)};"
-              />
-            {:else}
-              <!-- Loading state -->
-              <div style="display: flex; flex-direction: column; align-items: center; gap: 12px; color: #94a3b8;">
-                <RotateCw size={32} class="animate-spin text-indigo-400" />
-                <span style="font-size: 12px; font-weight: 600;">Mengambil liveview dari kamera...</span>
-              </div>
-            {/if}
-          </div>
-
-          <!-- Info status bar -->
-          <div style="display: flex; align-items: center; justify-content: space-between; font-size: 11px; color: #64748b; padding: 0 4px;">
-            <div style="display: flex; align-items: center; gap: 14px;">
-              <span>Mode: <strong class="text-slate-800 uppercase">{cameraStore.cameraMode}</strong></span>
-              <span>Rotasi: <strong class="text-slate-800">{boothConfig.config.cameraRotate || '0°'}</strong></span>
-              <span>Mirror: <strong class="text-slate-800">{boothConfig.config.mirrorOn ? 'Aktif' : 'Nonaktif'}</strong></span>
-            </div>
-            <button
-              type="button"
-              onclick={closePreviewDialog}
-              style="
-                padding: 8px 18px;
-                border-radius: 12px;
-                background: {NEU_BG};
-                box-shadow: {neuCfg.btnSm};
-                border: none;
-                font-family: 'Poppins', sans-serif;
-                font-size: 11px;
-                font-weight: 700;
-                color: #475569;
-                cursor: pointer;
-              "
-            >
-              Tutup Preview
-            </button>
-          </div>
-        </div>
       </div>
+    {/if}
+  </div>
+
+  {#if saveNotice}
+    <div
+      style="position: fixed; bottom: 24px; right: 28px; z-index: 50; background: #22c55e; color: white; padding: 10px 18px; border-radius: 12px; font-size: 12px; font-weight: 700; box-shadow: 0 4px 16px rgba(34, 197, 94, 0.35); font-family: 'Poppins', sans-serif;"
+    >
+      {saveNotice}
     </div>
   {/if}
 
@@ -1875,6 +1093,9 @@
     onClose={() => (isReuploadModalOpen = false)}
     onUpdated={refreshPendingCount}
   />
+  {#if isReportOpen}
+    <ReportProblemModal onClose={() => (isReportOpen = false)} />
+  {/if}
 </div>
 
 <style>

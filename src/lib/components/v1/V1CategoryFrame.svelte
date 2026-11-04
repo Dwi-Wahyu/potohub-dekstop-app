@@ -92,6 +92,37 @@
     frameId = list[(idx + delta + list.length) % list.length].id;
   }
 
+  // Swipe kiri/kanan di mode slider (jari di layar sentuh maupun drag mouse)
+  const SWIPE_MIN_PX = 50;
+  let swipeStart: { id: number; x: number; y: number } | null = null;
+  let suppressNextClick = false;
+
+  function onSwipeStart(e: PointerEvent) {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    swipeStart = { id: e.pointerId, x: e.clientX, y: e.clientY };
+  }
+
+  function onSwipeEnd(e: PointerEvent) {
+    if (!swipeStart || swipeStart.id !== e.pointerId) return;
+    const dx = e.clientX - swipeStart.x;
+    const dy = e.clientY - swipeStart.y;
+    swipeStart = null;
+    if (Math.abs(dx) >= SWIPE_MIN_PX && Math.abs(dx) > Math.abs(dy) * 1.5) {
+      goFrame(dx < 0 ? 1 : -1);
+      // Klik yang menyusul pointerup jangan ikut memilih frame samping / menekan panah
+      suppressNextClick = true;
+      setTimeout(() => (suppressNextClick = false), 0);
+    }
+  }
+
+  function onSwipeClickCapture(e: MouseEvent) {
+    if (suppressNextClick) {
+      e.stopPropagation();
+      e.preventDefault();
+      suppressNextClick = false;
+    }
+  }
+
   let liveviewInterval: any = null;
   let frameSrc = $state('');
   let videoEl = $state<HTMLVideoElement | null>(null);
@@ -405,7 +436,15 @@
           {@const current = list[idx]}
           {@const prev = list[(idx - 1 + n) % n]}
           {@const next = list[(idx + 1) % n]}
-          <div class="flex-1 min-h-0 flex flex-col items-center justify-center gap-4 px-4 py-4">
+          <div
+            role="presentation"
+            class="flex-1 min-h-0 flex flex-col items-center justify-center gap-4 px-4 py-4 select-none"
+            style="touch-action: pan-y;"
+            onpointerdown={onSwipeStart}
+            onpointerup={onSwipeEnd}
+            onpointercancel={() => (swipeStart = null)}
+            onclickcapture={onSwipeClickCapture}
+          >
             <div class="flex items-center justify-center gap-3 w-full">
               <button
                 onclick={() => goFrame(-1)}

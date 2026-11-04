@@ -78,6 +78,20 @@
   let visibleTemplatesForCategory = $derived(templatesData.filter((t) => t.category_id === categoryId));
   let selectedFrame = $derived(templatesData.find((f) => f.id === frameId));
 
+  // Tampilan daftar frame: grid (default) atau slider satu-per-satu, sesuai desain Figma
+  let viewMode = $state<'grid' | 'slider'>('grid');
+
+  function photoCountOf(t: BoothTemplate): number {
+    return getTemplateLayers(t).filter((l) => !l.isBackground && !l.isQr).length || 1;
+  }
+
+  function goFrame(delta: number) {
+    const list = visibleTemplatesForCategory;
+    if (list.length === 0) return;
+    const idx = Math.max(0, list.findIndex((t) => t.id === frameId));
+    frameId = list[(idx + delta + list.length) % list.length].id;
+  }
+
   let liveviewInterval: any = null;
   let frameSrc = $state('');
   let videoEl = $state<HTMLVideoElement | null>(null);
@@ -213,7 +227,7 @@
   <div class="flex justify-between items-center px-10 pt-7 pb-5 shrink-0 relative z-10">
     <button
       onclick={onBack}
-      class="flex items-center gap-1.5 px-5 py-2.5 rounded-full bg-transparent border border-white/10 text-white/30 cursor-pointer transition-colors duration-150 hover:border-white/20 hover:text-white/50"
+      class="flex items-center gap-1.5 px-5 py-2.5 rounded-full bg-transparent border border-white/25 text-white/65 cursor-pointer transition-colors duration-150 hover:border-white/40 hover:text-white"
     >
       <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
         <path d="M15.75 19.5L8.25 12l7.5-7.5" stroke-linecap="round" stroke-linejoin="round" />
@@ -235,7 +249,7 @@
       <div class="flex-1 flex flex-col items-center justify-center bg-[#111117]/80 rounded-[20px] border border-white/5 shadow-[0_24px_80px_rgba(0,0,0,0.6)]">
         <div class="w-12 h-12 rounded-full border-4 border-white/10 border-t-white animate-spin mb-4"></div>
         <div class="text-sm font-bold text-[#f0edf8]">Memuat Katalog...</div>
-        <div class="text-xs text-white/40 mt-1">Mengambil data kategori dan template</div>
+        <div class="text-xs text-white/65 mt-1">Mengambil data kategori dan template</div>
       </div>
     {:else if catalogError}
       <div class="flex-1 flex flex-col items-center justify-center bg-[#111117]/80 rounded-[20px] border border-red-500/20 shadow-[0_24px_80px_rgba(0,0,0,0.6)] p-6">
@@ -243,7 +257,7 @@
           <path d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" stroke-linecap="round" stroke-linejoin="round" />
         </svg>
         <div class="text-base font-bold text-red-400 mb-1">{catalogError}</div>
-        <div class="text-xs text-white/50 mb-6 text-center max-w-md">Koneksi ke server API gagal atau booth belum teraktivasi. Silakan periksa koneksi atau aktivasi ulang booth.</div>
+        <div class="text-xs text-white/65 mb-6 text-center max-w-md">Koneksi ke server API gagal atau booth belum teraktivasi. Silakan periksa koneksi atau aktivasi ulang booth.</div>
         <button
           onclick={() => loadCatalog()}
           class="px-6 py-2.5 rounded-full bg-white/10 hover:bg-white/20 border-none text-[#f0edf8] cursor-pointer font-bold text-sm transition-colors duration-150"
@@ -256,7 +270,7 @@
       <div class="w-[220px] shrink-0 bg-[#111117] rounded-[20px] border border-white/5 shadow-[0_24px_80px_rgba(0,0,0,0.6)] flex flex-col overflow-hidden">
         <div class="px-5 pt-[18px] pb-3.5 border-b border-white/5">
           <div class="text-[15px] font-bold text-[#f0edf8] mb-0.5">Pilih Kategori</div>
-          <div class="text-xs text-white/[0.35]">Pilih tema untuk sesi foto</div>
+          <div class="text-xs text-white/65">Pilih tema untuk sesi foto</div>
         </div>
         <div class="flex-1 overflow-y-auto p-3 flex flex-col gap-2.5">
           {#each categoriesData as cat}
@@ -303,33 +317,148 @@
                 <div class="text-sm font-bold" style="color: {sel ? uiConfig.config.primaryColor : '#f0edf8'}">
                   {cat.name}
                 </div>
-                <div class="text-[11px] text-white/[0.35] mt-0.5">Sesi {cat.name}</div>
+                <div class="text-[11px] text-white/65 mt-0.5">Sesi {cat.name}</div>
               </div>
             </button>
           {/each}
         </div>
       </div>
 
-      <!-- Center: Pilih Frame grid -->
+      <!-- Center: Pilih Frame (Grid / Slider) -->
       <div class="flex-1 min-w-0 bg-[#111117] rounded-[20px] border border-white/5 shadow-[0_24px_80px_rgba(0,0,0,0.6)] flex flex-col overflow-hidden">
-        <div class="px-6 pt-[18px] pb-3.5 border-b border-white/5">
-          <div class="text-[15px] font-bold text-[#f0edf8] mb-0.5">Pilih Frame</div>
-          <div class="text-xs text-white/[0.35]">Tentukan jumlah dan susunan foto</div>
+        <div class="px-6 pt-[18px] pb-3.5 border-b border-white/5 flex items-center justify-between gap-3">
+          <div>
+            <div class="text-[15px] font-bold text-[#f0edf8] mb-0.5">Pilih Frame</div>
+            <div class="text-xs text-white/65">Tentukan jumlah dan susunan foto</div>
+          </div>
+          <div class="flex gap-1 p-1 rounded-xl bg-black/40 shrink-0" role="tablist" aria-label="Tampilan frame">
+            <button
+              role="tab"
+              aria-selected={viewMode === 'grid'}
+              aria-label="Grid"
+              onclick={() => (viewMode = 'grid')}
+              class="w-11 h-10 rounded-lg flex items-center justify-center border-none cursor-pointer transition-colors {viewMode === 'grid' ? 'bg-white text-[#111117]' : 'bg-transparent text-white/65 hover:text-white'}"
+            >
+              <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z" stroke-linejoin="round" /></svg>
+            </button>
+            <button
+              role="tab"
+              aria-selected={viewMode === 'slider'}
+              aria-label="Slider"
+              onclick={() => (viewMode = 'slider')}
+              class="w-11 h-10 rounded-lg flex items-center justify-center border-none cursor-pointer transition-colors {viewMode === 'slider' ? 'bg-white text-[#111117]' : 'bg-transparent text-white/65 hover:text-white'}"
+            >
+              <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M8 5h8v14H8zM3 8v8M21 8v8" stroke-linecap="round" stroke-linejoin="round" /></svg>
+            </button>
+          </div>
         </div>
-        <div class="flex-1 overflow-y-auto px-6 py-5">
-          {#if visibleTemplatesForCategory.length === 0}
-            <div class="w-full h-full flex items-center justify-center text-center text-white/30 text-sm">
-              Tidak ada template untuk kategori ini
+
+        {#snippet frameThumb(f: BoothTemplate, boxW: number, boxH: number)}
+          {@const tLayers = getTemplateLayers(f)}
+          {@const bgLayer = tLayers.find((l) => l.isBackground)}
+          {@const bgUrl = bgLayer?.imageUrl || f.frame_image_url}
+          <div
+            class="rounded-xl overflow-hidden relative shadow-md bg-black/40 flex items-center justify-center p-1 shrink-0"
+            style="width: {boxW}px; height: {boxH}px;"
+          >
+            {#if f.preview_image_url}
+              <ProgressiveImage src={f.preview_image_url} blurSrc={f.preview_blur} alt={f.name} class="w-full h-full rounded-lg" objectFit="contain" />
+            {:else if tLayers.length > 0}
+              {#each tLayers.filter((l) => !l.isQr) as layer, idx (layer.id ?? idx)}
+                <div
+                  class="absolute overflow-hidden pointer-events-none"
+                  style="
+                    left: {((layer.x || 0) / (f.width || 1200)) * 100}%;
+                    top: {((layer.y || 0) / (f.height || 1800)) * 100}%;
+                    width: {((layer.w || 200) / (f.width || 1200)) * 100}%;
+                    height: {((layer.h || 200) / (f.height || 1800)) * 100}%;
+                    transform: rotate({layer.rot || 0}deg);
+                    z-index: {getLayerZIndex(layer, tLayers)};
+                  "
+                >
+                  {#if layer.isBackground}
+                    {@const layerBgUrl = uiConfig.resolveAssetUrl(layer.imageUrl || bgUrl)}
+                    {#if layerBgUrl}
+                      <img src={layerBgUrl} alt="Template Frame" class="w-full h-full object-fill block" />
+                    {/if}
+                  {:else}
+                    <div class="w-full h-full bg-white/20 rounded-[2px] flex items-center justify-center text-[8px] text-white/65">📷</div>
+                  {/if}
+                </div>
+              {/each}
+            {:else if bgUrl}
+              <img src={uiConfig.resolveAssetUrl(bgUrl)} alt="Template Frame" class="w-full h-full object-contain block" />
+            {:else}
+              <div class="text-white/65 text-[10px]">No Preview</div>
+            {/if}
+          </div>
+        {/snippet}
+
+        {#if visibleTemplatesForCategory.length === 0}
+          <div class="flex-1 flex items-center justify-center text-center text-white/65 text-sm px-6">
+            Tidak ada template untuk kategori ini
+          </div>
+        {:else if viewMode === 'slider'}
+          {@const list = visibleTemplatesForCategory}
+          {@const n = list.length}
+          {@const idx = Math.max(0, list.findIndex((t) => t.id === frameId))}
+          {@const current = list[idx]}
+          {@const prev = list[(idx - 1 + n) % n]}
+          {@const next = list[(idx + 1) % n]}
+          <div class="flex-1 min-h-0 flex flex-col items-center justify-center gap-4 px-4 py-4">
+            <div class="flex items-center justify-center gap-3 w-full">
+              <button
+                onclick={() => goFrame(-1)}
+                class="w-12 h-12 rounded-full bg-white text-[#111117] flex items-center justify-center border-none cursor-pointer shrink-0 active:scale-95 transition-transform"
+                aria-label="Sebelumnya"
+              >
+                <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M15.75 19.5L8.25 12l7.5-7.5" stroke-linecap="round" stroke-linejoin="round" /></svg>
+              </button>
+              {#if n > 1}
+                <button onclick={() => (frameId = prev.id)} class="opacity-40 hover:opacity-60 transition-opacity bg-transparent border-none cursor-pointer p-2 shrink-0" aria-label={prev.name}>
+                  {@render frameThumb(prev, 70, 91)}
+                </button>
+              {/if}
+              <div
+                class="flex flex-col items-center gap-2.5 p-4 rounded-2xl shrink-0"
+                style="background-color: {uiConfig.config.primaryColor}1F; border: 1.5px solid {uiConfig.config.primaryColor};"
+              >
+                {@render frameThumb(current, 140, 182)}
+                <div class="text-center">
+                  <div class="text-[13px] font-semibold" style="color: {uiConfig.config.primaryColor}">{current.name}</div>
+                  <div class="text-[11px] text-white/65 mt-0.5">{photoCountOf(current)} foto</div>
+                </div>
+              </div>
+              {#if n > 2}
+                <button onclick={() => (frameId = next.id)} class="opacity-40 hover:opacity-60 transition-opacity bg-transparent border-none cursor-pointer p-2 shrink-0" aria-label={next.name}>
+                  {@render frameThumb(next, 70, 91)}
+                </button>
+              {/if}
+              <button
+                onclick={() => goFrame(1)}
+                class="w-12 h-12 rounded-full bg-white text-[#111117] flex items-center justify-center border-none cursor-pointer shrink-0 active:scale-95 transition-transform"
+                aria-label="Berikutnya"
+              >
+                <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M8.25 4.5l7.5 7.5-7.5 7.5" stroke-linecap="round" stroke-linejoin="round" /></svg>
+              </button>
             </div>
-          {:else}
+            <div class="flex items-center gap-1.5">
+              {#each list as t, i (t.id)}
+                <button
+                  onclick={() => (frameId = t.id)}
+                  aria-label={t.name}
+                  class="h-1.5 rounded-full border-none cursor-pointer p-0 transition-all"
+                  style="width: {i === idx ? 22 : 6}px; background-color: {i === idx ? uiConfig.config.primaryColor : 'rgba(255,255,255,0.3)'};"
+                ></button>
+              {/each}
+              <span class="ml-2 text-[11px] text-white/65 tabular-nums">{idx + 1}/{n}</span>
+            </div>
+          </div>
+        {:else}
+          <div class="flex-1 overflow-y-auto px-6 py-5">
             <div class="grid grid-cols-3 gap-3.5 content-start">
-              {#each visibleTemplatesForCategory as f, index}
+              {#each visibleTemplatesForCategory as f (f.id)}
                 {@const sel = f.id === frameId}
-                {@const tLayers = getTemplateLayers(f)}
-                {@const bgLayer = tLayers.find((l) => l.isBackground)}
-                {@const bgUrl = bgLayer?.imageUrl || f.frame_image_url}
-                {@const photoSlots = tLayers.filter((l) => !l.isBackground && !l.isQr)}
-                {@const count = photoSlots.length || 1}
                 <button
                   onclick={() => (frameId = f.id)}
                   class={`flex flex-col items-center gap-2.5 p-3 rounded-2xl cursor-pointer transition-colors duration-150 ${
@@ -340,69 +469,25 @@
                     border: 1.5px solid {sel ? uiConfig.config.primaryColor : 'transparent'};
                   "
                 >
-                  <div
-                    class="w-[100px] h-[130px] rounded-xl overflow-hidden relative shadow-md bg-black/40 flex items-center justify-center p-1"
-                    style="aspect-ratio: {f.width || 1200} / {f.height || 1800};"
-                  >
-                    {#if f.preview_image_url}
-                      <ProgressiveImage
-                        src={f.preview_image_url}
-                        blurSrc={f.preview_blur}
-                        alt={f.name}
-                        class="w-full h-full rounded-lg"
-                        objectFit="contain"
-                      />
-                    {:else if tLayers.length > 0}
-                      {#each tLayers.filter((l) => !l.isQr) as layer, idx (layer.id ?? idx)}
-                        {@const layerZIndex = getLayerZIndex(layer, tLayers)}
-                        <div
-                          class={`absolute overflow-hidden ${layer.isBackground ? 'pointer-events-none' : ''}`}
-                          style="
-                            left: {((layer.x || 0) / (f.width || 1200)) * 100}%;
-                            top: {((layer.y || 0) / (f.height || 1800)) * 100}%;
-                            width: {((layer.w || 200) / (f.width || 1200)) * 100}%;
-                            height: {((layer.h || 200) / (f.height || 1800)) * 100}%;
-                            transform: rotate({layer.rot || 0}deg);
-                            z-index: {layerZIndex};
-                            pointer-events: {layer.isBackground ? 'none' : 'auto'};
-                          "
-                        >
-                          {#if layer.isBackground}
-                            {@const layerBgUrl = uiConfig.resolveAssetUrl(layer.imageUrl || bgUrl)}
-                            {#if layerBgUrl}
-                              <img src={layerBgUrl} alt="Template Frame" class="w-full h-full object-fill pointer-events-none block" />
-                            {/if}
-                          {:else}
-                            <div class="w-full h-full bg-white/20 rounded-[2px] flex items-center justify-center text-[8px] text-white/50">
-                              📷
-                            </div>
-                          {/if}
-                        </div>
-                      {/each}
-                    {:else if bgUrl}
-                      <img src={uiConfig.resolveAssetUrl(bgUrl)} alt="Template Frame" class="w-full h-full object-contain block" />
-                    {:else}
-                      <div class="text-white/30 text-[10px]">No Preview</div>
-                    {/if}
-                  </div>
+                  {@render frameThumb(f, 100, 130)}
                   <div class="text-center">
                     <div class="text-[13px] font-semibold" style="color: {sel ? uiConfig.config.primaryColor : '#f0edf8'}">
                       {f.name}
                     </div>
-                    <div class="text-[11px] text-white/[0.35] mt-0.5">{count} foto</div>
+                    <div class="text-[11px] text-white/65 mt-0.5">{photoCountOf(f)} foto</div>
                   </div>
                 </button>
               {/each}
             </div>
-          {/if}
-        </div>
+          </div>
+        {/if}
       </div>
 
       <!-- Right: Preview + price + button -->
       <div class="w-[340px] shrink-0 bg-[#111117] rounded-[20px] border border-white/5 shadow-[0_24px_80px_rgba(0,0,0,0.6)] flex flex-col overflow-hidden">
         <div class="px-6 pt-[18px] pb-3.5 border-b border-white/5">
           <div class="text-[15px] font-bold text-[#f0edf8] mb-0.5">Preview</div>
-          <div class="text-xs text-white/[0.35]">Tampilan hasil foto kamu</div>
+          <div class="text-xs text-white/65">Tampilan hasil foto kamu</div>
         </div>
 
         <div class="flex-1 min-h-0 flex flex-col pt-4 px-5">
@@ -465,12 +550,12 @@
                                 style="transform: {getLiveviewTransformStyle(boothConfig.config, cameraStore.cameraMode)};"
                               />
                             {:else}
-                              <div class="w-full h-full flex items-center justify-center text-white/40 text-[10px] animate-pulse">
+                              <div class="w-full h-full flex items-center justify-center text-white/65 text-[10px] animate-pulse">
                                 Live View...
                               </div>
                             {/if}
                           {:else}
-                            <div class="w-full h-full flex items-center justify-center text-white/40 text-[10px]">
+                            <div class="w-full h-full flex items-center justify-center text-white/65 text-[10px]">
                               Live View
                             </div>
                           {/if}
@@ -479,14 +564,14 @@
                     </div>
                   {/each}
                 {:else}
-                  <div class="w-full h-full flex items-center justify-center text-white/40 text-xs">
+                  <div class="w-full h-full flex items-center justify-center text-white/65 text-xs">
                     Format template tidak valid
                   </div>
                 {/if}
               </div>
             </div>
           {:else}
-            <div class="w-full flex-1 min-h-0 rounded-2xl bg-[#1a1824] flex items-center justify-center text-white/30 text-sm">
+            <div class="w-full flex-1 min-h-0 rounded-2xl bg-[#1a1824] flex items-center justify-center text-white/65 text-sm">
               Pilih frame untuk melihat preview
             </div>
           {/if}
@@ -497,16 +582,16 @@
             {#if selectedCategory && selectedFrame}
               {@const grid = getGridSize(selectedFrame.design_data)}
               <div>
-                <div class="text-[11px] text-white/[0.35] mb-0.5">Total harga</div>
+                <div class="text-[11px] text-white/65 mb-0.5">Total harga</div>
                 <div class="text-2xl font-extrabold text-[#f0edf8]">{fmtPrice(selectedCategory.base_price)}</div>
               </div>
-              <div class="text-xs text-white/[0.35] text-right">
+              <div class="text-xs text-white/65 text-right">
                 {grid.count} foto<br />
                 <span class="text-[11px]">{selectedCategory.name}</span>
               </div>
             {:else}
               <div>
-                <div class="text-[11px] text-white/[0.35] mb-0.5">Total harga</div>
+                <div class="text-[11px] text-white/65 mb-0.5">Total harga</div>
                 <div class="text-2xl font-extrabold text-[#f0edf8]">-</div>
               </div>
             {/if}

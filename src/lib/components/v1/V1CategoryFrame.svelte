@@ -79,142 +79,156 @@
   let visibleTemplatesForCategory = $derived(templatesData.filter((t) => t.category_id === categoryId));
   let selectedFrame = $derived(templatesData.find((f) => f.id === frameId));
 
-  // Tampilan daftar frame: grid (default) atau slider satu-per-satu, sesuai desain Figma
-  let viewMode = $state<'grid' | 'slider'>('grid');
+  // Tampilan daftar frame: slider 3D sphere (default) atau grid, sesuai desain Figma
+  let viewMode = $state<'grid' | 'slider'>('slider');
 
   function photoCountOf(t: BoothTemplate): number {
     return getTotalPhotosNeeded(getTemplateLayers(t), 1);
   }
 
-  // State terpisah untuk slider UI vs preview frame live view (State Decoupling)
+  // State untuk 3D Sphere Slider
   let activeCardId = $state('');
-  let sliderEl = $state<HTMLDivElement | null>(null);
-  let scrollTimeout: any = null;
+  let scrollOffset = $state(0);
+  let sliderContainerEl = $state<HTMLDivElement | null>(null);
+  let containerWidth = $state(700);
+  let containerHeight = $state(550);
+  let isDragging = $state(false);
 
-  // Pointer drag dengan momentum flick multi-card & real-time edging
-  let isPointerDown = false;
+  // Ukuran kartu proporsional: mengisi kontainer atas dan bawah dengan nyaman
+  let thumbHeight = $derived(
+    Math.min(340, Math.max(250, Math.round((containerHeight - 140) * 0.92)))
+  );
+  let thumbWidth = $derived(Math.round(thumbHeight * (205 / 290)));
+  let cardWidth = $derived(thumbWidth + 28);
+
+  let scrollTimeout: any = null;
+  let wheelTimeout: any = null;
+  let animFrameId: number | null = null;
+
+  // Pointer drag dengan real-time 1:1 tracking & velocity momentum
   let startX = 0;
-  let startScrollLeft = 0;
+  let startOffset = 0;
   let lastX = 0;
   let lastTime = 0;
   let velocityX = 0;
   let hasMoved = false;
 
-  // Sinkronisasi activeCardId ketika frameId berubah dari luar (misal awal katalog dimuat atau ganti kategori)
+  // Sinkronisasi activeCardId ketika frameId berubah dari luar
   $effect(() => {
     if (frameId) {
       activeCardId = frameId;
-      if (viewMode === 'slider') {
-        setTimeout(() => scrollToCard(frameId, false), 40);
+      const list = visibleTemplatesForCategory;
+      const idx = list.findIndex((t) => t.id === frameId);
+      if (idx !== -1 && !isDragging && animFrameId === null) {
+        if (Math.abs(scrollOffset - idx) > 0.01) {
+          scrollOffset = idx;
+        }
       }
     }
   });
 
-  function scrollToCard(targetId: string, smooth = true) {
-    if (!sliderEl) return;
-    const targetCard = sliderEl.querySelector<HTMLElement>(`[data-card-id="${targetId}"]`);
-    if (targetCard) {
-      const containerWidth = sliderEl.clientWidth;
-      const cardLeft = targetCard.offsetLeft;
-      const cardWidth = targetCard.offsetWidth;
-      const targetScrollLeft = cardLeft - (containerWidth - cardWidth) / 2;
-      sliderEl.scrollTo({
-        left: targetScrollLeft,
-        behavior: smooth ? 'smooth' : 'auto'
-      });
+  // Debounced commit ke preview kamera di sisi kanan agar liveview tidak patah-patah saat scrolling cepat
+  function commitActiveCard(targetOffset: number, immediate = false) {
+    const list = visibleTemplatesForCategory;
+    if (list.length === 0) return;
+    const targetIdx = Math.max(0, Math.min(list.length - 1, Math.round(targetOffset)));
+    const targetCard = list[targetIdx];
+    if (!targetCard) return;
+
+    if (activeCardId !== targetCard.id) {
+      activeCardId = targetCard.id;
+    }
+
+    if (scrollTimeout) clearTimeout(scrollTimeout);
+    if (immediate) {
+      if (frameId !== targetCard.id) frameId = targetCard.id;
+    } else {
+      scrollTimeout = setTimeout(() => {
+        if (frameId !== targetCard.id) {
+          frameId = targetCard.id;
+        }
+      }, 160);
     }
   }
 
-  function getClosestCardId(): string {
-    if (!sliderEl) return activeCardId;
-    const containerCenter = sliderEl.scrollLeft + sliderEl.clientWidth / 2;
-    const cards = sliderEl.querySelectorAll<HTMLElement>('[data-card-id]');
-    let closestId = '';
-    let minDistance = Infinity;
+  // Smooth ease-out animation ke target slide index
+  function animateToOffset(target: number, durationMs = 320) {
+    if (animFrameId) cancelAnimationFrame(animFrameId);
+    const list = visibleTemplatesForCategory;
+    if (list.length === 0) return;
+    const clampedTarget = Math.max(0, Math.min(list.length - 1, target));
+    const start = scrollOffset;
+    const delta = clampedTarget - start;
 
-    for (let i = 0; i < cards.length; i++) {
-      const card = cards[i];
-      const cardCenter = card.offsetLeft + card.offsetWidth / 2;
-      const dist = Math.abs(containerCenter - cardCenter);
-      if (dist < minDistance) {
-        minDistance = dist;
-        closestId = card.dataset.cardId || '';
+    if (Math.abs(delta) < 0.001) {
+      scrollOffset = clampedTarget;
+      commitActiveCard(clampedTarget, true);
+      return;
+    }
+
+    const startTime = performance.now();
+
+    function step(now: number) {
+      const elapsed = now - startTime;
+      const progress = Math.min(1, elapsed / durationMs);
+      // easeOutCubic
+      const ease = 1 - Math.pow(1 - progress, 3);
+      scrollOffset = start + delta * ease;
+
+      const currentIdx = Math.max(0, Math.min(list.length - 1, Math.round(scrollOffset)));
+      const currentCard = list[currentIdx];
+      if (currentCard && activeCardId !== currentCard.id) {
+        activeCardId = currentCard.id;
+      }
+
+      if (progress < 1) {
+        animFrameId = requestAnimationFrame(step);
+      } else {
+        scrollOffset = clampedTarget;
+        animFrameId = null;
+        commitActiveCard(clampedTarget, true);
       }
     }
-    return closestId || activeCardId;
-  }
-
-  function onTrackScroll() {
-    const closestId = getClosestCardId();
-    if (closestId && closestId !== activeCardId) {
-      activeCardId = closestId;
-    }
-
-    // Debounce commit ke preview live view kamera di sisi kanan (180ms)
-    // Stream kamera di kanan sama sekali tidak freeze atau patah-patah selama scroll
-    if (scrollTimeout) clearTimeout(scrollTimeout);
-    scrollTimeout = setTimeout(() => {
-      if (closestId && frameId !== closestId) {
-        frameId = closestId;
-      }
-    }, 180);
-  }
-
-  function onTrackScrollEnd() {
-    if (scrollTimeout) clearTimeout(scrollTimeout);
-    const closestId = getClosestCardId();
-    if (closestId && frameId !== closestId) {
-      frameId = closestId;
-    }
+    animFrameId = requestAnimationFrame(step);
   }
 
   function goFrame(direction: -1 | 1) {
     const list = visibleTemplatesForCategory;
     if (list.length === 0) return;
-    const currentId = activeCardId || frameId;
-    const idx = Math.max(0, list.findIndex((t) => t.id === currentId));
-    const nextIdx = Math.max(0, Math.min(list.length - 1, idx + direction));
-    const nextCard = list[nextIdx];
-    if (nextCard) {
-      activeCardId = nextCard.id;
-      scrollToCard(nextCard.id, true);
-      if (scrollTimeout) clearTimeout(scrollTimeout);
-      scrollTimeout = setTimeout(() => {
-        frameId = nextCard.id;
-      }, 180);
-    }
+    const currentIdx = Math.round(scrollOffset);
+    const nextIdx = Math.max(0, Math.min(list.length - 1, currentIdx + direction));
+    animateToOffset(nextIdx, 320);
   }
 
-  function onCardClick(targetId: string) {
+  function onCardClick(targetId: string, index: number) {
     if (hasMoved) {
       hasMoved = false;
       return;
     }
-    activeCardId = targetId;
-    scrollToCard(targetId, true);
-    if (scrollTimeout) clearTimeout(scrollTimeout);
-    scrollTimeout = setTimeout(() => {
-      frameId = targetId;
-    }, 180);
+    animateToOffset(index, 320);
   }
 
-  function onTrackPointerDown(e: PointerEvent) {
-    if (!sliderEl) return;
+  function onPointerDown(e: PointerEvent) {
     if (e.pointerType === 'mouse' && e.button !== 0) return;
-    isPointerDown = true;
+    if (!sliderContainerEl) return;
+    if (animFrameId) {
+      cancelAnimationFrame(animFrameId);
+      animFrameId = null;
+    }
+    isDragging = true;
     hasMoved = false;
     startX = e.clientX;
     lastX = e.clientX;
-    startScrollLeft = sliderEl.scrollLeft;
+    startOffset = scrollOffset;
     lastTime = performance.now();
     velocityX = 0;
     try {
-      sliderEl.setPointerCapture(e.pointerId);
+      sliderContainerEl.setPointerCapture(e.pointerId);
     } catch (_) {}
   }
 
-  function onTrackPointerMove(e: PointerEvent) {
-    if (!isPointerDown || !sliderEl) return;
+  function onPointerMove(e: PointerEvent) {
+    if (!isDragging) return;
     const dx = e.clientX - startX;
     if (Math.abs(dx) > 4) {
       hasMoved = true;
@@ -226,33 +240,173 @@
       lastX = e.clientX;
       lastTime = now;
     }
-    // 1:1 real-time drag (mendukung edging yang sangat natural dan halus)
-    sliderEl.scrollLeft = startScrollLeft - dx;
-  }
 
-  function onTrackPointerUp(e: PointerEvent) {
-    if (!isPointerDown || !sliderEl) return;
-    isPointerDown = false;
-    try {
-      sliderEl.releasePointerCapture(e.pointerId);
-    } catch (_) {}
+    const list = visibleTemplatesForCategory;
+    const n = list.length;
+    const baseStep = Math.min(200, Math.max(140, containerWidth * 0.22));
+    let nextOffset = startOffset - (dx / (baseStep * 1.05));
 
-    // Jika di-flick kencang, teruskan momentum melintasi beberapa template sekaligus
-    if (Math.abs(velocityX) > 0.35) {
-      const momentumDistance = -velocityX * 380;
-      sliderEl.scrollBy({
-        left: momentumDistance,
-        behavior: 'smooth'
-      });
+    // Rubber-banding saat melewati batas kiri/kanan
+    if (nextOffset < 0) {
+      nextOffset = -Math.pow(-nextOffset, 0.75) * 0.35;
+    } else if (nextOffset > n - 1) {
+      const over = nextOffset - (n - 1);
+      nextOffset = (n - 1) + Math.pow(over, 0.75) * 0.35;
+    }
+
+    scrollOffset = nextOffset;
+
+    const currentIdx = Math.max(0, Math.min(n - 1, Math.round(scrollOffset)));
+    const currentCard = list[currentIdx];
+    if (currentCard && activeCardId !== currentCard.id) {
+      activeCardId = currentCard.id;
+      commitActiveCard(currentIdx, false);
     }
   }
 
-  function onTrackPointerCancel(e: PointerEvent) {
-    if (!isPointerDown || !sliderEl) return;
-    isPointerDown = false;
-    try {
-      sliderEl.releasePointerCapture(e.pointerId);
-    } catch (_) {}
+  function onPointerUp(e: PointerEvent) {
+    if (!isDragging) return;
+    isDragging = false;
+    if (sliderContainerEl) {
+      try {
+        sliderContainerEl.releasePointerCapture(e.pointerId);
+      } catch (_) {}
+    }
+
+    const list = visibleTemplatesForCategory;
+    const n = list.length;
+    if (n <= 1) {
+      animateToOffset(0, 200);
+      return;
+    }
+
+    let targetIdx = Math.round(scrollOffset);
+    if (Math.abs(velocityX) > 0.3) {
+      const flickDirection = -Math.sign(velocityX);
+      const flickMagnitude = Math.abs(velocityX) > 1.2 ? 2 : 1;
+      targetIdx = Math.round(scrollOffset + flickDirection * flickMagnitude);
+    }
+    targetIdx = Math.max(0, Math.min(n - 1, targetIdx));
+    animateToOffset(targetIdx, 340);
+  }
+
+  function onPointerCancel(e: PointerEvent) {
+    if (!isDragging) return;
+    isDragging = false;
+    if (sliderContainerEl) {
+      try {
+        sliderContainerEl.releasePointerCapture(e.pointerId);
+      } catch (_) {}
+    }
+    const list = visibleTemplatesForCategory;
+    const targetIdx = Math.max(0, Math.min(list.length - 1, Math.round(scrollOffset)));
+    animateToOffset(targetIdx, 250);
+  }
+
+  function onTrackWheel(e: WheelEvent) {
+    const delta = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : (e.shiftKey ? e.deltaY : (Math.abs(e.deltaY) > 20 ? e.deltaY * 0.5 : 0));
+    if (Math.abs(delta) < 2) return;
+    e.preventDefault();
+    if (animFrameId) {
+      cancelAnimationFrame(animFrameId);
+      animFrameId = null;
+    }
+
+    const list = visibleTemplatesForCategory;
+    const n = list.length;
+    const step = delta / 320;
+    scrollOffset = Math.max(-0.25, Math.min(n - 0.75, scrollOffset + step));
+
+    const currentIdx = Math.max(0, Math.min(n - 1, Math.round(scrollOffset)));
+    const currentCard = list[currentIdx];
+    if (currentCard && activeCardId !== currentCard.id) {
+      activeCardId = currentCard.id;
+      commitActiveCard(currentIdx, false);
+    }
+
+    if (wheelTimeout) clearTimeout(wheelTimeout);
+    wheelTimeout = setTimeout(() => {
+      const target = Math.max(0, Math.min(n - 1, Math.round(scrollOffset)));
+      animateToOffset(target, 280);
+    }, 100);
+  }
+
+  function onKeyDown(e: KeyboardEvent) {
+    if (viewMode !== 'slider') return;
+    if (e.key === 'ArrowLeft') {
+      e.preventDefault();
+      goFrame(-1);
+    } else if (e.key === 'ArrowRight') {
+      e.preventDefault();
+      goFrame(1);
+    }
+  }
+
+  /**
+   * Geometri 3D Sphere & Exponential Scaling:
+   * - Center (d = 0): dominan paling besar (scale 1.0, opacity 1.0, Z=0)
+   * - Samping (|d| = 1): mengecil secara eksponensial (scale = 0.76, rotY = -/+26deg, Z=-85px)
+   * - Samping (|d| = 2): makin mengecil secara eksponensial (scale = 0.578, rotY = -/+39deg, Z=-202px)
+   * - Maksimal 5 frame per slide: bila |d| > 2.25, kartu disembunyikan (display: none / opacity: 0)
+   */
+  function getCardGeom(index: number, offset: number, containerW: number) {
+    const d = index - offset;
+    const absD = Math.abs(d);
+
+    if (absD > 2.25) {
+      return {
+        visible: false,
+        scale: 0,
+        rotY: 0,
+        transZ: 0,
+        transX: 0,
+        opacity: 0,
+        zIndex: 0,
+        brightness: 0,
+        isCenter: false
+      };
+    }
+
+    // 1. Skala eksponensial: 1.0 -> 0.76 -> 0.578
+    const scale = Math.pow(0.76, absD);
+
+    // 2. Rotasi 3D melengkung sphere/silinder
+    const rotY = -Math.sign(d) * Math.min(42, Math.pow(absD, 0.85) * 26);
+
+    // 3. Kedalaman 3D Z (masuk ke dalam bola)
+    const transZ = -Math.pow(absD, 1.25) * 85;
+
+    // 4. Jarak horizontal busur bola
+    const baseStep = Math.min(195, Math.max(140, containerW * 0.22));
+    const transX = d * baseStep * (1 - absD * 0.035);
+
+    // 5. Opacity memudar halus di pinggir
+    let opacity = 1.0;
+    if (absD <= 1.0) {
+      opacity = 1.0 - absD * 0.18;
+    } else if (absD <= 2.0) {
+      opacity = 0.82 - (absD - 1.0) * 0.34;
+    } else {
+      opacity = Math.max(0, 0.48 - (absD - 2.0) * 1.92);
+    }
+
+    // 6. Penumpukan z-index (tengah paling depan)
+    const zIndex = Math.round(50 - absD * 15);
+
+    // 7. Pencahayaan spherical (tengah paling terang)
+    const brightness = Math.max(0.65, 1 - absD * 0.14);
+
+    return {
+      visible: true,
+      scale,
+      rotY,
+      transZ,
+      transX,
+      opacity,
+      zIndex,
+      brightness,
+      isCenter: absD < 0.45
+    };
   }
 
   let liveviewInterval: any = null;
@@ -368,6 +522,8 @@
     if (timer) clearInterval(timer);
     if (liveviewInterval) clearInterval(liveviewInterval);
     if (scrollTimeout) clearTimeout(scrollTimeout);
+    if (wheelTimeout) clearTimeout(wheelTimeout);
+    if (animFrameId) cancelAnimationFrame(animFrameId);
     cameraStore.stopLiveview();
   });
 
@@ -375,6 +531,8 @@
   const DEFAULT_BG = 'linear-gradient(135deg, #1e1b4b 0%, #2a2873 50%, #312e81 100%)';
   let effectiveBg = $derived(background ?? uiConfig.getStepStyle('frame').background ?? DEFAULT_BG);
 </script>
+
+<svelte:window onkeydown={onKeyDown} />
 
 <div
   class="w-full h-full overflow-hidden flex flex-col font-['Plus_Jakarta_Sans',sans-serif] text-[#f0edf8] relative"
@@ -513,7 +671,12 @@
               aria-label="Slider"
               onclick={() => {
                 viewMode = 'slider';
-                activeCardId = frameId;
+                const list = visibleTemplatesForCategory;
+                const idx = list.findIndex((t) => t.id === frameId);
+                if (idx !== -1) {
+                  scrollOffset = idx;
+                  activeCardId = frameId;
+                }
               }}
               class="w-11 h-10 rounded-lg flex items-center justify-center border-none cursor-pointer transition-colors {viewMode === 'slider' ? 'bg-white text-[#111117]' : 'bg-transparent text-white/65 hover:text-white'}"
             >
@@ -526,40 +689,63 @@
           {@const tLayers = getTemplateLayers(f)}
           {@const bgLayer = tLayers.find((l) => l.isBackground)}
           {@const bgUrl = bgLayer?.imageUrl || f.frame_image_url}
+          {@const tW = f.width || 1200}
+          {@const tH = f.height || 1800}
           <div
-            class="rounded-xl overflow-hidden relative shadow-md bg-black/40 flex items-center justify-center p-1 shrink-0 pointer-events-none select-none"
-            style="width: {boxW}px; height: {boxH}px; -webkit-user-drag: none; user-select: none;"
+            class="relative flex items-center justify-center shrink-0 pointer-events-none select-none bg-transparent"
+            style="width: {boxW}px; height: {boxH}px; container-type: size; -webkit-user-drag: none; user-select: none;"
           >
-            {#if f.preview_image_url}
-              <ProgressiveImage src={f.preview_image_url} blurSrc={f.preview_blur} alt={f.name} class="w-full h-full rounded-lg pointer-events-none select-none" objectFit="contain" />
-            {:else if tLayers.length > 0}
-              {#each tLayers.filter((l) => !l.isQr) as layer, idx (layer.id ?? idx)}
-                <div
-                  class="absolute overflow-hidden pointer-events-none select-none"
-                  style="
-                    left: {((layer.x || 0) / (f.width || 1200)) * 100}%;
-                    top: {((layer.y || 0) / (f.height || 1800)) * 100}%;
-                    width: {((layer.w || 200) / (f.width || 1200)) * 100}%;
-                    height: {((layer.h || 200) / (f.height || 1800)) * 100}%;
-                    transform: rotate({layer.rot || 0}deg);
-                    z-index: {getLayerZIndex(layer, tLayers)};
-                  "
-                >
-                  {#if layer.isBackground}
-                    {@const layerBgUrl = uiConfig.resolveAssetUrl(layer.imageUrl || bgUrl)}
-                    {#if layerBgUrl}
-                      <img src={layerBgUrl} alt="Template Frame" draggable="false" class="w-full h-full object-fill block pointer-events-none select-none" />
+            <div
+              class="relative overflow-hidden rounded-xl border-[1.5px] border-white/40 shadow-md flex items-center justify-center pointer-events-none select-none"
+              style={getTemplatePreviewBoxStyle(tW, tH)}
+            >
+              {#if f.preview_image_url}
+                <ProgressiveImage
+                  src={f.preview_image_url}
+                  blurSrc={f.preview_blur}
+                  alt={f.name}
+                  class="w-full h-full pointer-events-none select-none rounded-[10px]"
+                  objectFit="fill"
+                />
+              {:else if tLayers.length > 0}
+                {#each tLayers.filter((l) => !l.isQr) as layer, idx (layer.id ?? idx)}
+                  <div
+                    class="absolute overflow-hidden pointer-events-none select-none"
+                    style="
+                      left: {((layer.x || 0) / tW) * 100}%;
+                      top: {((layer.y || 0) / tH) * 100}%;
+                      width: {((layer.w || 200) / tW) * 100}%;
+                      height: {((layer.h || 200) / tH) * 100}%;
+                      transform: rotate({layer.rot || 0}deg);
+                      z-index: {getLayerZIndex(layer, tLayers)};
+                    "
+                  >
+                    {#if layer.isBackground}
+                      {@const layerBgUrl = uiConfig.resolveAssetUrl(layer.imageUrl || bgUrl)}
+                      {#if layerBgUrl}
+                        <img
+                          src={layerBgUrl}
+                          alt="Template Frame"
+                          draggable="false"
+                          class="w-full h-full object-fill block pointer-events-none select-none rounded-[10px]"
+                        />
+                      {/if}
+                    {:else}
+                      <div class="w-full h-full bg-white/20 rounded-[2px] flex items-center justify-center text-[8px] text-white/70 pointer-events-none select-none">📷</div>
                     {/if}
-                  {:else}
-                    <div class="w-full h-full bg-white/20 rounded-[2px] flex items-center justify-center text-[8px] text-white/65 pointer-events-none select-none">📷</div>
-                  {/if}
-                </div>
-              {/each}
-            {:else if bgUrl}
-              <img src={uiConfig.resolveAssetUrl(bgUrl)} alt="Template Frame" draggable="false" class="w-full h-full object-contain block pointer-events-none select-none" />
-            {:else}
-              <div class="text-white/65 text-[10px] pointer-events-none select-none">No Preview</div>
-            {/if}
+                  </div>
+                {/each}
+              {:else if bgUrl}
+                <img
+                  src={uiConfig.resolveAssetUrl(bgUrl)}
+                  alt="Template Frame"
+                  draggable="false"
+                  class="w-full h-full object-fill block pointer-events-none select-none rounded-[10px]"
+                />
+              {:else}
+                <div class="text-white/65 text-[10px] pointer-events-none select-none">No Preview</div>
+              {/if}
+            </div>
           </div>
         {/snippet}
 
@@ -570,20 +756,26 @@
         {:else if viewMode === 'slider'}
           {@const list = visibleTemplatesForCategory}
           {@const n = list.length}
-          {@const activeId = activeCardId || frameId}
-          {@const activeIdx = Math.max(0, list.findIndex((t) => t.id === activeId))}
+          {@const currentActiveIdx = Math.max(0, Math.min(n - 1, Math.round(scrollOffset)))}
           <div
-            role="region"
-            aria-label="Frame Carousel Track"
-            class="relative flex-1 min-h-0 flex flex-col justify-center items-center overflow-hidden py-3 select-none"
-            ondragstart={(e) => e.preventDefault()}
+            bind:this={sliderContainerEl}
+            bind:clientWidth={containerWidth}
+            bind:clientHeight={containerHeight}
+            role="presentation"
+            onwheel={onTrackWheel}
+            onpointerdown={onPointerDown}
+            onpointermove={onPointerMove}
+            onpointerup={onPointerUp}
+            onpointercancel={onPointerCancel}
+            class="relative flex-1 min-h-0 w-full flex flex-col justify-between items-center overflow-hidden py-3 select-none outline-none cursor-grab active:cursor-grabbing"
+            style="touch-action: pan-y;"
           >
             <!-- Tombol Panah Kiri -->
             <button
               type="button"
-              onclick={() => goFrame(-1)}
-              disabled={list.length <= 1 || activeIdx <= 0}
-              class="absolute left-3 z-30 w-12 h-12 rounded-full bg-white text-[#111117] flex items-center justify-center border-none cursor-pointer shrink-0 active:scale-95 hover:scale-105 transition-all shadow-[0_6px_20px_rgba(0,0,0,0.4)] disabled:opacity-20 disabled:pointer-events-none"
+              onclick={(e) => { e.stopPropagation(); goFrame(-1); }}
+              disabled={list.length <= 1 || currentActiveIdx <= 0}
+              class="absolute left-3.5 top-1/2 -translate-y-1/2 z-40 w-12 h-12 rounded-full bg-white text-[#111117] flex items-center justify-center border-none cursor-pointer shrink-0 active:scale-95 hover:scale-105 transition-all shadow-[0_8px_24px_rgba(0,0,0,0.5)] disabled:opacity-20 disabled:pointer-events-none"
               aria-label="Sebelumnya"
             >
               <svg width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
@@ -591,66 +783,73 @@
               </svg>
             </button>
 
-            <!-- Dynamic Continuous Scroll Track (3 kartu terlihat, kartu tengah dominan, momentum flick & edging) -->
+            <!-- 3D Sphere Carousel Stage -->
             <div
-              bind:this={sliderEl}
-              role="presentation"
-              onscroll={onTrackScroll}
-              onscrollend={onTrackScrollEnd}
-              onpointerdown={onTrackPointerDown}
-              onpointermove={onTrackPointerMove}
-              onpointerup={onTrackPointerUp}
-              onpointercancel={onTrackPointerCancel}
-              class="w-full flex items-center overflow-x-auto py-6 no-scrollbar select-none"
+              class="relative flex-1 w-full min-h-0 flex items-center justify-center pointer-events-none"
               style="
-                scroll-snap-type: x mandatory;
-                scroll-behavior: smooth;
-                -webkit-overflow-scrolling: touch;
-                padding-left: calc(50% - 90px);
-                padding-right: calc(50% - 90px);
-                gap: 16px;
-                cursor: grab;
+                perspective: 1200px;
+                perspective-origin: 50% 50%;
+                transform-style: preserve-3d;
               "
             >
-              {#each list as t (t.id)}
-                {@const isActive = t.id === activeId}
-                <button
-                  type="button"
-                  data-card-id={t.id}
-                  draggable="false"
-                  ondragstart={(e) => e.preventDefault()}
-                  onclick={() => onCardClick(t.id)}
-                  aria-label={`Pilih template ${t.name}`}
-                  class="shrink-0 flex flex-col items-center gap-2.5 p-3.5 rounded-2xl cursor-pointer transition-all duration-300 ease-out select-none {isActive ? 'scale-100 opacity-100 z-10' : 'scale-[0.70] opacity-40 hover:opacity-70 z-0'}"
-                  style="
-                    scroll-snap-align: center;
-                    scroll-snap-stop: normal;
-                    width: 180px;
-                    background-color: {isActive ? `${uiConfig.config.primaryColor}1F` : '#1a1824'};
-                    border: 1.5px solid {isActive ? uiConfig.config.primaryColor : 'transparent'};
-                    box-shadow: {isActive ? `0 12px 36px -4px ${uiConfig.config.primaryColor}50` : '0 4px 16px rgba(0,0,0,0.25)'};
-                    user-select: none;
-                    -webkit-user-select: none;
-                    -webkit-user-drag: none;
-                  "
-                >
-                  {@render frameThumb(t, 140, 182)}
-                  <div class="text-center w-full px-1">
-                    <div class="text-[13px] font-bold truncate" style="color: {isActive ? uiConfig.config.primaryColor : '#f0edf8'}">
-                      {t.name}
-                    </div>
-                    <div class="text-[11px] text-white/60 mt-0.5">{photoCountOf(t)} foto</div>
+              {#each list as t, i (t.id)}
+                {@const geom = getCardGeom(i, scrollOffset, containerWidth)}
+                {#if geom.visible}
+                  <div
+                    data-card-id={t.id}
+                    class="absolute top-1/2 left-1/2 pointer-events-auto select-none"
+                    style="
+                      width: {cardWidth}px;
+                      transform: translate(-50%, -50%) translate3d({geom.transX}px, 0px, {geom.transZ}px) rotateY({geom.rotY}deg) scale({geom.scale});
+                      opacity: {geom.opacity};
+                      filter: brightness({geom.brightness});
+                      z-index: {geom.zIndex};
+                      transform-origin: center center;
+                      transform-style: preserve-3d;
+                      will-change: transform, opacity;
+                      transition: {isDragging ? 'none' : 'transform 0.08s ease-out, opacity 0.08s ease-out'};
+                    "
+                  >
+                    <button
+                      type="button"
+                      draggable="false"
+                      ondragstart={(e) => e.preventDefault()}
+                      onclick={() => onCardClick(t.id, i)}
+                      aria-label={`Pilih template ${t.name}`}
+                      class="w-full flex flex-col items-center gap-3 p-3.5 rounded-2xl cursor-pointer text-left select-none outline-none transition-all duration-200"
+                      style="
+                        background-color: {geom.isCenter ? `${uiConfig.config.primaryColor}1F` : '#1a1824'};
+                        border: 2px solid {geom.isCenter ? uiConfig.config.primaryColor : 'rgba(255,255,255,0.08)'};
+                        box-shadow: {geom.isCenter ? `0 16px 45px -6px ${uiConfig.config.primaryColor}65, 0 0 24px -2px ${uiConfig.config.primaryColor}35` : '0 8px 24px rgba(0,0,0,0.35)'};
+                        user-select: none;
+                        -webkit-user-select: none;
+                        -webkit-user-drag: none;
+                      "
+                    >
+                      {@render frameThumb(t, thumbWidth, thumbHeight)}
+                      <div class="text-center w-full px-1">
+                        <div
+                          class="text-[14px] font-bold truncate transition-colors duration-200"
+                          style="color: {geom.isCenter ? uiConfig.config.primaryColor : '#f0edf8'}"
+                        >
+                          {t.name}
+                        </div>
+                        <div class="text-[11px] text-white/60 mt-0.5">
+                          {photoCountOf(t)} foto
+                        </div>
+                      </div>
+                    </button>
                   </div>
-                </button>
+                {/if}
               {/each}
             </div>
 
             <!-- Tombol Panah Kanan -->
             <button
               type="button"
-              onclick={() => goFrame(1)}
-              disabled={list.length <= 1 || activeIdx >= list.length - 1}
-              class="absolute right-3 z-30 w-12 h-12 rounded-full bg-white text-[#111117] flex items-center justify-center border-none cursor-pointer shrink-0 active:scale-95 hover:scale-105 transition-all shadow-[0_6px_20px_rgba(0,0,0,0.4)] disabled:opacity-20 disabled:pointer-events-none"
+              onclick={(e) => { e.stopPropagation(); goFrame(1); }}
+              disabled={list.length <= 1 || currentActiveIdx >= list.length - 1}
+              class="absolute right-3.5 top-1/2 -translate-y-1/2 z-40 w-12 h-12 rounded-full bg-white text-[#111117] flex items-center justify-center border-none cursor-pointer shrink-0 active:scale-95 hover:scale-105 transition-all shadow-[0_8px_24px_rgba(0,0,0,0.5)] disabled:opacity-20 disabled:pointer-events-none"
               aria-label="Berikutnya"
             >
               <svg width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
@@ -659,19 +858,19 @@
             </button>
 
             <!-- Dots Indicator -->
-            <div class="flex items-center gap-1.5 pt-1">
+            <div class="flex items-center gap-1.5 pt-2 relative z-30 pointer-events-auto">
               {#each list as t, i (t.id)}
-                {@const isDotActive = t.id === activeId}
+                {@const isDotActive = i === currentActiveIdx}
                 <button
                   type="button"
-                  onclick={() => onCardClick(t.id)}
+                  onclick={(e) => { e.stopPropagation(); animateToOffset(i); }}
                   aria-label={t.name}
                   class="h-1.5 rounded-full border-none cursor-pointer p-0 transition-all duration-300"
                   style="width: {isDotActive ? 24 : 6}px; background-color: {isDotActive ? uiConfig.config.primaryColor : 'rgba(255,255,255,0.25)'};"
                 ></button>
               {/each}
               <span class="ml-2 text-[11px] text-white/60 tabular-nums">
-                {activeIdx + 1}/{n}
+                {currentActiveIdx + 1}/{n}
               </span>
             </div>
           </div>
@@ -721,7 +920,7 @@
 
             <div class="w-full flex-1 min-h-0 flex items-center justify-center p-1" style="container-type: size;">
               <div
-                class="relative overflow-hidden rounded-xl bg-black/40 shadow-xl"
+                class="relative overflow-hidden rounded-xl border-[1.5px] border-white/30 shadow-xl"
                 style={getTemplatePreviewBoxStyle(tWidth, tHeight)}
               >
                 {#if templateLayers.length > 0}

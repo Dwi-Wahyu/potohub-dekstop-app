@@ -169,20 +169,11 @@
       boothFlow.isFlashActive = false;
     }, 250);
 
-    // Tampilkan snapshot instan dari liveview pada slot retake seketika
-    let instantSnapshotUrl = '';
-    if (cameraStore.currentLiveviewUrl) {
-      instantSnapshotUrl = cameraStore.currentLiveviewUrl;
-      const updated = [...boothFlow.photosTaken];
-      updated[index] = instantSnapshotUrl;
-      boothFlow.photosTaken = updated;
-    }
-
     try {
       let bytes = await cameraStore.capture();
       if (!bytes && cameraStore.cameraMode === 'usb') {
-        console.warn(`[V3Session] Retake slot ${index + 1} pertama null, retry dalam 300ms...`);
-        await new Promise((r) => setTimeout(r, 300));
+        console.warn(`[V3Session] Retake slot ${index + 1} pertama null, retry dalam 400ms...`);
+        await new Promise((r) => setTimeout(r, 400));
         bytes = await cameraStore.capture();
       }
 
@@ -190,12 +181,13 @@
       if (bytes && bytes.length > 0) {
         const blob = new Blob([bytes], { type: 'image/jpeg' });
         photoUrl = URL.createObjectURL(blob);
-      } else if (!instantSnapshotUrl) {
+      } else {
         if (cameraStore.currentLiveviewUrl) {
           try {
             const resp = await fetch(cameraStore.currentLiveviewUrl);
-            const blob = await resp.blob();
-            photoUrl = URL.createObjectURL(blob);
+            const arrayBuf = await resp.arrayBuffer();
+            const persistentBlob = new Blob([arrayBuf], { type: 'image/jpeg' });
+            photoUrl = URL.createObjectURL(persistentBlob);
           } catch {
             photoUrl = '';
           }
@@ -221,6 +213,7 @@
         const updated = [...boothFlow.photosTaken];
         updated[index] = photoUrl;
         boothFlow.photosTaken = updated;
+        selectedRetakeIndex = index;
       }
 
       if (boothConfig.config.enableLiveviewVideo) {
@@ -242,21 +235,20 @@
       }
 
       if (cameraStore.cameraMode === 'usb') {
-        await new Promise((r) => setTimeout(r, 400));
+        boothFlow.captureMessage = 'Menyiapkan liveview...';
         await cameraStore.getLiveviewFrame().catch(() => {});
       }
     } catch (err) {
       console.error('Retake capture error:', err);
     } finally {
-      await new Promise((r) => setTimeout(r, 800));
       boothFlow.isCapturingCamera = false;
       boothFlow.captureMessage = null;
       isRunning = false;
     }
   }
 
-  let photosTaken = $derived(boothFlow.photosTaken.length);
-  let allDone = $derived(photosTaken === totalPhotos);
+  let photosTaken = $derived(boothFlow.photosTaken.filter(Boolean).length);
+  let allDone = $derived(photosTaken >= totalPhotos);
   let activeRetakeIdx = $derived(
     selectedRetakeIndex !== null ? selectedRetakeIndex : (allDone ? 0 : null)
   );

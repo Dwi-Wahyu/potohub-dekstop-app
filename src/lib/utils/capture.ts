@@ -29,40 +29,28 @@ export async function runCaptureSequence(
     }, 250);
 
     const slotIndex = i;
-    // Tampilkan snapshot instan dari liveview saat ini pada slot preview agar customer langsung melihat hasilnya seketika
-    let instantSnapshotUrl = '';
-    if (cameraStore.currentLiveviewUrl) {
-      instantSnapshotUrl = cameraStore.currentLiveviewUrl;
-      const updated = [...boothFlow.photosTaken];
-      updated[slotIndex] = instantSnapshotUrl;
-      boothFlow.photosTaken = updated;
-      if (onCapturePhoto) onCapturePhoto(instantSnapshotUrl);
-    }
 
     try {
       let bytes = await cameraStore.capture();
       // Retry otomatis 1x jika pada jepretan pertama kamera sedang transisi/busy
       if (!bytes && cameraStore.cameraMode === 'usb') {
-        console.warn(`[runCaptureSequence] Capture slot ${i + 1} pertama null, retry dalam 300ms...`);
-        await new Promise((r) => setTimeout(r, 300));
+        console.warn(`[runCaptureSequence] Capture slot ${i + 1} pertama null, retry dalam 400ms...`);
+        await new Promise((r) => setTimeout(r, 400));
         bytes = await cameraStore.capture();
       }
 
+      let photoUrl = '';
       if (bytes && bytes.length > 0) {
         const blob = new Blob([bytes], { type: 'image/jpeg' });
-        const photoUrl = URL.createObjectURL(blob);
-        const updated = [...boothFlow.photosTaken];
-        updated[slotIndex] = photoUrl;
-        boothFlow.photosTaken = updated;
-        if (onCapturePhoto) onCapturePhoto(photoUrl);
-      } else if (!instantSnapshotUrl) {
-        // Fallback: Snapshot liveview terakhir atau placeholder jika keduanya kosong
-        let photoUrl = '';
+        photoUrl = URL.createObjectURL(blob);
+      } else {
+        // Fallback aman: clone frame liveview ke persistent blob agar tidak hilang saat liveview di-revoke
         if (cameraStore.currentLiveviewUrl) {
           try {
             const resp = await fetch(cameraStore.currentLiveviewUrl);
-            const blob = await resp.blob();
-            photoUrl = URL.createObjectURL(blob);
+            const arrayBuf = await resp.arrayBuffer();
+            const persistentBlob = new Blob([arrayBuf], { type: 'image/jpeg' });
+            photoUrl = URL.createObjectURL(persistentBlob);
           } catch {
             photoUrl = '';
           }
@@ -82,12 +70,13 @@ export async function runCaptureSequence(
             photoUrl = canvas.toDataURL('image/jpeg');
           }
         }
-        if (photoUrl) {
-          const updated = [...boothFlow.photosTaken];
-          updated[slotIndex] = photoUrl;
-          boothFlow.photosTaken = updated;
-          if (onCapturePhoto) onCapturePhoto(photoUrl);
-        }
+      }
+
+      if (photoUrl) {
+        const updated = [...boothFlow.photosTaken];
+        updated[slotIndex] = photoUrl;
+        boothFlow.photosTaken = updated;
+        if (onCapturePhoto) onCapturePhoto(photoUrl);
       }
 
       if (boothConfig.config.enableLiveviewVideo) {
@@ -110,22 +99,23 @@ export async function runCaptureSequence(
         );
       }
 
-      // Pastikan pengambilan liveview sudah aktif kembali agar kamera siap dan tidak busy
+      // Pastikan pengambilan liveview langsung aktif kembali agar kamera siap dan tidak busy
       if (cameraStore.cameraMode === 'usb') {
-        await new Promise((r) => setTimeout(r, 400));
+        boothFlow.captureMessage = 'Menyiapkan liveview...';
         await cameraStore.getLiveviewFrame().catch(() => {});
+      }
+
+      // Jeda aman stabilisasi kamera sebelum slot berikutnya (mencegah DEVICE_BUSY pada EOS R / DSLR)
+      if (i < slotCount - 1) {
+        boothFlow.captureMessage = 'Menstabilkan kamera...';
+        await new Promise((r) => setTimeout(r, 600));
       }
     } catch (err) {
       console.error('Capture error:', err);
     } finally {
-      // Tahan sejenak agar customer melihat foto hasil jepretan sebelum countdown berikutnya
-      await new Promise((r) => setTimeout(r, 800));
+      // Hilangkan overlay saat kamera sudah stabil & siap untuk slot berikutnya
       boothFlow.isCapturingCamera = false;
       boothFlow.captureMessage = null;
-    }
-
-    if (i < slotCount - 1) {
-      await new Promise((r) => setTimeout(r, 400));
     }
   }
 

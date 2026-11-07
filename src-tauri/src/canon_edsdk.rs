@@ -972,35 +972,61 @@ pub mod platform {
                         }
                         CAPTURE_ERROR_PARAM.store(0, Ordering::SeqCst);
 
-                        let mut non_af_attempted = true;
+                        let mut non_af_attempted = false;
                         unsafe {
-                            // Picu shutter instan tanpa jeda hunting AF (Completely_NonAF) agar jepretan seketika
-                            let mut shutter_err = (api.SendCommand)(
-                                camera,
-                                kEdsCameraCommand_PressShutterButton,
-                                kEdsCameraCommand_ShutterButton_Completely_NonAF,
-                            );
-                            if shutter_err != EDS_ERR_OK {
-                                log::info!("[Canon-Worker] Completely_NonAF code={:#X}, fallback ke TakePicture...", shutter_err);
-                                shutter_err = (api.SendCommand)(camera, kEdsCameraCommand_TakePicture, 0);
-                            }
-                            if shutter_err != EDS_ERR_OK {
-                                log::info!("[Canon-Worker] TakePicture code={:#X}, fallback ke ShutterButton_Completely...", shutter_err);
-                                shutter_err = (api.SendCommand)(
-                                    camera,
-                                    kEdsCameraCommand_PressShutterButton,
-                                    kEdsCameraCommand_ShutterButton_Completely,
-                                );
-                            }
-                            log::info!("[Canon-Worker] Shutter trigger result: {:#X}", shutter_err);
+                            // Nonaktifkan sejenak streaming EVF agar interface USB kamera tidak busy (0x81) saat shutter ditekan
+                            LIVEVIEW_ACTIVE_FLAG.store(false, Ordering::SeqCst);
 
-                            std::thread::sleep(Duration::from_millis(50));
-                            pump_messages();
-                            let _ = (api.SendCommand)(
-                                camera,
-                                kEdsCameraCommand_PressShutterButton,
-                                kEdsCameraCommand_ShutterButton_OFF,
-                            );
+                            let mut shutter_err = EDS_ERR_DEVICE_BUSY;
+                            for attempt in 0..15 {
+                                pump_messages();
+                                // 1. Coba TakePicture standar EDSDK
+                                shutter_err = (api.SendCommand)(camera, kEdsCameraCommand_TakePicture, 0);
+                                if shutter_err == EDS_ERR_OK {
+                                    log::info!("[Canon-Worker] TakePicture berhasil pada percobaan {}", attempt + 1);
+                                    break;
+                                }
+
+                                // 2. Jika bukan busy atau pada percobaan berikutnya, coba PressShutterButton
+                                if shutter_err != EDS_ERR_DEVICE_BUSY || attempt >= 2 {
+                                    shutter_err = (api.SendCommand)(
+                                        camera,
+                                        kEdsCameraCommand_PressShutterButton,
+                                        kEdsCameraCommand_ShutterButton_Completely_NonAF,
+                                    );
+                                    if shutter_err == EDS_ERR_OK {
+                                        log::info!("[Canon-Worker] Shutter Completely_NonAF berhasil pada percobaan {}", attempt + 1);
+                                        std::thread::sleep(Duration::from_millis(250));
+                                        pump_messages();
+                                        let _ = (api.SendCommand)(
+                                            camera,
+                                            kEdsCameraCommand_PressShutterButton,
+                                            kEdsCameraCommand_ShutterButton_OFF,
+                                        );
+                                        break;
+                                    }
+
+                                    shutter_err = (api.SendCommand)(
+                                        camera,
+                                        kEdsCameraCommand_PressShutterButton,
+                                        kEdsCameraCommand_ShutterButton_Completely,
+                                    );
+                                    if shutter_err == EDS_ERR_OK {
+                                        log::info!("[Canon-Worker] Shutter Completely standar berhasil pada percobaan {}", attempt + 1);
+                                        std::thread::sleep(Duration::from_millis(250));
+                                        pump_messages();
+                                        let _ = (api.SendCommand)(
+                                            camera,
+                                            kEdsCameraCommand_PressShutterButton,
+                                            kEdsCameraCommand_ShutterButton_OFF,
+                                        );
+                                        break;
+                                    }
+                                }
+
+                                std::thread::sleep(Duration::from_millis(80));
+                            }
+                            log::info!("[Canon-Worker] Final shutter trigger result: {:#X}", shutter_err);
                         }
 
                         // Wait on this STA thread pumping messages for up to 15s

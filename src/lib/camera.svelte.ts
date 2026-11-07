@@ -618,7 +618,11 @@ class CameraStore {
     postSecs: number
   ): Promise<Blob | null> {
     if (this.cameraMode === "webcam") {
-      await new Promise((r) => setTimeout(r, postSecs * 1000 + 150));
+      const neededUntil = captureTs + postSecs * 1000;
+      const remainingMs = Math.max(0, neededUntil - Date.now());
+      if (remainingMs > 0) {
+        await new Promise((r) => setTimeout(r, remainingMs));
+      }
       const from = captureTs - preSecs * 1000;
       const to = captureTs + postSecs * 1000;
 
@@ -667,7 +671,11 @@ class CameraStore {
     postSecs: number
   ): Promise<Blob | null> {
     if (this.cameraMode === "usb") {
-      await new Promise((r) => setTimeout(r, postSecs * 1000 + 150));
+      const neededUntil = captureTs + postSecs * 1000;
+      const remainingMs = Math.max(0, neededUntil - Date.now());
+      if (remainingMs > 0) {
+        await new Promise((r) => setTimeout(r, remainingMs));
+      }
       try {
         const encoded = await invoke<number[]>("extract_and_encode_liveview_clip", {
           captureTsMs: captureTs,

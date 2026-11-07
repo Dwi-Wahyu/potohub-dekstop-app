@@ -720,7 +720,14 @@ pub fn run() {
                     }),
                     tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Webview),
                 ])
-                .level(log::LevelFilter::Debug)
+                .level(log::LevelFilter::Info)
+                .filter(|metadata| {
+                    let target = metadata.target();
+                    !target.starts_with("h2")
+                        && !target.starts_with("hyper")
+                        && !target.starts_with("reqwest")
+                        && !target.starts_with("rustls")
+                })
                 .max_file_size(10_000_000)
                 .rotation_strategy(tauri_plugin_log::RotationStrategy::KeepOne)
                 .build(),

@@ -689,8 +689,7 @@
             kbOpen = false;
             onNewSession();
           }}
-          class="mt-auto w-full py-3.5 rounded-xl font-bold text-sm active:scale-[0.98] transition-transform border-none cursor-pointer text-white shrink-0"
-          style:background={accent}
+          class="mt-auto w-full py-3.5 rounded-xl font-bold text-sm active:scale-[0.98] transition-all border-none cursor-pointer text-white bg-[#121114] hover:bg-[#252329] shrink-0 shadow-sm"
         >
           Selesai
         </button>

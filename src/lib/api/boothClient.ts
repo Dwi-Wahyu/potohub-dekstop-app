@@ -624,13 +624,29 @@ function applyRemoteSettings(settings: Record<string, any>) {
     basePrice: basePriceVal,
     skipPayment: skipPaymentVal,
     photoFilter: general.photo_filter ?? boothConfig.config.photoFilter,
-    countdownSecs: timer.next_countdown_time ?? boothConfig.config.countdownSecs,
-    firstCountdownSecs: timer.first_countdown_time ?? boothConfig.config.firstCountdownSecs,
-    bannerTimeSecs: timer.banner_time ?? boothConfig.config.bannerTimeSecs,
-    procedureTimeSecs: timer.procedure_time ?? boothConfig.config.procedureTimeSecs,
-    paymentTimeSecs: timer.payment_time ?? boothConfig.config.paymentTimeSecs,
-    photoSessionTimeSecs: timer.photo_session_time ?? boothConfig.config.photoSessionTimeSecs,
-    endScreenTimeSecs: timer.end_screen_time ?? boothConfig.config.endScreenTimeSecs,
+    countdownSecs: timer.next_countdown_time !== undefined && timer.next_countdown_time !== null && !isNaN(Number(timer.next_countdown_time))
+      ? Number(timer.next_countdown_time)
+      : boothConfig.config.countdownSecs,
+    firstCountdownSecs: timer.first_countdown_time !== undefined && timer.first_countdown_time !== null && !isNaN(Number(timer.first_countdown_time))
+      ? Number(timer.first_countdown_time)
+      : boothConfig.config.firstCountdownSecs,
+    bannerTimeSecs: timer.banner_time !== undefined && timer.banner_time !== null && !isNaN(Number(timer.banner_time))
+      ? Number(timer.banner_time)
+      : boothConfig.config.bannerTimeSecs,
+    procedureTimeSecs: timer.procedure_time !== undefined && timer.procedure_time !== null && !isNaN(Number(timer.procedure_time))
+      ? Number(timer.procedure_time)
+      : boothConfig.config.procedureTimeSecs,
+    paymentTimeSecs: timer.payment_time !== undefined && timer.payment_time !== null && !isNaN(Number(timer.payment_time))
+      ? Number(timer.payment_time)
+      : boothConfig.config.paymentTimeSecs,
+    photoSessionTimeSecs: (timer.photo_session_time ?? timer.session_time ?? timer.photoSessionTimeSecs ?? timer.photoSessionTime) !== undefined &&
+      (timer.photo_session_time ?? timer.session_time ?? timer.photoSessionTimeSecs ?? timer.photoSessionTime) !== null &&
+      !isNaN(Number(timer.photo_session_time ?? timer.session_time ?? timer.photoSessionTimeSecs ?? timer.photoSessionTime))
+      ? Number(timer.photo_session_time ?? timer.session_time ?? timer.photoSessionTimeSecs ?? timer.photoSessionTime)
+      : boothConfig.config.photoSessionTimeSecs,
+    endScreenTimeSecs: timer.end_screen_time !== undefined && timer.end_screen_time !== null && !isNaN(Number(timer.end_screen_time))
+      ? Number(timer.end_screen_time)
+      : boothConfig.config.endScreenTimeSecs,
     emailEnabled: softfile.email_enabled ?? boothConfig.config.emailEnabled ?? true,
     whatsappEnabled: softfile.whatsapp_enabled ?? boothConfig.config.whatsappEnabled ?? true,
     multiPrint: typeof print.multi_print === 'boolean' ? print.multi_print : boothConfig.config.multiPrint,

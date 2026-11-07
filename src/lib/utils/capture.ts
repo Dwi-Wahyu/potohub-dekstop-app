@@ -18,29 +18,45 @@ export async function runCaptureSequence(
     boothFlow.countdown = null;
     const captureTs = Date.now(); // t=0 untuk window klip — SEBELUM shutter, seakurat mungkin
 
-    // Trigger visual screen flash effect - hold for 2 seconds (2000ms)
+    // Tampilkan overlay "Sedang capture kamera..." agar customer tahu proses sedang berjalan dan kamera tidak busy
+    boothFlow.isCapturingCamera = true;
+    boothFlow.captureMessage = 'Sedang capture kamera...';
+
+    // Trigger visual screen flash effect - durasi singkat 250ms agar responsif dan tidak menutupi layar
     boothFlow.isFlashActive = true;
     setTimeout(() => {
       boothFlow.isFlashActive = false;
-    }, 2000);
+    }, 250);
+
+    const slotIndex = i;
+    // Tampilkan snapshot instan dari liveview saat ini pada slot preview agar customer langsung melihat hasilnya seketika
+    let instantSnapshotUrl = '';
+    if (cameraStore.currentLiveviewUrl) {
+      instantSnapshotUrl = cameraStore.currentLiveviewUrl;
+      const updated = [...boothFlow.photosTaken];
+      updated[slotIndex] = instantSnapshotUrl;
+      boothFlow.photosTaken = updated;
+      if (onCapturePhoto) onCapturePhoto(instantSnapshotUrl);
+    }
 
     try {
       let bytes = await cameraStore.capture();
       // Retry otomatis 1x jika pada jepretan pertama kamera sedang transisi/busy
       if (!bytes && cameraStore.cameraMode === 'usb') {
-        console.warn(`[runCaptureSequence] Capture slot ${i + 1} pertama null, retry dalam 500ms...`);
-        await new Promise((r) => setTimeout(r, 500));
+        console.warn(`[runCaptureSequence] Capture slot ${i + 1} pertama null, retry dalam 300ms...`);
+        await new Promise((r) => setTimeout(r, 300));
         bytes = await cameraStore.capture();
       }
 
-      const slotIndex = i;
       if (bytes && bytes.length > 0) {
         const blob = new Blob([bytes], { type: 'image/jpeg' });
         const photoUrl = URL.createObjectURL(blob);
-        boothFlow.photosTaken = [...boothFlow.photosTaken, photoUrl];
+        const updated = [...boothFlow.photosTaken];
+        updated[slotIndex] = photoUrl;
+        boothFlow.photosTaken = updated;
         if (onCapturePhoto) onCapturePhoto(photoUrl);
-      } else {
-        // Fallback: Gunakan snapshot liveview terakhir jika tersedia agar customer tidak melihat placeholder kosong
+      } else if (!instantSnapshotUrl) {
+        // Fallback: Snapshot liveview terakhir atau placeholder jika keduanya kosong
         let photoUrl = '';
         if (cameraStore.currentLiveviewUrl) {
           try {
@@ -67,7 +83,9 @@ export async function runCaptureSequence(
           }
         }
         if (photoUrl) {
-          boothFlow.photosTaken = [...boothFlow.photosTaken, photoUrl];
+          const updated = [...boothFlow.photosTaken];
+          updated[slotIndex] = photoUrl;
+          boothFlow.photosTaken = updated;
           if (onCapturePhoto) onCapturePhoto(photoUrl);
         }
       }
@@ -91,8 +109,23 @@ export async function runCaptureSequence(
             )
         );
       }
+
+      // Pastikan pengambilan liveview sudah aktif kembali agar kamera siap dan tidak busy
+      if (cameraStore.cameraMode === 'usb') {
+        await new Promise((r) => setTimeout(r, 400));
+        await cameraStore.getLiveviewFrame().catch(() => {});
+      }
     } catch (err) {
       console.error('Capture error:', err);
+    } finally {
+      // Tahan sejenak agar customer melihat foto hasil jepretan sebelum countdown berikutnya
+      await new Promise((r) => setTimeout(r, 800));
+      boothFlow.isCapturingCamera = false;
+      boothFlow.captureMessage = null;
+    }
+
+    if (i < slotCount - 1) {
+      await new Promise((r) => setTimeout(r, 400));
     }
   }
 

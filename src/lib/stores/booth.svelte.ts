@@ -34,6 +34,8 @@ class BoothFlowStore {
   step = $state<BoothStep>("welcome");
   countdown = $state<number | null>(null);
   isFlashActive = $state(false);
+  isCapturingCamera = $state(false);
+  captureMessage = $state<string | null>(null);
   photosTaken = $state<string[]>([]); // dataURL / blob URL tiap jepretan
   liveviewClips = $state<(string | null)[]>([]); // blob URL video per slot, index selaras photosTaken
   selectedFrameId = $state<string | null>(null);
@@ -75,6 +77,8 @@ class BoothFlowStore {
     this.step = "welcome";
     this.countdown = null;
     this.isFlashActive = false;
+    this.isCapturingCamera = false;
+    this.captureMessage = null;
     this.photosTaken = [];
     this.liveviewClips = [];
     this.selectedFrameId = null;

@@ -5,7 +5,7 @@
   import { uiConfig } from '$lib/stores/uiConfig.svelte';
   import { boothConfig } from '$lib/stores/boothConfig.svelte';
   import { cameraStore } from '$lib/camera.svelte';
-  import { fetchAndCacheUiConfig } from '$lib/api/boothClient';
+  import { fetchAndCacheUiConfig, syncBoothSettings } from '$lib/api/boothClient';
   import { prefetchBoothAssets } from '$lib/api/prefetch';
   import V1Layout from '$lib/components/v1/V1Layout.svelte';
   import V2Layout from '$lib/components/v2/V2Layout.svelte';
@@ -24,6 +24,12 @@
     // Booth sudah aktif dan teraktivasi: langsung muat interface booth operasional
     boothConfig.init(activation.boothId);
     uiConfig.init(activation.boothId);
+
+    // Sinkronkan pengaturan booth terbaru (termasuk timer sesi & countdown) dari server
+    void syncBoothSettings().catch((e) =>
+      console.warn('Sync pengaturan booth awal gagal:', e)
+    );
+
     await fetchAndCacheUiConfig();
 
     // Prefetch aset booth di background agar siap offline

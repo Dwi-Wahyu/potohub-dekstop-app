@@ -66,7 +66,13 @@
 
   // Halaman: utama atau "Pengaturan sesi" (sesuai desain Figma)
   let view = $state<'main' | 'session'>('main');
-  let sessionDraft = $state({ countdownSecs: 3, idleBannerTimeoutMins: 2, paperCount: 100, paperThreshold: 20 });
+  let sessionDraft = $state({
+    photoSessionTimeSecs: 60,
+    countdownSecs: 3,
+    idleBannerTimeoutMins: 2,
+    paperCount: 100,
+    paperThreshold: 20
+  });
 
   const NEU_BG = '#ebf0f7';
   const NEU_PRIMARY = '#2a2873';
@@ -259,6 +265,7 @@
 
   function openSessionSettings() {
     sessionDraft = {
+      photoSessionTimeSecs: boothConfig.config.photoSessionTimeSecs || 60,
       countdownSecs: boothConfig.config.countdownSecs,
       idleBannerTimeoutMins: boothConfig.config.idleBannerTimeoutMins,
       paperCount: boothConfig.config.paperCount,
@@ -423,6 +430,11 @@
       <div class="custom-scrollbar" style="flex: 1; overflow-y: auto; padding: 24px;">
         <div style="max-width: 760px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px;">
           <div style="{cardStyle} padding: 4px 22px;">
+            {#snippet sessionTimeCtl()}
+              {@render stepper(sessionDraft.photoSessionTimeSecs, 15, 600, (v) => (sessionDraft.photoSessionTimeSecs = v), 'dtk')}
+            {/snippet}
+            {@render sessionRow('Batas waktu sesi foto', 'Total durasi di layar foto sebelum otomatis selesai.', false, sessionTimeCtl)}
+
             {#snippet countdownCtl()}
               {@render stepper(sessionDraft.countdownSecs, 1, 99, (v) => (sessionDraft.countdownSecs = v), 'dtk')}
             {/snippet}
@@ -1069,7 +1081,7 @@
             <div style="flex: 1;">
               <p style={titleStyle}>Pengaturan sesi</p>
               <p style={subStyle}>
-                Countdown {boothConfig.config.countdownSecs} dtk · Banner idle {boothConfig.config.idleBannerTimeoutMins} menit · Peringatan kertas {boothConfig.config.paperThreshold}
+                Waktu sesi {boothConfig.config.photoSessionTimeSecs || 60} dtk · Countdown {boothConfig.config.countdownSecs} dtk · Banner idle {boothConfig.config.idleBannerTimeoutMins} menit · Peringatan kertas {boothConfig.config.paperThreshold}
               </p>
             </div>
             <ChevronRight size={18} color="#475569" />

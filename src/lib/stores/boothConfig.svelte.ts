@@ -49,7 +49,7 @@ export const DEFAULT_CFG: BoothCfg = {
   bannerTimeSecs: 10,
   procedureTimeSecs: 15,
   paymentTimeSecs: 120,
-  photoSessionTimeSecs: 10,
+  photoSessionTimeSecs: 60,
   endScreenTimeSecs: 3,
   photoFilter: true,
   filterBW: true,
@@ -101,9 +101,16 @@ class BoothConfigStore {
         } else if (early) {
           baseVal = 35000;
         }
+        const rawSessionSecs = parsed.photoSessionTimeSecs;
+        const validSessionSecs =
+          rawSessionSecs !== undefined && rawSessionSecs !== null && !isNaN(Number(rawSessionSecs))
+            ? (Number(rawSessionSecs) === 10 ? DEFAULT_CFG.photoSessionTimeSecs : Number(rawSessionSecs))
+            : DEFAULT_CFG.photoSessionTimeSecs;
+
         this.config = {
           ...DEFAULT_CFG,
           ...parsed,
+          photoSessionTimeSecs: validSessionSecs,
           earlyPaymentPage: !!early,
           paymentPage: !!early,
           basePrice: baseVal,

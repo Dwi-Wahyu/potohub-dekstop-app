@@ -15,6 +15,12 @@
     void updaterStore.checkForUpdates(true);
     startIdleQueueWatcher();
 
+    if (networkStatus.isOnline) {
+      void syncBoothSettings().catch((e) =>
+        console.warn('[InitialSync] Gagal sync awal:', e)
+      );
+    }
+
     // Background sync periodik (tiap 10 menit) bila online
     const interval = setInterval(() => {
       if (networkStatus.isOnline) {

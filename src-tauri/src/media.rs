@@ -37,33 +37,37 @@ pub async fn encode_photos_to_gif(
         return Err("Daftar foto kosong".to_string());
     }
 
-    let mut buf: Vec<u8> = Vec::new();
-    {
-        let mut encoder = GifEncoder::new(Cursor::new(&mut buf));
-        encoder
-            .set_repeat(Repeat::Infinite)
-            .map_err(|e| e.to_string())?;
+    tokio::task::spawn_blocking(move || {
+        let mut buf: Vec<u8> = Vec::new();
+        {
+            let mut encoder = GifEncoder::new(Cursor::new(&mut buf));
+            encoder
+                .set_repeat(Repeat::Infinite)
+                .map_err(|e| e.to_string())?;
 
-        for jpeg_bytes in photos {
-            let img = image::load_from_memory(&jpeg_bytes).map_err(|e| e.to_string())?;
-            let resized = if img.width() > 720 || img.height() > 720 {
-                img.resize(720, 720, image::imageops::FilterType::Lanczos3)
-            } else {
-                img
-            };
-            let rgba: ImageBuffer<Rgba<u8>, Vec<u8>> = resized.to_rgba8();
-            let frame = Frame::from_parts(
-                rgba,
-                0,
-                0,
-                image::Delay::from_saturating_duration(std::time::Duration::from_millis(
-                    frame_delay_ms as u64,
-                )),
-            );
-            encoder.encode_frame(frame).map_err(|e| e.to_string())?;
+            for jpeg_bytes in photos {
+                let img = image::load_from_memory(&jpeg_bytes).map_err(|e| e.to_string())?;
+                let resized = if img.width() > 720 || img.height() > 720 {
+                    img.resize(720, 720, image::imageops::FilterType::Triangle)
+                } else {
+                    img
+                };
+                let rgba: ImageBuffer<Rgba<u8>, Vec<u8>> = resized.to_rgba8();
+                let frame = Frame::from_parts(
+                    rgba,
+                    0,
+                    0,
+                    image::Delay::from_saturating_duration(std::time::Duration::from_millis(
+                        frame_delay_ms as u64,
+                    )),
+                );
+                encoder.encode_frame(frame).map_err(|e| e.to_string())?;
+            }
         }
-    }
-    Ok(buf)
+        Ok(buf)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 pub async fn encode_jpeg_frames_to_video_internal(

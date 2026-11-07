@@ -16,7 +16,7 @@
     getLayerZIndex,
     getTemplatePreviewBoxStyle
   } from '$lib/utils/templateComposite';
-  import { Check, Sparkles, ChevronRight, Search, RotateCw, Camera, FlipHorizontal2 } from '@lucide/svelte';
+  import { Check, Sparkles, ChevronRight, Search, RotateCw, Camera, FlipHorizontal2, RefreshCw } from '@lucide/svelte';
 
   interface Props {
     selectedFrame: string;
@@ -36,7 +36,7 @@
 
   let isRunning = $state(false);
   let selectedRetakeIndex = $state<number | null>(null);
-  let sessionSecs = $state(boothConfig.config.photoSessionTimeSecs || 10);
+  let sessionSecs = $state(boothConfig.config.photoSessionTimeSecs || 60);
   let timer: any = null;
   let liveviewInterval: any = null;
   let frameSrc = $state('');
@@ -160,16 +160,29 @@
     boothFlow.countdown = null;
     const captureTs = Date.now();
 
+    // Tampilkan overlay "Sedang capture kamera..."
+    boothFlow.isCapturingCamera = true;
+    boothFlow.captureMessage = 'Sedang capture kamera...';
+
     boothFlow.isFlashActive = true;
     setTimeout(() => {
       boothFlow.isFlashActive = false;
-    }, 2000);
+    }, 250);
+
+    // Tampilkan snapshot instan dari liveview pada slot retake seketika
+    let instantSnapshotUrl = '';
+    if (cameraStore.currentLiveviewUrl) {
+      instantSnapshotUrl = cameraStore.currentLiveviewUrl;
+      const updated = [...boothFlow.photosTaken];
+      updated[index] = instantSnapshotUrl;
+      boothFlow.photosTaken = updated;
+    }
 
     try {
       let bytes = await cameraStore.capture();
       if (!bytes && cameraStore.cameraMode === 'usb') {
-        console.warn(`[V3Session] Retake slot ${index + 1} pertama null, retry dalam 500ms...`);
-        await new Promise((r) => setTimeout(r, 500));
+        console.warn(`[V3Session] Retake slot ${index + 1} pertama null, retry dalam 300ms...`);
+        await new Promise((r) => setTimeout(r, 300));
         bytes = await cameraStore.capture();
       }
 
@@ -177,7 +190,7 @@
       if (bytes && bytes.length > 0) {
         const blob = new Blob([bytes], { type: 'image/jpeg' });
         photoUrl = URL.createObjectURL(blob);
-      } else {
+      } else if (!instantSnapshotUrl) {
         if (cameraStore.currentLiveviewUrl) {
           try {
             const resp = await fetch(cameraStore.currentLiveviewUrl);
@@ -227,9 +240,17 @@
             console.error('Gagal ekstrak liveview clip retake slot', index, err)
           );
       }
+
+      if (cameraStore.cameraMode === 'usb') {
+        await new Promise((r) => setTimeout(r, 400));
+        await cameraStore.getLiveviewFrame().catch(() => {});
+      }
     } catch (err) {
       console.error('Retake capture error:', err);
     } finally {
+      await new Promise((r) => setTimeout(r, 800));
+      boothFlow.isCapturingCamera = false;
+      boothFlow.captureMessage = null;
       isRunning = false;
     }
   }
@@ -498,7 +519,28 @@
             <span class="text-[11rem] font-black text-white leading-none drop-shadow-2xl font-mono">{boothFlow.countdown}</span>
             <span class="text-white/60 text-sm font-bold tracking-widest uppercase mt-2">Bersiap!</span>
           </div>
-        {:else if !isRunning && !allDone}
+        {/if}
+
+        <!-- Overlay status saat sedang capture & menstabilkan liveview kamera -->
+        {#if boothFlow.isCapturingCamera}
+          <div class="absolute inset-0 bg-black/75 backdrop-blur-sm z-35 flex flex-col items-center justify-center p-6 text-center select-none pointer-events-auto">
+            <div class="w-20 h-20 rounded-full bg-[#CD1C33]/20 border-2 border-[#CD1C33] flex items-center justify-center mb-4 text-white shadow-2xl">
+              <Camera size={38} class="animate-pulse text-[#CD1C33]" />
+            </div>
+            <h2 class="text-3xl font-black text-white uppercase tracking-wider mb-2 drop-shadow">
+              {boothFlow.captureMessage || "Sedang capture kamera..."}
+            </h2>
+            <p class="text-white/80 text-sm max-w-sm font-medium">
+              Mohon bersiap, foto sedang diproses dan live preview sedang disiapkan...
+            </p>
+            <div class="mt-4 flex items-center gap-2 text-white/60 text-xs font-bold px-4 py-1.5 rounded-full bg-white/10 border border-white/20">
+              <RefreshCw size={13} class="animate-spin" />
+              <span>Menstabilkan liveview kamera</span>
+            </div>
+          </div>
+        {/if}
+
+        {#if !isRunning && !allDone}
           <!-- svelte-ignore a11y_click_events_have_key_events -->
           <!-- svelte-ignore a11y_no_static_element_interactions -->
           <div

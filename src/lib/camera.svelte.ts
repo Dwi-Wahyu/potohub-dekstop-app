@@ -62,6 +62,7 @@ class CameraStore {
   detectError = $state<string | null>(null);
 
   isCapturing = $state(false);
+  isPreparingCapture = $state(false);
   isLiveviewActive = $state(false);
   currentLiveviewUrl = $state<string | null>(null);
   private isFetchingFrame = false;
@@ -311,8 +312,12 @@ class CameraStore {
     } else if (this.status === "connecting" && this.connectingPromise) {
       await this.connectingPromise;
     }
-    if (this.status !== "connected") return null;
+    if (this.status !== "connected") {
+      this.isPreparingCapture = false;
+      return null;
+    }
     this.isCapturing = true;
+    this.isPreparingCapture = false;
     this.errorMessage = null;
     try {
       if (this.cameraMode === "usb") {
@@ -330,6 +335,7 @@ class CameraStore {
       return null;
     } finally {
       this.isCapturing = false;
+      this.isPreparingCapture = false;
     }
   }
 
@@ -449,9 +455,9 @@ class CameraStore {
       return this.currentLiveviewUrl;
     }
     if (this.cameraMode === "usb") {
-      // Saat kamera sedang mengeksekusi jepretan foto fisik (isCapturing), tahan request EVF
+      // Saat kamera sedang bersiap atau mengeksekusi jepretan foto fisik, tahan request EVF
       // agar tidak memicu collision/device busy (0x81) pada interface USB kamera.
-      if (this.isFetchingFrame || this.isCapturing) {
+      if (this.isFetchingFrame || this.isCapturing || this.isPreparingCapture) {
         return this.currentLiveviewUrl;
       }
       this.isFetchingFrame = true;

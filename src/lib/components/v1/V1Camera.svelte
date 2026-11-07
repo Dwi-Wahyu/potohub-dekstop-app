@@ -159,22 +159,29 @@
 
     for (let c = boothConfig.config.countdownSecs; c > 0; c--) {
       boothFlow.countdown = c;
-      await new Promise((r) => setTimeout(r, 1000));
+      if (c === 1 && cameraStore.cameraMode === 'usb') {
+        await new Promise((r) => setTimeout(r, 800));
+        cameraStore.isPreparingCapture = true;
+        await new Promise((r) => setTimeout(r, 200));
+      } else {
+        await new Promise((r) => setTimeout(r, 1000));
+      }
     }
     boothFlow.countdown = null;
     const captureTs = Date.now();
 
-    // Tampilkan overlay "Sedang capture kamera..."
-    boothFlow.isCapturingCamera = true;
+    // Munculkan sekilas flash putih pada kotak preview liveview untuk UX
+    boothFlow.isFlashActive = true;
     boothFlow.captureMessage = 'Sedang capture kamera...';
 
-    boothFlow.isFlashActive = true;
-    setTimeout(() => {
-      boothFlow.isFlashActive = false;
-    }, 250);
-
     try {
-      let bytes = await cameraStore.capture();
+      const capturePromise = cameraStore.capture();
+
+      await new Promise((r) => setTimeout(r, 220));
+      boothFlow.isFlashActive = false;
+      boothFlow.isCapturingCamera = true;
+
+      let bytes = await capturePromise;
       if (!bytes && cameraStore.cameraMode === 'usb') {
         console.warn(`[V1Camera] Retake slot ${index + 1} pertama null, retry dalam 400ms...`);
         await new Promise((r) => setTimeout(r, 400));
@@ -245,6 +252,7 @@
     } catch (err) {
       console.error('Retake capture error:', err);
     } finally {
+      boothFlow.isFlashActive = false;
       boothFlow.isCapturingCamera = false;
       boothFlow.captureMessage = null;
       isRunning = false;
@@ -277,7 +285,7 @@
       "
     >
       {#if boothFlow.isFlashActive}
-        <div class="absolute inset-0 bg-white z-40 pointer-events-none transition-opacity duration-150"></div>
+        <div class="absolute inset-0 bg-white z-50 pointer-events-none transition-opacity duration-150"></div>
       {/if}
 
       <!-- Permanent Liveview Feed Layer -->
@@ -363,7 +371,7 @@
 
       <!-- Overlay status saat sedang capture & menstabilkan liveview kamera -->
       {#if boothFlow.isCapturingCamera}
-        <div class="absolute inset-0 bg-black/75 backdrop-blur-sm z-35 flex flex-col items-center justify-center p-6 text-center select-none pointer-events-auto">
+        <div class="absolute inset-0 bg-black/75 backdrop-blur-sm z-40 flex flex-col items-center justify-center p-6 text-center select-none pointer-events-auto">
           <div
             class="w-20 h-20 rounded-full flex items-center justify-center mb-4 text-white shadow-2xl"
             style="background: {uiConfig.config.primaryColor}30; border: 2px solid {uiConfig.config.primaryColor};"

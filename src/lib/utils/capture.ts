@@ -13,25 +13,34 @@ export async function runCaptureSequence(
     const cSecs = i === 0 ? (boothConfig.config.firstCountdownSecs || countdownSecs) : countdownSecs;
     for (let c = cSecs; c > 0; c--) {
       boothFlow.countdown = c;
-      await new Promise((r) => setTimeout(r, 1000));
+      if (c === 1 && cameraStore.cameraMode === 'usb') {
+        await new Promise((r) => setTimeout(r, 800));
+        // Hentikan request EVF baru 200ms sebelum angka 0 agar bus USB kosong & shutter berbunyi tepat bersamaan dengan flash putih
+        cameraStore.isPreparingCapture = true;
+        await new Promise((r) => setTimeout(r, 200));
+      } else {
+        await new Promise((r) => setTimeout(r, 1000));
+      }
     }
     boothFlow.countdown = null;
     const captureTs = Date.now(); // t=0 untuk window klip — SEBELUM shutter, seakurat mungkin
 
-    // Tampilkan overlay "Sedang capture kamera..." agar customer tahu proses sedang berjalan dan kamera tidak busy
-    boothFlow.isCapturingCamera = true;
-    boothFlow.captureMessage = 'Sedang capture kamera...';
-
-    // Trigger visual screen flash effect - durasi singkat 250ms agar responsif dan tidak menutupi layar
+    // 1. Munculkan sekilas flash putih terang pada kotak preview liveview untuk UX jepretan
     boothFlow.isFlashActive = true;
-    setTimeout(() => {
-      boothFlow.isFlashActive = false;
-    }, 250);
+    boothFlow.captureMessage = 'Sedang capture kamera...';
 
     const slotIndex = i;
 
     try {
-      let bytes = await cameraStore.capture();
+      // Picu perintah shutter kamera fisik secara paralel bersamaan dengan munculnya flash putih
+      const capturePromise = cameraStore.capture();
+
+      // Biarkan flash putih terlihat jelas sekilas (220ms) di kotak liveview sebelum menampilkan overlay gelap
+      await new Promise((r) => setTimeout(r, 220));
+      boothFlow.isFlashActive = false;
+      boothFlow.isCapturingCamera = true;
+
+      let bytes = await capturePromise;
       // Retry otomatis 1x jika pada jepretan pertama kamera sedang transisi/busy
       if (!bytes && cameraStore.cameraMode === 'usb') {
         console.warn(`[runCaptureSequence] Capture slot ${i + 1} pertama null, retry dalam 400ms...`);
@@ -114,6 +123,7 @@ export async function runCaptureSequence(
       console.error('Capture error:', err);
     } finally {
       // Hilangkan overlay saat kamera sudah stabil & siap untuk slot berikutnya
+      boothFlow.isFlashActive = false;
       boothFlow.isCapturingCamera = false;
       boothFlow.captureMessage = null;
     }

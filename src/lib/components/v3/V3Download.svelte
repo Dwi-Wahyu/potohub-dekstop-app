@@ -121,7 +121,7 @@
     } else if (networkStatus.isOnline && isValidUUID(boothId)) {
       isSaving = true;
       try {
-        const sessionMethod = boothFlow.paymentMethod === 'Ticket' ? 'Ticket' : 'Cash';
+        const sessionMethod = boothFlow.paymentMethod === 'Cashless' ? 'Cashless' : 'Ticket';
         const session = await createTransactionSession(
           boothId,
           selectedTemplate?.category_id,
@@ -181,7 +181,7 @@
       printQty: copies,
       paperSize,
       useSecondary,
-      paymentMethod: (boothFlow.paymentMethod === 'Ticket' ? 'Ticket' : 'Cash') as 'Ticket' | 'Cash',
+      paymentMethod: (boothFlow.paymentMethod === 'Cashless' ? 'Cashless' : 'Ticket') as 'Ticket' | 'Cashless',
       softfileTarget: null,
       localSessionCode,
       backendSessionId: isValidUUID(boothFlow.sessionId) ? boothFlow.sessionId! : undefined,
@@ -336,7 +336,7 @@
         categoryId: selectedTemplate?.category_id ?? null,
         frameId: selectedFrame,
         printQty: boothFlow.printQty,
-        paymentMethod: boothFlow.paymentMethod === 'Ticket' ? 'Ticket' : 'Cash',
+        paymentMethod: boothFlow.paymentMethod === 'Cashless' ? 'Cashless' : 'Ticket',
         softfileTarget: target,
         localSessionCode: sCode,
         backendSessionId: isValidUUID(boothFlow.sessionId) ? boothFlow.sessionId! : undefined,

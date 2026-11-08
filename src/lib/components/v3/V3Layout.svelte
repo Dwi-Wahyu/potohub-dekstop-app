@@ -81,7 +81,7 @@
 
   function handleTutorialNext() {
     if (boothConfig.config.skipPayment) {
-      boothFlow.paymentMethod = 'Cash';
+      boothFlow.paymentMethod = 'Ticket';
       step = 'frame';
     } else if (boothConfig.config.earlyPaymentPage) {
       step = 'package';
@@ -138,12 +138,12 @@
     selectedFrameId = frameId;
     boothFlow.selectedFrameId = frameId;
     if (boothConfig.config.skipPayment) {
-      boothFlow.paymentMethod = 'Cash';
+      boothFlow.paymentMethod = 'Ticket';
       step = 'session';
       void initActiveCheckpoint({
         sessionCode: boothFlow.sessionCode || `LOCAL-${Date.now()}`,
         sessionId: boothFlow.sessionId,
-        paymentMethod: 'Cash',
+        paymentMethod: 'Ticket',
         selectedFrameId: frameId,
         totalSlots: 3,
         printQty: boothFlow.printQty,

@@ -777,14 +777,10 @@ export async function createTransactionSession(
 ): Promise<CreateSessionResponse> {
   let method = "Cashless";
   const pm = (paymentMethod || "").toLowerCase();
-  if (pm.includes("ticket")) {
-    method = "Ticket";
-  } else if (pm.includes("cash") && !pm.includes("cashless")) {
-    method = "Cash";
-  } else if (pm.includes("voucher")) {
-    method = "Voucher";
-  } else {
+  if (pm.includes("cashless")) {
     method = "Cashless";
+  } else {
+    method = "Ticket";
   }
 
   const sanitizedCategoryId = isValidUUID(categoryId) ? categoryId : null;

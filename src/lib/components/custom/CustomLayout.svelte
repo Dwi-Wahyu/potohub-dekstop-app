@@ -89,6 +89,7 @@
 
   function handleTutorialNext() {
     if (boothConfig.config.skipPayment) {
+      boothFlow.paymentMethod = 'Ticket';
       currentSubStep = 'category_frame';
     } else if (boothConfig.config.earlyPaymentPage) {
       currentSubStep = 'method_select';
@@ -107,11 +108,12 @@
   function handlePrintQtyNext(quantity: number) {
     boothFlow.printQty = quantity;
     if (boothConfig.config.skipPayment) {
+      boothFlow.paymentMethod = 'Ticket';
       currentSubStep = 'camera';
       void initActiveCheckpoint({
         sessionCode: boothFlow.sessionCode || `LOCAL-${Date.now()}`,
         sessionId: boothFlow.sessionId,
-        paymentMethod: 'Cash',
+        paymentMethod: 'Ticket',
         selectedFrameId: selectedFrameConfigId,
         totalSlots: 4,
         printQty: quantity,
@@ -133,13 +135,16 @@
 
   function handleMethodSelect(method: 'ticket' | 'cashless') {
     if (method === 'ticket') {
+      boothFlow.paymentMethod = 'Ticket';
       currentSubStep = 'ticket';
     } else {
+      boothFlow.paymentMethod = 'Cashless';
       currentSubStep = 'payment';
     }
   }
 
   function handlePaymentSuccess() {
+    boothFlow.paymentMethod = 'Cashless';
     if (boothConfig.config.earlyPaymentPage) {
       currentSubStep = 'category_frame';
     } else {
@@ -220,6 +225,7 @@
     <V1TicketScan
       background={getCustomBg('ticket')}
       onSuccess={() => {
+        boothFlow.paymentMethod = 'Ticket';
         if (boothConfig.config.earlyPaymentPage) {
           currentSubStep = 'category_frame';
         } else {

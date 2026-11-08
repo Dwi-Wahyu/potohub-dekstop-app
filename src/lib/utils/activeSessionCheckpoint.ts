@@ -9,7 +9,7 @@ export interface CapturedSlotInfo {
 export interface ActiveSessionCheckpoint {
   sessionCode: string;
   sessionId: string | null;
-  paymentMethod: 'Cashless' | 'Ticket' | 'Cash' | 'Voucher';
+  paymentMethod: 'Cashless' | 'Ticket';
   selectedFrameId: string | null;
   selectedFilterId: string;
   printQty: number;
@@ -64,7 +64,7 @@ export async function saveActiveCheckpoint(
 export async function initActiveCheckpoint(options: {
   sessionCode: string;
   sessionId?: string | null;
-  paymentMethod?: 'Cashless' | 'Ticket' | 'Cash' | 'Voucher';
+  paymentMethod?: 'Cashless' | 'Ticket';
   selectedFrameId?: string | null;
   totalSlots: number;
   printQty?: number;
@@ -73,7 +73,7 @@ export async function initActiveCheckpoint(options: {
   const checkpoint: ActiveSessionCheckpoint = {
     sessionCode: options.sessionCode,
     sessionId: options.sessionId ?? null,
-    paymentMethod: options.paymentMethod ?? 'Cashless',
+    paymentMethod: options.paymentMethod ?? 'Ticket',
     selectedFrameId: options.selectedFrameId ?? null,
     selectedFilterId: 'none',
     printQty: options.printQty ?? 1,

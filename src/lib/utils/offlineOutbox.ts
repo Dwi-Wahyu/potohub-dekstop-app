@@ -33,7 +33,7 @@ export interface SessionSoftfilePayload {
   categoryId: string | null;
   frameId: string | null;
   printQty: number;
-  paymentMethod: 'Ticket' | 'Cashless' | 'Cash' | 'Voucher';
+  paymentMethod: 'Ticket' | 'Cashless';
   softfileTarget: string | null;
   localSessionCode: string;
   backendSessionId?: string;
@@ -129,9 +129,9 @@ export async function processJob(job: OutboxJob): Promise<JobProcessOutcome> {
       let sessionId = isValidUUID(payload.backendSessionId) ? payload.backendSessionId : undefined;
       if (!sessionId) {
         try {
-          // Gunakan 'Ticket' atau 'Cash' saat sinkronisasi sesi selesai agar backend langsung
+          // Gunakan 'Ticket' saat sinkronisasi sesi offline agar backend langsung
           // membuat sesi berstatus Paid tanpa memanggil API DOKU SNAP QRIS.
-          const syncMethod = payload.paymentMethod === 'Ticket' ? 'Ticket' : 'Cash';
+          const syncMethod = payload.paymentMethod === 'Cashless' ? 'Cashless' : 'Ticket';
           const session = await createTransactionSession(
             payload.boothId,
             payload.categoryId,

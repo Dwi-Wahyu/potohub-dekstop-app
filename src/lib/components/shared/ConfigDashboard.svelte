@@ -27,7 +27,7 @@
   import { goto } from '$app/navigation';
   import { boothConfig, type BoothCfg } from '$lib/stores/boothConfig.svelte';
   import { uiConfig } from '$lib/stores/uiConfig.svelte';
-  import { syncBoothSettings, getActiveBoothId } from '$lib/api/boothClient';
+  import { syncBoothSettings, getActiveBoothId, pushPaperSettingsToServer, pushTimerSettingsToServer } from '$lib/api/boothClient';
   import { networkStatus } from '$lib/stores/networkStatus.svelte';
   import {
     countPendingOutboxJobs,
@@ -68,6 +68,7 @@
   let view = $state<'main' | 'session'>('main');
   let sessionDraft = $state({
     photoSessionTimeSecs: 60,
+    firstCountdownSecs: 5,
     countdownSecs: 3,
     idleBannerTimeoutMins: 2,
     paperCount: 100,
@@ -266,8 +267,9 @@
   function openSessionSettings() {
     sessionDraft = {
       photoSessionTimeSecs: boothConfig.config.photoSessionTimeSecs || 60,
-      countdownSecs: boothConfig.config.countdownSecs,
-      idleBannerTimeoutMins: boothConfig.config.idleBannerTimeoutMins,
+      firstCountdownSecs: boothConfig.config.firstCountdownSecs || 5,
+      countdownSecs: boothConfig.config.countdownSecs || 3,
+      idleBannerTimeoutMins: boothConfig.config.idleBannerTimeoutMins || 2,
       paperCount: boothConfig.config.paperCount,
       paperThreshold: boothConfig.config.paperThreshold
     };
@@ -277,6 +279,18 @@
 
   function saveSessionSettings() {
     boothConfig.save({ ...sessionDraft });
+    if (printerStore.status) {
+      printerStore.status.paper_remaining = sessionDraft.paperCount;
+    }
+    if (printerStore.secondaryStatus) {
+      printerStore.secondaryStatus.paper_remaining = sessionDraft.paperCount;
+    }
+    void pushPaperSettingsToServer(sessionDraft.paperCount, sessionDraft.paperThreshold);
+    void pushTimerSettingsToServer({
+      firstCountdownSecs: sessionDraft.firstCountdownSecs,
+      countdownSecs: sessionDraft.countdownSecs,
+      photoSessionTimeSecs: sessionDraft.photoSessionTimeSecs,
+    });
     view = 'main';
     showNotice('Pengaturan sesi disimpan!', 2500);
   }
@@ -435,10 +449,15 @@
             {/snippet}
             {@render sessionRow('Batas waktu sesi foto', 'Total durasi di layar foto sebelum otomatis selesai.', false, sessionTimeCtl)}
 
+            {#snippet firstCountdownCtl()}
+              {@render stepper(sessionDraft.firstCountdownSecs, 1, 99, (v) => (sessionDraft.firstCountdownSecs = v), 'dtk')}
+            {/snippet}
+            {@render sessionRow('Countdown foto pertama', 'Hitung mundur sebelum jepretan foto pertama diambil.', false, firstCountdownCtl)}
+
             {#snippet countdownCtl()}
               {@render stepper(sessionDraft.countdownSecs, 1, 99, (v) => (sessionDraft.countdownSecs = v), 'dtk')}
             {/snippet}
-            {@render sessionRow('Countdown antar foto', 'Jeda sebelum foto berikutnya diambil.', false, countdownCtl)}
+            {@render sessionRow('Countdown antar foto', 'Jeda hitung mundur sebelum foto berikutnya diambil.', false, countdownCtl)}
 
             {#snippet idleCtl()}
               <div style="display: flex; gap: 4px; padding: 4px; border-radius: 14px; background: {NEU_BG}; box-shadow: {neuCfg.inset};">
@@ -1081,7 +1100,7 @@
             <div style="flex: 1;">
               <p style={titleStyle}>Pengaturan sesi</p>
               <p style={subStyle}>
-                Waktu sesi {boothConfig.config.photoSessionTimeSecs || 60} dtk · Countdown {boothConfig.config.countdownSecs} dtk · Banner idle {boothConfig.config.idleBannerTimeoutMins} menit · Peringatan kertas {boothConfig.config.paperThreshold}
+                Waktu sesi {boothConfig.config.photoSessionTimeSecs || 60} dtk · Foto 1: {boothConfig.config.firstCountdownSecs || 5} dtk · Lanjutan: {boothConfig.config.countdownSecs} dtk · Banner idle {boothConfig.config.idleBannerTimeoutMins} menit · Peringatan kertas {boothConfig.config.paperThreshold}
               </p>
             </div>
             <ChevronRight size={18} color="#475569" />

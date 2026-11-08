@@ -531,12 +531,8 @@
               {boothFlow.captureMessage || "Sedang capture kamera..."}
             </h2>
             <p class="text-white/80 text-sm max-w-sm font-medium">
-              Mohon bersiap, foto sedang diproses dan live preview sedang disiapkan...
+              Tahan pose, foto sedang diproses dan live preview sedang disiapkan...
             </p>
-            <div class="mt-4 flex items-center gap-2 text-white/60 text-xs font-bold px-4 py-1.5 rounded-full bg-white/10 border border-white/20">
-              <RefreshCw size={13} class="animate-spin" />
-              <span>Menstabilkan liveview kamera</span>
-            </div>
           </div>
         {/if}
 

@@ -10,7 +10,12 @@ export async function runCaptureSequence(
   const clipPromises: Promise<void>[] = [];
 
   for (let i = 0; i < slotCount; i++) {
-    const cSecs = i === 0 ? (boothConfig.config.firstCountdownSecs || countdownSecs) : countdownSecs;
+    const cSecs =
+      i === 0
+        ? (typeof boothConfig.config.firstCountdownSecs === 'number' && boothConfig.config.firstCountdownSecs > 0
+            ? boothConfig.config.firstCountdownSecs
+            : countdownSecs)
+        : countdownSecs;
     for (let c = cSecs; c > 0; c--) {
       boothFlow.countdown = c;
       if (c === 1 && cameraStore.cameraMode === 'usb') {

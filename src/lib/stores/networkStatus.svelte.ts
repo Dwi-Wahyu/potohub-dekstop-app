@@ -2,6 +2,7 @@ import { flushOutbox } from '$lib/utils/offlineOutbox';
 import { getActivation, getOrCreateDeviceId, countPendingOutboxJobs, countPendingPrintJobs } from '$lib/db/local';
 import { printerStore } from '$lib/printer.svelte';
 import { cameraStore } from '$lib/camera.svelte';
+import { boothConfig } from '$lib/stores/boothConfig.svelte';
 
 const envs = import.meta.env as Record<string, string>;
 const rawBase =
@@ -95,13 +96,18 @@ class NetworkStatusStore {
         ? 'READY'
         : 'OFFLINE';
 
+    const effectiveRemainingPaper =
+      typeof printerStore.status?.paper_remaining === 'number'
+        ? printerStore.status.paper_remaining
+        : (typeof boothConfig.config.paperCount === 'number' ? boothConfig.config.paperCount : null);
+
     const payload = {
       device_id: identity.deviceId,
       app_version: '0.1.0',
       mode: mode,
       camera_status: cameraStatus,
       printer_status: printerStatus,
-      remaining_paper: printerStore.status?.paper_remaining ?? null,
+      remaining_paper: effectiveRemainingPaper,
       pending_outbox_count: pendingOutbox,
       pending_print_count: pendingPrints,
       offline_duration_seconds: offlineDuration,

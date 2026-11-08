@@ -188,6 +188,9 @@ class PrinterStore {
           anyTransitionedToOnline = true;
         }
         this.previousIsOnline = newStatus.is_online;
+        if (newStatus.paper_remaining === undefined || newStatus.paper_remaining === null) {
+          newStatus.paper_remaining = boothConfig.config.paperCount;
+        }
         this.status = newStatus;
       } catch (err) {
         this.errorMessage = String(err);
@@ -207,6 +210,9 @@ class PrinterStore {
           anyTransitionedToOnline = true;
         }
         this.previousSecondaryIsOnline = newSecStatus.is_online;
+        if (newSecStatus.paper_remaining === undefined || newSecStatus.paper_remaining === null) {
+          newSecStatus.paper_remaining = boothConfig.config.paperCount;
+        }
         this.secondaryStatus = newSecStatus;
       } catch (err) {
         console.warn("[printerStore] Failed to query secondary printer status:", err);
@@ -247,10 +253,15 @@ class PrinterStore {
     if (!st?.is_ready) {
       return { ok: false, reason: `Printer '${targetPrinter}' mengalami error atau tidak siap` };
     }
-    if (st?.paper_remaining !== undefined && st.paper_remaining < copies) {
-      return { ok: false, reason: `Kertas printer '${targetPrinter}' tidak mencukupi` };
+    const remaining = st?.paper_remaining ?? boothConfig.config.paperCount;
+    if (typeof remaining === "number" && remaining < copies) {
+      return { ok: false, reason: `Kertas printer '${targetPrinter}' tidak mencukupi (sisa ${remaining} lembar)` };
     }
     return { ok: true };
+  }
+
+  deductPaperCount(copies: number = 1): number {
+    return deductPaperCount(copies);
   }
 
   async print(imagePath: string, options: PrintOptions) {
@@ -470,3 +481,34 @@ class PrinterStore {
 }
 
 export const printerStore = new PrinterStore();
+
+/**
+ * Mengurangi stok kertas software counter setelah proses cetak dipastikan berhasil.
+ * Menyimpan pembaruan stok ke localStorage boothConfig, mengupdate state reaktif printerStore,
+ * dan mengirim pembaruan sisa stok ke remote API secara asinkron.
+ */
+export function deductPaperCount(copies: number = 1): number {
+  const countToDeduct = Math.max(1, copies);
+  const currentStock = boothConfig.config.paperCount;
+  const newStock = Math.max(0, currentStock - countToDeduct);
+
+  boothConfig.save({ paperCount: newStock });
+
+  if (printerStore.status) {
+    printerStore.status.paper_remaining = newStock;
+  }
+  if (printerStore.secondaryStatus) {
+    printerStore.secondaryStatus.paper_remaining = newStock;
+  }
+
+  // Push pembaruan stok ke server secara asinkron (non-blocking)
+  void import("$lib/api/boothClient")
+    .then(({ pushPaperSettingsToServer }) => {
+      void pushPaperSettingsToServer(newStock);
+    })
+    .catch((err) => {
+      console.warn("[printerStore] Gagal trigger pushPaperSettingsToServer:", err);
+    });
+
+  return newStock;
+}

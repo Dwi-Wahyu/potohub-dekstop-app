@@ -700,6 +700,59 @@ export async function syncBoothSettings() {
   }
 }
 
+export async function pushPaperSettingsToServer(currentStock: number, threshold?: number): Promise<boolean> {
+  const boothId = await getActiveBoothId();
+  if (!boothId) return false;
+  try {
+    const payload = {
+      current_stock: Math.max(0, currentStock),
+      threshold: threshold ?? boothConfig.config.paperThreshold ?? 20,
+    };
+    const res = await tauriFetch(`${API_BASE}/booths/${boothId}/settings/paper-reminder`, {
+      method: "PUT",
+      headers: await getAuthHeaders("application/json"),
+      body: JSON.stringify(payload),
+    });
+    return res.ok;
+  } catch (err) {
+    console.warn("[boothClient] Gagal pushPaperSettingsToServer:", err);
+    return false;
+  }
+}
+
+export async function pushTimerSettingsToServer(timerConfig: {
+  firstCountdownSecs?: number;
+  countdownSecs?: number;
+  photoSessionTimeSecs?: number;
+  bannerTimeSecs?: number;
+  procedureTimeSecs?: number;
+  paymentTimeSecs?: number;
+  endScreenTimeSecs?: number;
+}): Promise<boolean> {
+  const boothId = await getActiveBoothId();
+  if (!boothId) return false;
+  try {
+    const payload = {
+      first_countdown_time: timerConfig.firstCountdownSecs ?? boothConfig.config.firstCountdownSecs ?? 5,
+      next_countdown_time: timerConfig.countdownSecs ?? boothConfig.config.countdownSecs ?? 3,
+      photo_session_time: timerConfig.photoSessionTimeSecs ?? boothConfig.config.photoSessionTimeSecs ?? 60,
+      banner_time: timerConfig.bannerTimeSecs ?? boothConfig.config.bannerTimeSecs ?? 10,
+      procedure_time: timerConfig.procedureTimeSecs ?? boothConfig.config.procedureTimeSecs ?? 15,
+      payment_time: timerConfig.paymentTimeSecs ?? boothConfig.config.paymentTimeSecs ?? 120,
+      end_screen_time: timerConfig.endScreenTimeSecs ?? boothConfig.config.endScreenTimeSecs ?? 3,
+    };
+    const res = await tauriFetch(`${API_BASE}/booths/${boothId}/settings/timer`, {
+      method: "PUT",
+      headers: await getAuthHeaders("application/json"),
+      body: JSON.stringify(payload),
+    });
+    return res.ok;
+  } catch (err) {
+    console.warn("[boothClient] Gagal pushTimerSettingsToServer:", err);
+    return false;
+  }
+}
+
 export interface CreateSessionResponse {
   id?: string;
   session_id: string;

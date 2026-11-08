@@ -9,7 +9,7 @@ import {
   updateSessionPrintStatus,
   type PrintJob,
 } from '$lib/db/local';
-import { printerStore } from '$lib/printer.svelte';
+import { printerStore, deductPaperCount } from '$lib/printer.svelte';
 import { invoke } from '@tauri-apps/api/core';
 
 let isFlushing = false;
@@ -91,14 +91,8 @@ export async function flushPrintQueue(options?: FlushPrintOptions): Promise<{ pr
         void updateSessionPrintStatus(job.sessionCode, 'printed').catch(console.warn);
         processed++;
 
-        // Update software paper counter jika ada
-        const st =
-          job.useSecondary && printerStore.secondaryPrinter === targetPrinter
-            ? printerStore.secondaryStatus
-            : printerStore.status;
-        if (st?.paper_remaining !== undefined) {
-          st.paper_remaining = Math.max(0, st.paper_remaining - job.copies);
-        }
+        // Update software paper counter jika berhasil
+        deductPaperCount(job.copies);
       } catch (err) {
         console.error(`[printQueue] Gagal mencetak job #${job.id}:`, err);
         await markPrintJobFailedAttempt(job.id, String(err));
@@ -160,6 +154,8 @@ export async function reprintSessionDirectly(
       quality: 'standard',
       useSecondary,
     });
+
+    deductPaperCount(copies);
 
     return { ok: true, message: `Berhasil mengirim ${copies} lembar ke printer!` };
   } catch (err) {

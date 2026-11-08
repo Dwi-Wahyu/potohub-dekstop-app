@@ -26,8 +26,6 @@
   let timer: any = null;
   let pollTimer: any = null;
 
-  import { buildDynamicQrisString } from '$lib/utils/qrisBuilder';
-
   onMount(async () => {
     timer = setInterval(() => {
       if (secs > 0) secs--;
@@ -114,9 +112,6 @@
         </svg>
         Kembali
       </button>
-      <span class="text-white text-xl italic font-semibold font-['Playfair_Display',Georgia,serif]">
-        {uiConfig.config.boothName}
-      </span>
     </div>
     <div class="flex items-center gap-2.5 bg-white rounded-xl pl-2 pr-4 py-1.5 shadow-lg">
       <span class="w-8 h-8 rounded-lg flex items-center justify-center text-white" style:background={accent}>

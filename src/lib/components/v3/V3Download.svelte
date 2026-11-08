@@ -19,7 +19,7 @@
   } from '$lib/api/boothClient';
   import { networkStatus } from '$lib/stores/networkStatus.svelte';
   import { enqueueOutboxJob, enqueuePrintJob, upsertSessionOutboxJob, updateSessionPrintStatus } from '$lib/db/local';
-  import { printerStore } from '$lib/printer.svelte';
+  import { printerStore, deductPaperCount } from '$lib/printer.svelte';
   import OfflineBanner from '$lib/components/shared/OfflineBanner.svelte';
   import { buildAssetRelativePaths } from '$lib/utils/localSessionStorage';
 
@@ -214,6 +214,7 @@
               printStatus = 'SUCCESS';
               sessionPayload.printStatus = 'printed';
               sessionPayload.printError = null;
+              deductPaperCount(copies);
               void updateSessionPrintStatus(localSessionCode, 'printed').catch(console.warn);
               if (!result.completed && result.error) {
                 console.warn('[V3Download] Print completion check warning:', result.error);

@@ -18,7 +18,7 @@
   } from '$lib/api/boothClient';
   import { networkStatus } from '$lib/stores/networkStatus.svelte';
   import { enqueueOutboxJob, enqueuePrintJob, upsertSessionOutboxJob, updateSessionPrintStatus } from '$lib/db/local';
-  import { printerStore } from '$lib/printer.svelte';
+  import { printerStore, deductPaperCount } from '$lib/printer.svelte';
   import OfflineBanner from '$lib/components/shared/OfflineBanner.svelte';
   import { buildAssetRelativePaths } from '$lib/utils/localSessionStorage';
   import { generateSessionCode } from '$lib/utils/shared';
@@ -222,6 +222,7 @@
               printStatus = 'SUCCESS';
               sessionPayload.printStatus = 'printed';
               sessionPayload.printError = null;
+              deductPaperCount(copies);
               void updateSessionPrintStatus(localSessionCode, 'printed').catch(console.warn);
               if (!result.completed && result.error) {
                 console.warn('[V1Complete] Print completion check warning:', result.error);
@@ -463,9 +464,6 @@
 >
   <!-- Header -->
   <header class="flex items-center justify-between px-8 pt-6 shrink-0">
-    <span class="text-white text-xl italic font-semibold font-['Playfair_Display',Georgia,serif]">
-      {uiConfig.config.boothName}
-    </span>
     <div class="flex items-center gap-2.5 bg-white rounded-xl pl-2 pr-4 py-1.5 shadow-lg">
       <span class="w-8 h-8 rounded-lg flex items-center justify-center text-white" style:background={accent}>
         <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">

@@ -233,9 +233,19 @@
 
       let bytes = await capturePromise;
       if (!bytes && cameraStore.cameraMode === 'usb') {
-        console.warn(`[V2Session] Retake slot ${index + 1} pertama null, retry dalam 400ms...`);
-        await new Promise((r) => setTimeout(r, 400));
+        console.warn(`[V2Session] Retake slot ${index + 1} null, coba connect & retry dalam 500ms...`);
+        await new Promise((r) => setTimeout(r, 500));
+        await cameraStore.connect('usb');
         bytes = await cameraStore.capture();
+      }
+
+      if (!bytes && (cameraStore.status !== 'connected' || cameraStore.cameraMode === 'usb')) {
+        boothFlow.captureMessage = 'Kamera tidak merespon, mencoba memulihkan...';
+        const reconnected = await handleCameraDisconnect();
+        if (reconnected) {
+          await handleRetakeSingle(index);
+          return;
+        }
       }
 
       let photoUrl = '';

@@ -610,6 +610,22 @@ pub mod platform {
         Ok((model, port))
     }
 
+    unsafe fn recover_camera_session(
+        api: &EdsdkApi,
+        camera: &mut EdsCameraRef,
+        pump_messages: &dyn Fn(),
+    ) -> Result<(String, String), String> {
+        log::warn!("[Canon-Worker] Menjalankan recover_camera_session (melepas shutter dan membuka ulang sesi)...");
+        if !camera.is_null() {
+            let _ = (api.SendCommand)(*camera, kEdsCameraCommand_PressShutterButton, kEdsCameraCommand_ShutterButton_OFF);
+            pump_messages();
+            std::thread::sleep(Duration::from_millis(100));
+            pump_messages();
+        }
+        LIVEVIEW_ACTIVE_FLAG.store(false, Ordering::SeqCst);
+        try_open_camera_session(api, camera, pump_messages)
+    }
+
     fn worker_thread_main(dll_path: PathBuf, rx: std::sync::mpsc::Receiver<WorkerCmd>) {
         extern "system" {
             fn CoInitializeEx(pvReserved: *mut c_void, dwCoInit: u32) -> i32;
@@ -654,6 +670,7 @@ pub mod platform {
         let mut camera: EdsCameraRef = ptr::null_mut();
         let mut last_liveview_frame: Option<Vec<u8>> = None;
         let mut last_keepalive = Instant::now();
+        let mut consecutive_evf_failures: u32 = 0;
 
         let pump_messages = || {
             unsafe {
@@ -777,6 +794,8 @@ pub mod platform {
                                 }
                             }
 
+                            // Pastikan tombol shutter dilepas sebelum memulai liveview
+                            let _ = (api.SendCommand)(camera, kEdsCameraCommand_PressShutterButton, kEdsCameraCommand_ShutterButton_OFF);
                             let _ = (api.SendCommand)(camera, kEdsCameraCommand_ExtendShutDownTimer, 0);
 
                             // 1. Coba aktifkan Liveview mode jika didukung
@@ -809,7 +828,7 @@ pub mod platform {
 
                             let mut err = (api.SetPropertyData)(camera, kEdsPropID_Evf_OutputDevice, 0, 4, &device as *const u32 as *const c_void);
                             if err != EDS_ERR_OK {
-                                for attempt in 1..=10 {
+                                for attempt in 1..=8 {
                                     std::thread::sleep(Duration::from_millis(150));
                                     pump_messages();
                                     err = (api.SetPropertyData)(camera, kEdsPropID_Evf_OutputDevice, 0, 4, &device as *const u32 as *const c_void);
@@ -829,17 +848,22 @@ pub mod platform {
                                 }
                             }
 
+                            // Jika kamera masih DEVICE_BUSY (0x81), lakukan pemulihan sesi secara otomatis
+                            if err == EDS_ERR_DEVICE_BUSY {
+                                log::warn!("[Canon-Worker] Kamera mengalami Device Busy (0x81) saat start_liveview. Melakukan recover_camera_session...");
+                                if let Ok(_) = recover_camera_session(&api, &mut camera, &pump_messages) {
+                                    let _ = (api.SetPropertyData)(camera, kEdsPropID_Evf_Mode, 0, 4, &mode as *const u32 as *const c_void);
+                                    err = (api.SetPropertyData)(camera, kEdsPropID_Evf_OutputDevice, 0, 4, &device as *const u32 as *const c_void);
+                                }
+                            }
+
                             if err == EDS_ERR_OK {
                                 LIVEVIEW_ACTIVE_FLAG.store(true, Ordering::SeqCst);
+                                consecutive_evf_failures = 0;
                                 log::info!("[Canon-Worker] Live View AKTIF!");
                                 let _ = reply.send(Ok(()));
-                            } else if err == EDS_ERR_DEVICE_BUSY {
-                                // Kamera masih sibuk (0x81) saat transisi layar; izinkan lanjut agar get_liveview_frame
-                                // melakukan auto-recovery begitu sensor siap beberapa ratus ms kemudian.
-                                LIVEVIEW_ACTIVE_FLAG.store(false, Ordering::SeqCst);
-                                log::warn!("[Canon-Worker] Kamera masih sibuk (0x81) saat start_liveview, mengandalkan auto-recovery pada get_liveview_frame.");
-                                let _ = reply.send(Ok(()));
                             } else {
+                                LIVEVIEW_ACTIVE_FLAG.store(false, Ordering::SeqCst);
                                 log::error!("[Canon-Worker] Gagal mengaktifkan EVF output PC (code: {:#X})", err);
                                 let _ = reply.send(Err(format!("Gagal mengaktifkan EVF output PC (code: {:#X}). Pastikan mode kamera Manual (M) atau Program (P) dan bukan mode Video.", err)));
                             }
@@ -860,6 +884,7 @@ pub mod platform {
                             }
                         }
                         last_liveview_frame = None;
+                        consecutive_evf_failures = 0;
                         let _ = reply.send(Ok(()));
                     }
                     WorkerCmd::GetLiveviewFrame { reply } => {
@@ -921,6 +946,7 @@ pub mod platform {
 
                             if download_err == EDS_ERR_OK {
                                 LIVEVIEW_ACTIVE_FLAG.store(true, Ordering::SeqCst);
+                                consecutive_evf_failures = 0;
                                 let mut data_ptr: *mut c_void = ptr::null_mut();
                                 let mut data_len: u64 = 0;
                                 let _ = (api.GetPointer)(stream, &mut data_ptr);
@@ -936,17 +962,36 @@ pub mod platform {
                                     let _ = reply.send(Err("Frame liveview kosong".into()));
                                 }
                             } else {
+                                consecutive_evf_failures += 1;
                                 if download_err == EDS_ERR_INVALID_HANDLE || download_err == EDS_ERR_SESSION_NOT_OPEN {
                                     let _ = (api.CloseSession)(camera);
                                     let _ = (api.Release)(camera);
                                     camera = ptr::null_mut();
                                     LIVEVIEW_ACTIVE_FLAG.store(false, Ordering::SeqCst);
+                                    last_liveview_frame = None;
                                 } else if download_err == EDS_ERR_OBJECT_NOTREADY {
                                     LIVEVIEW_ACTIVE_FLAG.store(false, Ordering::SeqCst);
                                 }
-                                if let Some(ref cached) = last_liveview_frame {
-                                    let _ = reply.send(Ok(cached.clone()));
+
+                                // Jika liveview mengalami error terus menerus (>= 12 kali berturut-turut),
+                                // lakukan pemulihan sesi agar liveview tidak mati selamanya.
+                                if consecutive_evf_failures >= 12 {
+                                    log::warn!("[Canon-Worker] Liveview mengalami error {:#X} sebanyak {}x berturut-turut. Mencoba recover_camera_session...", download_err, consecutive_evf_failures);
+                                    consecutive_evf_failures = 0;
+                                    last_liveview_frame = None;
+                                    if let Ok(_) = recover_camera_session(&api, &mut camera, &pump_messages) {
+                                        let mode: u32 = 1;
+                                        let _ = (api.SetPropertyData)(camera, kEdsPropID_Evf_Mode, 0, 4, &mode as *const u32 as *const c_void);
+                                        let device: u32 = kEdsEvfOutputDevice_PC | kEdsEvfOutputDevice_TFT;
+                                        let _ = (api.SetPropertyData)(camera, kEdsPropID_Evf_OutputDevice, 0, 4, &device as *const u32 as *const c_void);
+                                    }
+                                }
+
+                                // Berikan cached frame hanya untuk glitch sesaat (maks 3 frame), selebihnya kembalikan Err
+                                if consecutive_evf_failures <= 3 && last_liveview_frame.is_some() {
+                                    let _ = reply.send(Ok(last_liveview_frame.as_ref().unwrap().clone()));
                                 } else {
+                                    last_liveview_frame = None;
                                     let _ = reply.send(Err(format!("Gagal download liveview frame (code: {:#X})", download_err)));
                                 }
                             }
@@ -976,6 +1021,10 @@ pub mod platform {
                         unsafe {
                             // Nonaktifkan sejenak streaming EVF agar interface USB kamera tidak busy (0x81) saat shutter ditekan
                             LIVEVIEW_ACTIVE_FLAG.store(false, Ordering::SeqCst);
+
+                            // Pastikan tombol shutter dilepas terlebih dahulu
+                            let _ = (api.SendCommand)(camera, kEdsCameraCommand_PressShutterButton, kEdsCameraCommand_ShutterButton_OFF);
+                            pump_messages();
 
                             let mut shutter_err = EDS_ERR_DEVICE_BUSY;
                             for attempt in 0..15 {
@@ -1040,26 +1089,25 @@ pub mod platform {
                             let cap_err = CAPTURE_ERROR_PARAM.swap(0, Ordering::SeqCst);
                             if (cap_err != 0 || (start.elapsed() > Duration::from_millis(3500) && photo_data.is_none())) && !non_af_attempted {
                                 non_af_attempted = true;
-                                log::warn!("[Canon-Worker] State event CaptureError ({:#X}), memicu ulang shutter tanpa AF (Completely_NonAF)...", cap_err);
+                                log::warn!("[Canon-Worker] State event CaptureError ({:#X}) atau jeda >3.5s tanpa data, memicu ulang shutter tanpa AF (Completely_NonAF)...", cap_err);
                                 unsafe {
+                                    // Pastikan lepaskan dulu tombol shutter
                                     let _ = (api.SendCommand)(camera, kEdsCameraCommand_PressShutterButton, kEdsCameraCommand_ShutterButton_OFF);
-                                    std::thread::sleep(Duration::from_millis(50));
-                                    pump_messages();
-                                    let _ = (api.SendCommand)(camera, kEdsCameraCommand_PressShutterButton, kEdsCameraCommand_ShutterButton_Halfway_NonAF);
                                     std::thread::sleep(Duration::from_millis(100));
                                     pump_messages();
+
                                     let mut c_err = (api.SendCommand)(camera, kEdsCameraCommand_PressShutterButton, kEdsCameraCommand_ShutterButton_Completely_NonAF);
-                                log::info!("[Canon-Worker] Shutter Completely_NonAF: {:#X}", c_err);
-                                if c_err != EDS_ERR_OK {
-                                    let _ = (api.SendCommand)(camera, kEdsCameraCommand_PressShutterButton, kEdsCameraCommand_ShutterButton_Halfway);
-                                    std::thread::sleep(Duration::from_millis(80));
-                                    pump_messages();
-                                    c_err = (api.SendCommand)(camera, kEdsCameraCommand_PressShutterButton, kEdsCameraCommand_ShutterButton_Completely);
-                                    log::info!("[Canon-Worker] Shutter Completely standar: {:#X}", c_err);
-                                }
+                                    log::info!("[Canon-Worker] Shutter Completely_NonAF: {:#X}", c_err);
+                                    if c_err != EDS_ERR_OK {
+                                        std::thread::sleep(Duration::from_millis(80));
+                                        pump_messages();
+                                        c_err = (api.SendCommand)(camera, kEdsCameraCommand_PressShutterButton, kEdsCameraCommand_ShutterButton_Completely);
+                                        log::info!("[Canon-Worker] Shutter Completely standar: {:#X}", c_err);
+                                    }
                                     std::thread::sleep(Duration::from_millis(250));
                                     pump_messages();
                                     let _ = (api.SendCommand)(camera, kEdsCameraCommand_PressShutterButton, kEdsCameraCommand_ShutterButton_OFF);
+                                    pump_messages();
                                 }
                             }
 
@@ -1077,6 +1125,26 @@ pub mod platform {
                                     }
                                 }
                             }
+                        }
+
+                        // Pastikan tombol shutter dilepas sepenuhnya
+                        unsafe {
+                            if !camera.is_null() {
+                                let _ = (api.SendCommand)(camera, kEdsCameraCommand_PressShutterButton, kEdsCameraCommand_ShutterButton_OFF);
+                                pump_messages();
+                            }
+                        }
+
+                        // Jika pengambilan foto gagal / timeout, pulihkan sesi kamera agar tidak exhaust / locked
+                        if photo_data.is_none() {
+                            log::warn!("[Canon-Worker] Pengambilan foto gagal / timeout 15s. Melakukan pemulihan sesi kamera...");
+                            let mut sender_guard = CAPTURE_TRANSFER_SENDER.lock().unwrap();
+                            *sender_guard = None;
+                            unsafe {
+                                let _ = recover_camera_session(&api, &mut camera, &pump_messages);
+                            }
+                            let _ = reply.send(Err("Timeout: Pengambilan foto melebihi batas waktu 15 detik. Sesi kamera telah dipulihkan otomatis.".into()));
+                            continue;
                         }
 
                         // Setelah foto diambil, kamera Canon otomatis mematikan EVF output ke PC.
@@ -1097,10 +1165,6 @@ pub mod platform {
 
                         if let Some(bytes) = photo_data {
                             let _ = reply.send(Ok(bytes));
-                        } else {
-                            let mut sender_guard = CAPTURE_TRANSFER_SENDER.lock().unwrap();
-                            *sender_guard = None;
-                            let _ = reply.send(Err("Timeout: Pengambilan foto melebihi batas waktu 15 detik.".into()));
                         }
                     }
                 },

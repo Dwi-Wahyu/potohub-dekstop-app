@@ -22,6 +22,18 @@ export type PrintOptions = {
   targetPrinter?: string;
 };
 
+export function isCutQueue(name: string): boolean {
+  const u = name.toUpperCase();
+  return (
+    u.includes("CUT") ||
+    u.includes("STRIP") ||
+    u.includes("COPY") ||
+    u.includes("2X6") ||
+    u.includes("2-INCH") ||
+    u.includes("SECONDARY")
+  );
+}
+
 const PHYSICAL_PRINT_MS_PER_COPY = 12_000;
 const POST_SPOOL_MIN_MS_PER_COPY = 10_000;
 const MAX_SPOOL_WAIT_MS = 120_000;
@@ -61,10 +73,10 @@ class PrinterStore {
   private previousSecondaryIsOnline: boolean | null = null;
 
   resolvePrinter(useSecondary?: boolean): string | null {
-    if (useSecondary && this.secondaryPrinter) {
-      return this.secondaryPrinter;
+    if (useSecondary) {
+      return this.secondaryPrinter || this.selectedPrinter;
     }
-    return this.selectedPrinter;
+    return this.selectedPrinter || this.secondaryPrinter;
   }
 
   getPrinterStatus(useSecondary?: boolean): PrinterStatus | null {
@@ -80,23 +92,66 @@ class PrinterStore {
       this.errorMessage = null;
       this.printers = await invoke<string[]>("get_printer_list");
 
-      const savedPrimary = boothConfig.config.primaryPrinter;
-      const savedSecondary = boothConfig.config.secondaryPrinter;
+      let savedPrimary = boothConfig.config.primaryPrinter;
+      let savedSecondary = boothConfig.config.secondaryPrinter;
 
-      // Resolve primary printer
+      // Self-healing: Deteksi konfigurasi terbalik di mana Primary keliru diset ke antrean Cut 2x6
+      // sementara antrean bersih (uncut) tersedia di Windows Spooler.
+      if (savedPrimary && isCutQueue(savedPrimary)) {
+        const cleanBase = this.printers.find((p) => {
+          const u = p.toUpperCase();
+          return (
+            !isCutQueue(p) &&
+            (u.includes("DNP") ||
+              u.includes("DS-RX1") ||
+              u.includes("RX1") ||
+              u.includes("CITIZEN") ||
+              u.includes("PHOTO PRINTER"))
+          );
+        }) || this.printers.find((p) => !isCutQueue(p));
+
+        if (cleanBase) {
+          console.warn(
+            `[printerStore] Memperbaiki konfigurasi printer terbalik: Primary '${savedPrimary}' memiliki konfigurasi Cut 2x6. Menukar '${cleanBase}' sebagai Primary (Uncut) dan '${savedPrimary}' sebagai Secondary (Cut).`
+          );
+          savedSecondary = savedPrimary;
+          savedPrimary = cleanBase;
+          boothConfig.save({
+            primaryPrinter: cleanBase,
+            secondaryPrinter: savedSecondary,
+          });
+        }
+      }
+
+      // Resolve primary printer (Standard 4x6 / 4R tanpa cut)
       if (savedPrimary && this.printers.includes(savedPrimary)) {
         this.selectedPrinter = savedPrimary;
       } else {
-        const dnpPrinter = this.printers.find((p) => {
-          const u = p.toUpperCase();
-          return (
-            u.includes("DNP") ||
-            u.includes("DS-RX1") ||
-            u.includes("RX1") ||
-            u.includes("CITIZEN") ||
-            u.includes("PHOTO PRINTER")
-          );
-        });
+        // Prioritaskan printer foto DNP/Citizen yang BERSIH (BUKAN antrean potong 2-inch)
+        const dnpPrinter =
+          this.printers.find((p) => {
+            const u = p.toUpperCase();
+            return (
+              !isCutQueue(p) &&
+              (u.includes("DNP") ||
+                u.includes("DS-RX1") ||
+                u.includes("RX1") ||
+                u.includes("CITIZEN") ||
+                u.includes("PHOTO PRINTER"))
+            );
+          }) ||
+          this.printers.find((p) => !isCutQueue(p)) ||
+          this.printers.find((p) => {
+            const u = p.toUpperCase();
+            return (
+              u.includes("DNP") ||
+              u.includes("DS-RX1") ||
+              u.includes("RX1") ||
+              u.includes("CITIZEN") ||
+              u.includes("PHOTO PRINTER")
+            );
+          });
+
         if (dnpPrinter) {
           this.selectedPrinter = dnpPrinter;
         } else if (this.printers.length > 0) {
@@ -110,23 +165,18 @@ class PrinterStore {
         }
       }
 
-      // Resolve secondary printer
-      if (savedSecondary && this.printers.includes(savedSecondary)) {
+      // Resolve secondary printer (Antrean 2-inch cut strip)
+      if (savedSecondary && this.printers.includes(savedSecondary) && savedSecondary !== this.selectedPrinter) {
         this.secondaryPrinter = savedSecondary;
       } else if (this.printers.length > 1) {
-        // Auto-detect secondary printer (e.g. queue dengan cut / strip / copy / 2x6, atau printer kedua)
+        // Auto-detect secondary printer khusus antrean cut/strip/2x6
         const candidateSecondary =
           this.printers.find((p) => {
             if (p === this.selectedPrinter) return false;
-            const u = p.toUpperCase();
-            return (
-              u.includes("CUT") ||
-              u.includes("STRIP") ||
-              u.includes("COPY") ||
-              u.includes("2X6") ||
-              u.includes("SECONDARY")
-            );
-          }) || this.printers.find((p) => p !== this.selectedPrinter);
+            return isCutQueue(p);
+          }) ||
+          // Jika tidak ada nama eksplisit cut, pilih printer kedua yang berbeda dari primary
+          this.printers.find((p) => p !== this.selectedPrinter);
 
         if (candidateSecondary) {
           this.secondaryPrinter = candidateSecondary;

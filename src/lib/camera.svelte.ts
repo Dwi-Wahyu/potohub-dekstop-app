@@ -332,6 +332,9 @@ class CameraStore {
       }
     } catch (err) {
       this.errorMessage = this.formatError(err);
+      if (this.cameraMode === "usb") {
+        this.status = "error";
+      }
       return null;
     } finally {
       this.isCapturing = false;

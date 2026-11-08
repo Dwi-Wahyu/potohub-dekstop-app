@@ -220,13 +220,16 @@
             <button
               type="button"
               class="p-2 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 rounded border border-neutral-700 transition"
-              title="Buka Pengaturan Printer Properties / Preferences (Aktifkan 2-Inch Cut)"
+              title="Buka Pengaturan Printer Properties / Preferences (Standard 4x6 / Tanpa Cut)"
               disabled={!printerStore.selectedPrinter}
               onclick={() => printerStore.openPrinterProperties(printerStore.selectedPrinter)}
             >
               <Settings class="w-4 h-4" />
             </button>
           </div>
+          <p class="text-xs text-neutral-400 mt-1">
+            Printer utama digunakan untuk cetak penuh (4x6 / 4R). Pastikan opsi 2-inch cut dalam keadaan <strong>Nonaktif</strong> pada driver printer ini.
+          </p>
         </div>
 
         {#if printerStore.status}

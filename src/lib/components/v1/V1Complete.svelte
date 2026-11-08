@@ -95,8 +95,19 @@
         () => fetchTemplates(boothId),
         (templates) => {
           const targetId = frameConfigId || boothFlow.selectedFrameId;
-          selectedTemplate =
-            templates.find((t) => t.id === targetId) || templates[0] || null;
+          const matched = templates.find((t) => t.id === targetId);
+          if (matched) {
+            selectedTemplate = matched;
+          } else if (templates.length > 0) {
+            selectedTemplate = {
+              ...templates[0],
+              id: targetId || templates[0].id,
+              paper_size: '4x6',
+              use_secondary_printer: false,
+            };
+          } else {
+            selectedTemplate = null;
+          }
         }
       );
     } catch (err) {

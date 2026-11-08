@@ -768,7 +768,7 @@
                     </div>
                     <button
                       type="button"
-                      title={isPrimary ? 'Buka Printer Properties & Preferences (aktifkan 2-inch cut)' : 'Buka Secondary Printer Preferences (aktifkan 2-inch cut)'}
+                      title={isPrimary ? 'Buka Preferensi Printer Utama (Standard 4x6 / Tanpa Cut)' : 'Buka Preferensi Printer Kedua (Aktifkan 2-inch Cut untuk Strip 2x6)'}
                       disabled={!printerStore.selectedPrinter}
                       onclick={() => (isPrimary ? handleOpenPrinterProperties(printerStore.selectedPrinter) : handleOpenSecondaryPrinterProperties())}
                       style="width: 44px; height: 44px; border-radius: 12px; background: {NEU_BG}; box-shadow: {neuCfg.btnSm}; border: none; display: flex; align-items: center; justify-content: center; flex-shrink: 0; cursor: {printerStore.selectedPrinter ? 'pointer' : 'not-allowed'}; color: {printerStore.selectedPrinter ? '#334155' : '#5b6b82'}; opacity: {printerStore.selectedPrinter ? 1 : 0.5};"
@@ -778,6 +778,8 @@
                   </div>
                   {#if !isPrimary && !off}
                     <p style="{subStyle} margin-top: 8px;">Klik ⚙ untuk mengaktifkan 2-inch cut (strip 2x6).</p>
+                  {:else if isPrimary && !off}
+                    <p style="{subStyle} margin-top: 8px;">Printer utama untuk ukuran penuh (4x6 / 4R tanpa potongan 2-inch).</p>
                   {/if}
                 </div>
               {/each}

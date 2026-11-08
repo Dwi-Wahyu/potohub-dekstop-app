@@ -79,14 +79,15 @@ export async function runCaptureSequence(
       let bytes = await capturePromise;
       // Retry otomatis 1x jika pada jepretan pertama kamera sedang transisi/busy
       if (!bytes && cameraStore.cameraMode === 'usb') {
-        console.warn(`[runCaptureSequence] Capture slot ${i + 1} pertama null, retry dalam 400ms...`);
-        await new Promise((r) => setTimeout(r, 400));
+        console.warn(`[runCaptureSequence] Capture slot ${i + 1} null, mencoba connect ulang & retry dalam 500ms...`);
+        await new Promise((r) => setTimeout(r, 500));
+        await cameraStore.connect('usb');
         bytes = await cameraStore.capture();
       }
 
-      // Jika kamera terputus di tengah pemotretan
-      if (!bytes && cameraStore.status !== 'connected' && onCameraDisconnect) {
-        boothFlow.captureMessage = 'Kamera terputus, mencoba memulihkan...';
+      // Jika kamera terputus atau gagal di tengah pemotretan USB
+      if (!bytes && (cameraStore.status !== 'connected' || cameraStore.cameraMode === 'usb') && onCameraDisconnect) {
+        boothFlow.captureMessage = 'Kamera tidak merespon, mencoba memulihkan...';
         const reconnected = await onCameraDisconnect();
         if (reconnected) {
           // Ulangi slot ini setelah berhasil reconnected

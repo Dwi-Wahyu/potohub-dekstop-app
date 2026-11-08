@@ -183,10 +183,11 @@ export interface TemplatePrinterConfig {
  * yang dipilih (otomatis memilih Primary Printer atau Secondary Printer untuk 2-inch cut strip).
  */
 export function resolvePrinterConfigForTemplate(
-  template: { paper_size?: string; use_secondary_printer?: boolean } | null | undefined
+  template: { paper_size?: string; use_secondary_printer?: boolean | string | number } | null | undefined
 ): TemplatePrinterConfig {
   const paperSize = template?.paper_size || '4x6';
-  const useSecondary = Boolean(template?.use_secondary_printer);
+  const rawSec = template?.use_secondary_printer;
+  const useSecondary = rawSec === true || rawSec === 1 || rawSec === 'true' || rawSec === '1';
   const targetPrinter = printerStore.resolvePrinter(useSecondary);
   return {
     useSecondary,

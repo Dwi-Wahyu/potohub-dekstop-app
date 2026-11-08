@@ -5,7 +5,7 @@
   import { boothConfig } from '$lib/stores/boothConfig.svelte';
   import { boothFlow } from '$lib/stores/booth.svelte';
   import { Check, Clock, ChevronLeft } from '@lucide/svelte';
-  import { fetchCategories, requireActiveBoothId, createTransactionSession, type BoothCategory } from '$lib/api/boothClient';
+  import { fetchCategories, requireActiveBoothId, createTransactionSession, cancelTransactionSession, type BoothCategory } from '$lib/api/boothClient';
   import { cachedFetch } from '$lib/utils/offlineCache';
   import { networkStatus } from '$lib/stores/networkStatus.svelte';
   import OfflineBanner from '$lib/components/shared/OfflineBanner.svelte';
@@ -23,8 +23,35 @@
   let qrUrl = $state('');
   let orderId = $state('');
   let loadingQr = $state(true);
+  let showCancelConfirm = $state(false);
+  let isCancelling = $state(false);
   let categoriesData = $state<BoothCategory[]>([]);
   let deadlineStr = $state('');
+
+  async function handleConfirmCancel() {
+    isCancelling = true;
+    if (orderId) {
+      try {
+        const boothId = await requireActiveBoothId();
+        await cancelTransactionSession(boothId, orderId);
+      } catch (err) {
+        console.warn('[V3Payment] Gagal membatalkan transaksi:', err);
+      }
+    }
+    boothFlow.sessionId = null;
+    boothFlow.sessionCode = null;
+    isCancelling = false;
+    showCancelConfirm = false;
+    onBack();
+  }
+
+  function handleBackClick() {
+    if (loadingQr || !orderId || paid) {
+      onBack();
+      return;
+    }
+    showCancelConfirm = true;
+  }
 
   let qty = $derived(boothFlow.printQty || 1);
   let priceBase = $derived(
@@ -228,7 +255,7 @@
           </button>
 
           <button
-            onclick={onBack}
+            onclick={handleBackClick}
             class="text-xs {!networkStatus.isOnline ? 'text-[#CD1C33] font-black' : 'text-gray-400 hover:text-gray-700 font-bold'} uppercase tracking-widest bg-transparent border-none cursor-pointer flex items-center gap-1 mt-1"
           >
             <ChevronLeft size={14} /> {!networkStatus.isOnline ? 'Ganti ke Tiket' : 'Ganti Metode'}
@@ -237,4 +264,45 @@
       </div>
     </div>
   </div>
+
+  {#if showCancelConfirm}
+    <div class="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-6 font-['Inter',sans-serif]">
+      <div class="bg-white rounded-3xl p-7 max-w-sm w-full shadow-2xl flex flex-col items-center text-center gap-4">
+        <div class="w-14 h-14 rounded-full bg-red-50 flex items-center justify-center text-[#CD1C33]">
+          <svg width="28" height="28" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+            <path d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+        </div>
+        <div>
+          <h3 class="m-0 text-base font-bold text-gray-900">Batalkan Pembayaran?</h3>
+          <p class="m-0 text-xs text-gray-500 mt-1.5 leading-relaxed">
+            Kode QRIS yang sedang tampil akan dibatalkan di sistem bank/e-wallet agar tidak dapat dibayar lagi.
+          </p>
+        </div>
+        <div class="flex gap-2.5 w-full mt-1">
+          <button
+            type="button"
+            onclick={() => (showCancelConfirm = false)}
+            disabled={isCancelling}
+            class="flex-1 py-3 rounded-xl border border-gray-200 text-gray-700 font-semibold text-xs bg-white hover:bg-gray-50 transition-colors cursor-pointer"
+          >
+            Lanjut Bayar
+          </button>
+          <button
+            type="button"
+            onclick={handleConfirmCancel}
+            disabled={isCancelling}
+            class="flex-1 py-3 rounded-xl text-white font-semibold text-xs bg-[#CD1C33] hover:bg-[#b01729] transition-colors cursor-pointer flex items-center justify-center gap-1.5 border-none"
+          >
+            {#if isCancelling}
+              <div class="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+              <span>Membatalkan...</span>
+            {:else}
+              <span>Ya, Batalkan</span>
+            {/if}
+          </button>
+        </div>
+      </div>
+    </div>
+  {/if}
 </div>

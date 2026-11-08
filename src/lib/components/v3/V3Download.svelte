@@ -297,8 +297,21 @@
     if (printAbortController) printAbortController.abort();
   });
 
+  function finishSession() {
+    kbOpen = false;
+    const validEm = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
+    if (email.trim() && !emailSent && validEm) {
+      void handleSendEmail();
+    }
+    const validPh = /^\+?[0-9]{8,15}$/.test(phone.trim().replace(/[\s-]/g, ''));
+    if (phone.trim() && !waSent && validPh) {
+      void handleSendWA();
+    }
+    onDone();
+  }
+
   $effect(() => {
-    if (timer === 0) onDone();
+    if (timer === 0) finishSession();
   });
 
   let sendErrMsg = $state('');
@@ -740,7 +753,7 @@
 
       <!-- Finish CTA -->
       <button
-        onclick={onDone}
+        onclick={finishSession}
         class="bg-white text-[#CD1C33] px-10 py-3 rounded-full font-black shadow-2xl hover:scale-105 active:scale-95 transition-all text-sm tracking-widest uppercase border-none cursor-pointer"
       >
         {sent ? '✦ Selesai' : '✦ Lewati'}

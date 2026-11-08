@@ -375,6 +375,7 @@ export async function isTokenValid(token: string | null | undefined): Promise<bo
 
 export async function activateBooth(activationCode: string) {
   const identity = await getOrCreateDeviceId();
+  const detectedTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Jakarta';
   const res = await fetch(`${API_BASE}/booths/activate`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -382,6 +383,7 @@ export async function activateBooth(activationCode: string) {
       activation_code: activationCode,
       device_id: identity.deviceId,
       device_name: identity.deviceName,
+      timezone: detectedTimezone,
     }),
   });
   if (!res.ok) {
@@ -660,7 +662,8 @@ export async function syncBoothSettings() {
   const boothId = await getActiveBoothId();
   if (!boothId) throw new Error("Booth belum teraktivasi.");
   try {
-    const res = await fetch(`${API_BASE}/booths/${boothId}/settings/sync`, {
+    const detectedTz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Jakarta';
+    const res = await fetch(`${API_BASE}/booths/${boothId}/settings/sync?timezone=${encodeURIComponent(detectedTz)}`, {
       method: "POST",
       headers: await getAuthHeaders(),
     });
@@ -791,6 +794,8 @@ export async function createTransactionSession(
     `[createTransactionSession] boothId=${boothId} method=${method} totalPrint=${totalPrint} categoryId=${sanitizedCategoryId} frameId=${sanitizedFrameId} amount=${amount ?? "null"}`
   ).catch(() => {});
 
+  const detectedTz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Jakarta';
+
   const res = await tauriFetch(`${API_BASE}/booths/${boothId}/transactions`, {
     method: "POST",
     headers: await getAuthHeaders("application/json"),
@@ -800,6 +805,7 @@ export async function createTransactionSession(
       total_print: totalPrint,
       payment_method: method,
       amount: amount != null ? amount : null,
+      timezone: detectedTz,
     }),
   });
   if (!res.ok) {
@@ -843,6 +849,26 @@ export async function checkPaymentStatus(
     throw new Error(`Failed to check payment status: ${res.statusText}`);
   }
   return res.json();
+}
+
+export async function cancelTransactionSession(
+  boothId: string,
+  orderId: string,
+): Promise<{ status: string; message: string }> {
+  try {
+    const res = await tauriFetch(`${API_BASE}/booths/${boothId}/transactions/${orderId}/cancel`, {
+      method: "POST",
+      headers: await getAuthHeaders("application/json"),
+    });
+    if (!res.ok) {
+      console.warn(`[cancelTransactionSession] Status ${res.status}`);
+      return { status: "failed", message: `HTTP ${res.status}` };
+    }
+    return await res.json();
+  } catch (err) {
+    console.warn("[cancelTransactionSession] Exception:", err);
+    return { status: "error", message: String(err) };
+  }
 }
 
 // ── Report Problem (menu petugas) ──────────────────────────────────────────

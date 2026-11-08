@@ -512,12 +512,14 @@
                               e.stopPropagation();
                               selectedRetakeIndex = targetIdx;
                             }}
-                            class={`absolute inset-0 bg-black/30 hover:bg-black/50 transition-colors flex items-center justify-center cursor-pointer z-50 border-none group ${activeRetakeIdx === targetIdx ? 'ring-2 ring-yellow-400' : ''}`}
-                            title="Lihat & Take Ulang"
+                            class={`absolute inset-0 transition-colors flex items-center justify-center cursor-pointer z-50 border-none group ${activeRetakeIdx === targetIdx ? 'ring-2 ring-yellow-400 bg-transparent' : 'bg-black/30 hover:bg-black/50'}`}
+                            title={activeRetakeIdx === targetIdx ? 'Foto terpilih' : 'Lihat & Take Ulang'}
                           >
-                            <div class="w-7 h-7 rounded-full bg-white/90 text-black flex items-center justify-center shadow-lg transform transition-transform group-hover:scale-110">
-                              <Search size={14} strokeWidth={2.5} />
-                            </div>
+                            {#if activeRetakeIdx !== targetIdx}
+                              <div class="w-7 h-7 rounded-full bg-white/90 text-black flex items-center justify-center shadow-lg transform transition-transform group-hover:scale-110">
+                                <Search size={14} strokeWidth={2.5} />
+                              </div>
+                            {/if}
                           </button>
                         {/if}
                       {:else if cameraStore.isLiveviewActive || frameSrc}

@@ -297,8 +297,21 @@
     if (printAbortController) printAbortController.abort();
   });
 
+  function finishSession() {
+    kbOpen = false;
+    const validEm = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
+    if (email.trim() && !emailSent && validEm) {
+      void handleSendEmail();
+    }
+    const validPh = /^\+?[0-9]{8,15}$/.test(phone.trim().replace(/[\s-]/g, ''));
+    if (phone.trim() && !waSent && validPh) {
+      void handleSendWA();
+    }
+    onDone();
+  }
+
   $effect(() => {
-    if (timer === 0) onDone();
+    if (timer === 0) finishSession();
   });
 
   let sendErrMsg = $state('');
@@ -552,7 +565,7 @@
         </div>
       {/if}
       <button
-        onclick={onDone}
+        onclick={finishSession}
         class="mt-6 self-start px-7 py-2.5 text-xs font-bold border-[2px] border-black rounded-full uppercase tracking-[0.18em] hover:bg-black hover:text-white transition-all cursor-pointer font-['Nunito',sans-serif] bg-transparent"
       >
         {sent ? 'Selesai' : 'Lewati →'}

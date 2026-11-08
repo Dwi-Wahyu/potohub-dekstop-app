@@ -720,6 +720,7 @@ pub fn run() {
                     }),
                     tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Webview),
                 ])
+                .timezone_strategy(tauri_plugin_log::TimezoneStrategy::UseLocal)
                 .level(log::LevelFilter::Info)
                 .filter(|metadata| {
                     let target = metadata.target();

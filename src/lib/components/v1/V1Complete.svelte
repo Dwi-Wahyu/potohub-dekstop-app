@@ -78,7 +78,7 @@
       if (secs > 0) secs--;
       else {
         clearInterval(timer);
-        onNewSession();
+        finishSession();
       }
     }, 1000);
 
@@ -388,6 +388,17 @@
     }
   }
 
+  function finishSession() {
+    kbOpen = false;
+    if (email.trim() && !emailSent && validEmail) {
+      void handleSendEmail();
+    }
+    if (phone.trim() && !waSent) {
+      void handleSendWA();
+    }
+    onNewSession();
+  }
+
   const ROWS_ALPHA = [
     ['q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p'],
     ['a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l'],
@@ -683,10 +694,7 @@
         {/if}
 
         <button
-          onclick={() => {
-            kbOpen = false;
-            onNewSession();
-          }}
+          onclick={finishSession}
           class="mt-auto w-full py-3.5 rounded-xl font-bold text-sm active:scale-[0.98] transition-all border-none cursor-pointer text-white bg-[#121114] hover:bg-[#252329] shrink-0 shadow-sm"
         >
           Selesai

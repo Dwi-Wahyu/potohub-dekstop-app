@@ -796,6 +796,7 @@ pub fn run() {
             storage::save_session_file,
             storage::save_session_manifest,
             storage::read_session_file,
+            storage::delete_session_file,
             storage::get_sessions_dir,
             storage::open_sessions_dir,
             get_printer_list,

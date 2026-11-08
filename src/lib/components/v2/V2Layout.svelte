@@ -1,8 +1,17 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
   import { boothFlow } from '$lib/stores/booth.svelte';
   import { boothConfig } from '$lib/stores/boothConfig.svelte';
   import { uiConfig } from '$lib/stores/uiConfig.svelte';
+  import {
+    getActiveCheckpoint,
+    isCheckpointValid,
+    restoreActiveSession,
+    clearActiveCheckpoint,
+    initActiveCheckpoint,
+    updateCheckpointStatus,
+  } from '$lib/utils/activeSessionCheckpoint';
   import V2Landing from './V2Landing.svelte';
   import V2Tutorial from './V2Tutorial.svelte';
   import V2Payment from './V2Payment.svelte';
@@ -46,6 +55,25 @@
   let step = $state<V2Step>('landing');
   let selectedFrameId = $state('strip-2x4');
 
+  onMount(async () => {
+    try {
+      const cp = await getActiveCheckpoint();
+      if (cp && isCheckpointValid(cp)) {
+        const { restoredSlotsCount, allSlotsRestored } = await restoreActiveSession(cp);
+        if (allSlotsRestored) {
+          step = 'filter';
+        } else {
+          selectedFrameId = cp.selectedFrameId || 'strip-2x4';
+          step = 'session';
+        }
+      } else if (cp && !isCheckpointValid(cp)) {
+        await clearActiveCheckpoint();
+      }
+    } catch (err) {
+      console.warn('[V2Layout] Gagal memulihkan checkpoint sesi aktif:', err);
+    }
+  });
+
   $effect(() => {
     boothFlow.goTo(step as any);
   });
@@ -85,6 +113,14 @@
       step = 'frame';
     } else {
       step = 'session';
+      void initActiveCheckpoint({
+        sessionCode: boothFlow.sessionCode || `LOCAL-${Date.now()}`,
+        sessionId: boothFlow.sessionId,
+        paymentMethod: 'Ticket',
+        selectedFrameId,
+        totalSlots: 4,
+        printQty: boothFlow.printQty,
+      });
     }
   }
 
@@ -94,6 +130,14 @@
       step = 'frame';
     } else {
       step = 'session';
+      void initActiveCheckpoint({
+        sessionCode: boothFlow.sessionCode || `TRX-${Date.now()}`,
+        sessionId: boothFlow.sessionId,
+        paymentMethod: 'Cashless',
+        selectedFrameId,
+        totalSlots: 4,
+        printQty: boothFlow.printQty,
+      });
     }
   }
 
@@ -103,8 +147,24 @@
     if (boothConfig.config.skipPayment) {
       boothFlow.paymentMethod = 'Cash';
       step = 'session';
+      void initActiveCheckpoint({
+        sessionCode: boothFlow.sessionCode || `LOCAL-${Date.now()}`,
+        sessionId: boothFlow.sessionId,
+        paymentMethod: 'Cash',
+        selectedFrameId: frameId,
+        totalSlots: 4,
+        printQty: boothFlow.printQty,
+      });
     } else if (boothConfig.config.earlyPaymentPage) {
       step = 'session';
+      void initActiveCheckpoint({
+        sessionCode: boothFlow.sessionCode || `LOCAL-${Date.now()}`,
+        sessionId: boothFlow.sessionId,
+        paymentMethod: boothFlow.paymentMethod,
+        selectedFrameId: frameId,
+        totalSlots: 4,
+        printQty: boothFlow.printQty,
+      });
     } else {
       step = 'payment';
     }
@@ -113,10 +173,12 @@
   function handleSessionComplete(photos: string[]) {
     boothFlow.photosTaken = photos;
     step = 'filter';
+    void updateCheckpointStatus('customizing');
   }
 
   function handleFilterNext() {
     step = 'download';
+    void updateCheckpointStatus('downloading');
   }
 
   function handleDone() {

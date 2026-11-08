@@ -96,6 +96,13 @@ class BoothFlowStore {
     this.isGeneratingVideo = false;
     this.photoTransforms = {};
 
+    // Hapus checkpoint sesi aktif saat sesi di-reset kembali ke welcome
+    if (typeof window !== 'undefined') {
+      import('$lib/utils/activeSessionCheckpoint').then(({ clearActiveCheckpoint }) => {
+        void clearActiveCheckpoint();
+      }).catch(() => {});
+    }
+
     // Trigger idle queue processor otomatis saat kembali ke layar standby awal
     if (typeof window !== 'undefined') {
       setTimeout(() => {

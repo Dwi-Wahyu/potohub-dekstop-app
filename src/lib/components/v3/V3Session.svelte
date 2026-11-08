@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
+  import { invoke } from '@tauri-apps/api/core';
   import { cameraStore } from '$lib/camera.svelte';
   import { boothFlow } from '$lib/stores/booth.svelte';
   import { uiConfig } from '$lib/stores/uiConfig.svelte';
@@ -8,6 +9,7 @@
   import { formatTime, getLiveviewTransformStyle } from '$lib/utils/shared';
   import { fetchTemplates, requireActiveBoothId, type BoothTemplate } from '$lib/api/boothClient';
   import { cachedFetch } from '$lib/utils/offlineCache';
+  import { recordCapturedSlotToCheckpoint } from '$lib/utils/activeSessionCheckpoint';
   import {
     getSortedPhotoSlots,
     getTotalPhotosNeeded,
@@ -41,6 +43,38 @@
   let liveviewInterval: any = null;
   let frameSrc = $state('');
   let videoEl = $state<HTMLVideoElement | null>(null);
+
+  // Modal kamera terputus
+  let cameraDisconnectModal = $state(false);
+  let cameraDisconnectResolver = $state<((reconnected: boolean) => void) | null>(null);
+
+  async function handleCameraDisconnect(): Promise<boolean> {
+    cameraDisconnectModal = true;
+    return new Promise<boolean>((resolve) => {
+      cameraDisconnectResolver = resolve;
+    });
+  }
+
+  async function retryCameraConnection() {
+    if (boothConfig.config.cameraMode) {
+      await cameraStore.connect(boothConfig.config.cameraMode);
+    }
+    if (cameraStore.status === 'connected') {
+      cameraDisconnectModal = false;
+      if (cameraDisconnectResolver) {
+        cameraDisconnectResolver(true);
+        cameraDisconnectResolver = null;
+      }
+    }
+  }
+
+  function abortCameraDisconnect() {
+    cameraDisconnectModal = false;
+    if (cameraDisconnectResolver) {
+      cameraDisconnectResolver(false);
+      cameraDisconnectResolver = null;
+    }
+  }
 
   function playStream(node: HTMLVideoElement, stream: MediaStream | null) {
     cameraStore.setVideoElement(node);
@@ -144,8 +178,21 @@
     if (isRunning) return;
     isRunning = true;
     selectedRetakeIndex = null;
-    boothFlow.photosTaken = [];
-    await runCaptureSequence(totalPhotos, boothConfig.config.countdownSecs);
+
+    // Jika sudah ada foto tersimpan dari checkpoint pemulihan, lanjutkan dari slot berikutnya
+    const currentValidPhotos = boothFlow.photosTaken.filter(Boolean);
+    const startSlot = currentValidPhotos.length >= totalPhotos ? 0 : currentValidPhotos.length;
+    if (startSlot === 0) {
+      boothFlow.photosTaken = [];
+    }
+
+    await runCaptureSequence({
+      slotCount: totalPhotos,
+      countdownSecs: boothConfig.config.countdownSecs,
+      startSlot,
+      onCameraDisconnect: handleCameraDisconnect,
+    });
+
     isRunning = false;
   }
 
@@ -188,6 +235,20 @@
       if (bytes && bytes.length > 0) {
         const blob = new Blob([bytes], { type: 'image/jpeg' });
         photoUrl = URL.createObjectURL(blob);
+
+        // Simpan instan hasil retake ke disk lokal & checkpoint
+        try {
+          const sessionCode = boothFlow.sessionCode || `LOCAL-${Date.now()}`;
+          const date = new Date().toISOString().slice(0, 10);
+          const relPath = `${date}/${sessionCode}/raw/slot_${String(index + 1).padStart(2, '0')}.jpg`;
+          await invoke('save_session_file', {
+            relativePath: relPath,
+            bytes: Array.from(bytes),
+          });
+          await recordCapturedSlotToCheckpoint(index, relPath);
+        } catch (saveErr) {
+          console.warn('[V3Session] Gagal menulis retake ke disk:', saveErr);
+        }
       } else {
         if (cameraStore.currentLiveviewUrl) {
           try {
@@ -543,11 +604,23 @@
           <!-- svelte-ignore a11y_no_static_element_interactions -->
           <div
             onclick={startCapture}
-            class="absolute inset-0 flex items-center justify-center bg-black/20 hover:bg-black/10 transition-colors z-20 cursor-pointer"
+            class="absolute inset-0 flex flex-col items-center justify-center bg-black/30 hover:bg-black/20 transition-colors z-20 cursor-pointer text-center p-6"
           >
-            <div class="text-white/80 text-xl font-bold uppercase tracking-[0.6em] text-center px-12 leading-loose">
-              Tap untuk mulai
+            {#if boothFlow.photosTaken.filter(Boolean).length > 0}
+              <div class="bg-emerald-500/25 border border-emerald-400 text-emerald-200 px-4 py-1.5 rounded-full text-xs font-bold mb-3 shadow">
+                Sesi Pulih: {boothFlow.photosTaken.filter(Boolean).length} dari {totalPhotos} foto tersimpan
+              </div>
+            {/if}
+            <div class="text-white/95 text-2xl font-black uppercase tracking-[0.2em] leading-snug">
+              {boothFlow.photosTaken.filter(Boolean).length > 0
+                ? `Lanjutkan Foto ke-${boothFlow.photosTaken.filter(Boolean).length + 1}`
+                : 'Tap untuk mulai'}
             </div>
+            <p class="text-white/60 text-xs font-semibold mt-1">
+              {boothFlow.photosTaken.filter(Boolean).length > 0
+                ? 'Klik layar untuk melanjutkan sesi foto'
+                : 'Klik layar saat siap berpose'}
+            </p>
           </div>
         {/if}
       </div>
@@ -562,4 +635,33 @@
       {/if}
     </div>
   </div>
+
+  <!-- Modal Kamera Terputus Saat Sesi Berlangsung -->
+  {#if cameraDisconnectModal}
+    <div class="fixed inset-0 bg-black/85 backdrop-blur-md z-50 flex items-center justify-center p-6 text-center select-none font-sans">
+      <div class="bg-[#111827] border-2 border-[#FFC107] rounded-3xl p-8 max-w-md w-full shadow-2xl flex flex-col items-center">
+        <div class="w-16 h-16 rounded-full bg-[#FFC107]/20 text-[#FFC107] flex items-center justify-center mb-4">
+          <Camera size={36} class="animate-bounce" />
+        </div>
+        <h3 class="text-2xl font-black text-white mb-2 uppercase tracking-wide">Kamera Terputus!</h3>
+        <p class="text-white/70 text-sm mb-6 leading-relaxed">
+          Koneksi kamera fisik terputus di tengah pemotretan. Mohon periksa sambungan kabel USB kamera. Foto yang sudah diambil tetap tersimpan aman.
+        </p>
+        <div class="flex flex-col gap-3 w-full">
+          <button
+            onclick={retryCameraConnection}
+            class="w-full py-3.5 rounded-full font-bold text-base text-black bg-[#FFC107] hover:bg-[#ffb300] transition-all cursor-pointer shadow-lg active:scale-95"
+          >
+            Coba Sambungkan & Lanjutkan
+          </button>
+          <button
+            onclick={abortCameraDisconnect}
+            class="w-full py-3 rounded-full font-semibold text-sm text-white/60 hover:text-white bg-white/5 hover:bg-white/10 transition-all cursor-pointer"
+          >
+            Batalkan Sesi
+          </button>
+        </div>
+      </div>
+    </div>
+  {/if}
 </div>

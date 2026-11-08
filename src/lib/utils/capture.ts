@@ -1,21 +1,52 @@
+import { invoke } from '@tauri-apps/api/core';
 import { cameraStore } from '$lib/camera.svelte';
 import { boothFlow } from '$lib/stores/booth.svelte';
 import { boothConfig } from '$lib/stores/boothConfig.svelte';
+import { recordCapturedSlotToCheckpoint } from '$lib/utils/activeSessionCheckpoint';
+
+export interface CaptureSequenceOptions {
+  slotCount: number;
+  countdownSecs: number;
+  startSlot?: number;
+  onCapturePhoto?: (photoUrl: string, slotIndex: number) => void;
+  onCameraDisconnect?: () => Promise<boolean>; // return true jika berhasil reconnect & lanjut, false jika batalkan
+}
 
 export async function runCaptureSequence(
-  slotCount: number,
-  countdownSecs: number,
-  onCapturePhoto?: (photoUrl: string) => void
+  slotCountOrOptions: number | CaptureSequenceOptions,
+  countdownSecsParam?: number,
+  onCapturePhotoParam?: (photoUrl: string) => void
 ) {
+  let slotCount: number;
+  let countdownSecs: number;
+  let startSlot = 0;
+  let onCapturePhoto: ((photoUrl: string, slotIndex: number) => void) | undefined;
+  let onCameraDisconnect: (() => Promise<boolean>) | undefined;
+
+  if (typeof slotCountOrOptions === 'object') {
+    slotCount = slotCountOrOptions.slotCount;
+    countdownSecs = slotCountOrOptions.countdownSecs;
+    startSlot = slotCountOrOptions.startSlot ?? 0;
+    onCapturePhoto = slotCountOrOptions.onCapturePhoto;
+    onCameraDisconnect = slotCountOrOptions.onCameraDisconnect;
+  } else {
+    slotCount = slotCountOrOptions;
+    countdownSecs = countdownSecsParam ?? 5;
+    if (onCapturePhotoParam) {
+      onCapturePhoto = (url) => onCapturePhotoParam(url);
+    }
+  }
+
   const clipPromises: Promise<void>[] = [];
 
-  for (let i = 0; i < slotCount; i++) {
+  for (let i = startSlot; i < slotCount; i++) {
     const cSecs =
       i === 0
-        ? (typeof boothConfig.config.firstCountdownSecs === 'number' && boothConfig.config.firstCountdownSecs > 0
-            ? boothConfig.config.firstCountdownSecs
-            : countdownSecs)
+        ? typeof boothConfig.config.firstCountdownSecs === 'number' && boothConfig.config.firstCountdownSecs > 0
+          ? boothConfig.config.firstCountdownSecs
+          : countdownSecs
         : countdownSecs;
+
     for (let c = cSecs; c > 0; c--) {
       boothFlow.countdown = c;
       if (c === 1 && cameraStore.cameraMode === 'usb') {
@@ -53,10 +84,36 @@ export async function runCaptureSequence(
         bytes = await cameraStore.capture();
       }
 
+      // Jika kamera terputus di tengah pemotretan
+      if (!bytes && cameraStore.status !== 'connected' && onCameraDisconnect) {
+        boothFlow.captureMessage = 'Kamera terputus, mencoba memulihkan...';
+        const reconnected = await onCameraDisconnect();
+        if (reconnected) {
+          // Ulangi slot ini setelah berhasil reconnected
+          i--;
+          continue;
+        }
+      }
+
       let photoUrl = '';
       if (bytes && bytes.length > 0) {
         const blob = new Blob([bytes], { type: 'image/jpeg' });
         photoUrl = URL.createObjectURL(blob);
+
+        // 2. Simpan instan ke disk lokal & update checkpoint sebelum countdown slot berikutnya
+        boothFlow.captureMessage = 'Menyimpan foto ke sistem...';
+        try {
+          const sessionCode = boothFlow.sessionCode || `LOCAL-${Date.now()}`;
+          const date = new Date().toISOString().slice(0, 10);
+          const relPath = `${date}/${sessionCode}/raw/slot_${String(i + 1).padStart(2, '0')}.jpg`;
+          await invoke('save_session_file', {
+            relativePath: relPath,
+            bytes: Array.from(bytes),
+          });
+          await recordCapturedSlotToCheckpoint(slotIndex, relPath);
+        } catch (saveErr) {
+          console.warn(`[runCaptureSequence] Gagal menulis foto slot ${i + 1} ke disk:`, saveErr);
+        }
       } else {
         // Fallback aman: clone frame liveview ke persistent blob agar tidak hilang saat liveview di-revoke
         if (cameraStore.currentLiveviewUrl) {
@@ -90,7 +147,7 @@ export async function runCaptureSequence(
         const updated = [...boothFlow.photosTaken];
         updated[slotIndex] = photoUrl;
         boothFlow.photosTaken = updated;
-        if (onCapturePhoto) onCapturePhoto(photoUrl);
+        if (onCapturePhoto) onCapturePhoto(photoUrl, slotIndex);
       }
 
       if (boothConfig.config.enableLiveviewVideo) {
@@ -115,7 +172,7 @@ export async function runCaptureSequence(
 
       // Pastikan pengambilan liveview langsung aktif kembali agar kamera siap dan tidak busy
       if (cameraStore.cameraMode === 'usb') {
-        boothFlow.captureMessage = 'Menyiapkan liveview...';
+        boothFlow.captureMessage = 'Menyiapkan live preview...';
         await cameraStore.getLiveviewFrame().catch(() => {});
       }
 

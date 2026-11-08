@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
+  import { invoke } from '@tauri-apps/api/core';
   import { cameraStore } from '$lib/camera.svelte';
   import { boothFlow } from '$lib/stores/booth.svelte';
   import { uiConfig } from '$lib/stores/uiConfig.svelte';
@@ -8,6 +9,7 @@
   import { formatTime, getLiveviewTransformStyle } from '$lib/utils/shared';
   import { fetchTemplates, requireActiveBoothId, type BoothTemplate } from '$lib/api/boothClient';
   import { cachedFetch } from '$lib/utils/offlineCache';
+  import { recordCapturedSlotToCheckpoint } from '$lib/utils/activeSessionCheckpoint';
   import {
     getSortedPhotoSlots,
     getTotalPhotosNeeded,
@@ -41,6 +43,38 @@
   let liveviewInterval: any = null;
   let frameSrc = $state('');
   let videoEl = $state<HTMLVideoElement | null>(null);
+
+  // Modal kamera terputus
+  let cameraDisconnectModal = $state(false);
+  let cameraDisconnectResolver = $state<((reconnected: boolean) => void) | null>(null);
+
+  async function handleCameraDisconnect(): Promise<boolean> {
+    cameraDisconnectModal = true;
+    return new Promise<boolean>((resolve) => {
+      cameraDisconnectResolver = resolve;
+    });
+  }
+
+  async function retryCameraConnection() {
+    if (boothConfig.config.cameraMode) {
+      await cameraStore.connect(boothConfig.config.cameraMode);
+    }
+    if (cameraStore.status === 'connected') {
+      cameraDisconnectModal = false;
+      if (cameraDisconnectResolver) {
+        cameraDisconnectResolver(true);
+        cameraDisconnectResolver = null;
+      }
+    }
+  }
+
+  function abortCameraDisconnect() {
+    cameraDisconnectModal = false;
+    if (cameraDisconnectResolver) {
+      cameraDisconnectResolver(false);
+      cameraDisconnectResolver = null;
+    }
+  }
 
   function playStream(node: HTMLVideoElement, stream: MediaStream | null) {
     cameraStore.setVideoElement(node);
@@ -144,8 +178,21 @@
     if (isRunning) return;
     isRunning = true;
     selectedRetakeIndex = null;
-    boothFlow.photosTaken = [];
-    await runCaptureSequence(totalPhotos, boothConfig.config.countdownSecs);
+
+    // Jika sudah ada foto tersimpan dari checkpoint pemulihan, lanjutkan dari slot berikutnya
+    const currentValidPhotos = boothFlow.photosTaken.filter(Boolean);
+    const startSlot = currentValidPhotos.length >= totalPhotos ? 0 : currentValidPhotos.length;
+    if (startSlot === 0) {
+      boothFlow.photosTaken = [];
+    }
+
+    await runCaptureSequence({
+      slotCount: totalPhotos,
+      countdownSecs: boothConfig.config.countdownSecs,
+      startSlot,
+      onCameraDisconnect: handleCameraDisconnect,
+    });
+
     isRunning = false;
   }
 
@@ -195,6 +242,20 @@
       if (bytes && bytes.length > 0) {
         const blob = new Blob([bytes], { type: 'image/jpeg' });
         photoUrl = URL.createObjectURL(blob);
+
+        // Simpan instan hasil retake ke disk lokal & checkpoint
+        try {
+          const sessionCode = boothFlow.sessionCode || `LOCAL-${Date.now()}`;
+          const date = new Date().toISOString().slice(0, 10);
+          const relPath = `${date}/${sessionCode}/raw/slot_${String(index + 1).padStart(2, '0')}.jpg`;
+          await invoke('save_session_file', {
+            relativePath: relPath,
+            bytes: Array.from(bytes),
+          });
+          await recordCapturedSlotToCheckpoint(index, relPath);
+        } catch (saveErr) {
+          console.warn('[V2Session] Gagal menulis retake ke disk:', saveErr);
+        }
       } else {
         if (cameraStore.currentLiveviewUrl) {
           try {
@@ -567,7 +628,12 @@
             disabled={isRunning}
             class="w-full py-4 bg-black text-white rounded-xl text-lg font-bold tracking-widest uppercase hover:bg-gray-800 transition-colors shadow-[4px_4px_0_0_rgba(200,200,200,1)] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none flex items-center justify-center gap-3 cursor-pointer border-none"
           >
-            <Camera size={20} /> {isRunning ? 'Capturing...' : 'Capture'}
+            <Camera size={20} />
+            {isRunning
+              ? 'Capturing...'
+              : boothFlow.photosTaken.filter(Boolean).length > 0
+                ? `Lanjutkan (${boothFlow.photosTaken.filter(Boolean).length + 1}/${totalPhotos})`
+                : 'Capture'}
           </button>
         {/if}
 
@@ -591,4 +657,33 @@
       </div>
     </div>
   </div>
+
+  <!-- Modal Kamera Terputus Saat Sesi Berlangsung -->
+  {#if cameraDisconnectModal}
+    <div class="fixed inset-0 bg-black/85 backdrop-blur-md z-50 flex items-center justify-center p-6 text-center select-none font-['Nunito',sans-serif]">
+      <div class="bg-white border-4 border-black rounded-3xl p-8 max-w-md w-full shadow-[8px_8px_0_0_rgba(0,0,0,1)] flex flex-col items-center">
+        <div class="w-16 h-16 rounded-full bg-amber-100 text-amber-600 border-2 border-black flex items-center justify-center mb-4">
+          <Camera size={36} class="animate-bounce" />
+        </div>
+        <h3 class="text-2xl font-black text-black mb-2 uppercase tracking-wide">Kamera Terputus!</h3>
+        <p class="text-black/70 text-sm mb-6 font-semibold leading-relaxed">
+          Koneksi kamera fisik terputus di tengah pemotretan. Mohon periksa sambungan kabel USB kamera. Foto yang sudah diambil tetap tersimpan aman.
+        </p>
+        <div class="flex flex-col gap-3 w-full">
+          <button
+            onclick={retryCameraConnection}
+            class="w-full py-3.5 rounded-xl font-black text-base text-white bg-black hover:bg-gray-800 transition-all cursor-pointer shadow-[4px_4px_0_0_rgba(200,200,200,1)] active:translate-x-[2px] active:translate-y-[2px]"
+          >
+            Coba Sambungkan & Lanjutkan
+          </button>
+          <button
+            onclick={abortCameraDisconnect}
+            class="w-full py-3 rounded-xl font-bold text-sm text-black border-2 border-black bg-white hover:bg-gray-100 transition-all cursor-pointer"
+          >
+            Batalkan Sesi
+          </button>
+        </div>
+      </div>
+    </div>
+  {/if}
 </div>

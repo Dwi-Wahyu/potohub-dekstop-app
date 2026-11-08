@@ -57,6 +57,17 @@ pub async fn read_session_file(app: AppHandle, relative_path: String) -> Result<
     std::fs::read(&full).map_err(|e| e.to_string())
 }
 
+/// Hapus file hasil sesi lokal (mis. checkpoint sementara saat sesi selesai).
+#[tauri::command]
+pub async fn delete_session_file(app: AppHandle, relative_path: String) -> Result<(), String> {
+    let rel = safe_relative(&relative_path)?;
+    let full = sessions_dir(&app).join(&rel);
+    if full.exists() {
+        std::fs::remove_file(&full).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
 /// Dapatkan path absolut dari direktori penyimpanan sesi lokal
 #[tauri::command]
 pub async fn get_sessions_dir(app: AppHandle) -> Result<String, String> {

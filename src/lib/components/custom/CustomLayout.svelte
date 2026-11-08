@@ -1,8 +1,17 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
   import { boothFlow } from '$lib/stores/booth.svelte';
   import { boothConfig } from '$lib/stores/boothConfig.svelte';
   import { uiConfig } from '$lib/stores/uiConfig.svelte';
+  import {
+    getActiveCheckpoint,
+    isCheckpointValid,
+    restoreActiveSession,
+    clearActiveCheckpoint,
+    initActiveCheckpoint,
+    updateCheckpointStatus,
+  } from '$lib/utils/activeSessionCheckpoint';
   import CustomLanding from './CustomLanding.svelte';
   import V1Tutorial from '$lib/components/v1/V1Tutorial.svelte';
   import V1PaymentMethod from '$lib/components/v1/V1PaymentMethod.svelte';
@@ -40,6 +49,25 @@
 
   let selectedPrice = $state(35000);
   let selectedFrameConfigId = $state('grid4');
+
+  onMount(async () => {
+    try {
+      const cp = await getActiveCheckpoint();
+      if (cp && isCheckpointValid(cp)) {
+        const { restoredSlotsCount, allSlotsRestored } = await restoreActiveSession(cp);
+        if (allSlotsRestored) {
+          currentSubStep = 'customize';
+        } else {
+          selectedFrameConfigId = cp.selectedFrameId || 'grid4';
+          currentSubStep = 'camera';
+        }
+      } else if (cp && !isCheckpointValid(cp)) {
+        await clearActiveCheckpoint();
+      }
+    } catch (err) {
+      console.warn('[CustomLayout] Gagal memulihkan checkpoint sesi aktif:', err);
+    }
+  });
 
   $effect(() => {
     boothFlow.goTo(currentSubStep as any);
@@ -80,8 +108,24 @@
     boothFlow.printQty = quantity;
     if (boothConfig.config.skipPayment) {
       currentSubStep = 'camera';
+      void initActiveCheckpoint({
+        sessionCode: boothFlow.sessionCode || `LOCAL-${Date.now()}`,
+        sessionId: boothFlow.sessionId,
+        paymentMethod: 'Cash',
+        selectedFrameId: selectedFrameConfigId,
+        totalSlots: 4,
+        printQty: quantity,
+      });
     } else if (boothConfig.config.earlyPaymentPage) {
       currentSubStep = 'camera';
+      void initActiveCheckpoint({
+        sessionCode: boothFlow.sessionCode || `LOCAL-${Date.now()}`,
+        sessionId: boothFlow.sessionId,
+        paymentMethod: boothFlow.paymentMethod,
+        selectedFrameId: selectedFrameConfigId,
+        totalSlots: 4,
+        printQty: quantity,
+      });
     } else {
       currentSubStep = 'method_select';
     }
@@ -101,15 +145,25 @@
     } else {
       currentSubStep = 'camera';
     }
+    void initActiveCheckpoint({
+      sessionCode: boothFlow.sessionCode || `TRX-${Date.now()}`,
+      sessionId: boothFlow.sessionId,
+      paymentMethod: 'Cashless',
+      selectedFrameId: selectedFrameConfigId,
+      totalSlots: 4,
+      printQty: boothFlow.printQty,
+    });
   }
 
   function handleCameraComplete(photos: string[]) {
     boothFlow.photosTaken = photos;
     currentSubStep = 'customize';
+    void updateCheckpointStatus('customizing');
   }
 
   function handleCustomizeNext() {
     currentSubStep = 'complete';
+    void updateCheckpointStatus('downloading');
   }
 
   function handleNewSession() {

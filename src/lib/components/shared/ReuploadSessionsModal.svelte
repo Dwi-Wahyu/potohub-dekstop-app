@@ -15,7 +15,8 @@
     Layers,
     Filter,
     FolderOpen,
-    Trash2
+    Trash2,
+    QrCode
   } from '@lucide/svelte';
   import { invoke } from '@tauri-apps/api/core';
   import {
@@ -25,6 +26,8 @@
     countPendingPrintJobs,
     clearAllPendingPrintJobs,
     cancelPendingPrintJobsBySessionCode,
+    markOutboxJobDone,
+    markAllPendingOutboxJobsDone,
     type SessionHistoryItem,
   } from '$lib/db/local';
   import { processSingleJobById, type JobProcessOutcome } from '$lib/utils/offlineOutbox';
@@ -124,6 +127,51 @@
       setTimeout(() => {
         delete feedbackMap[item.id];
       }, 3500);
+    }
+  }
+
+  async function handleMarkDone(item: SessionHistoryItem) {
+    try {
+      await markOutboxJobDone(item.id);
+      item.status = 'done';
+      item.lastError = null;
+      if (item.printStatus === 'failed') {
+        item.printStatus = 'printed';
+        item.printError = null;
+        void updateSessionPrintStatus(item.sessionCode, 'printed').catch(console.warn);
+      }
+      feedbackMap[item.id] = { type: 'success', text: 'Ditandai selesai' };
+      onUpdated?.();
+    } catch (err) {
+      feedbackMap[item.id] = { type: 'error', text: String(err) };
+    } finally {
+      setTimeout(() => {
+        delete feedbackMap[item.id];
+      }, 3500);
+    }
+  }
+
+  async function handleMarkAllDone() {
+    if (pendingCount === 0) return;
+    const ok = confirm(`Tandai seluruh ${pendingCount} antrean sesi tertunda sebagai selesai?`);
+    if (!ok) return;
+
+    try {
+      await markAllPendingOutboxJobsDone();
+      for (const s of sessions) {
+        if (s.status === 'pending' || s.status === 'dead_letter') {
+          s.status = 'done';
+          s.lastError = null;
+        }
+        if (s.printStatus === 'failed') {
+          s.printStatus = 'printed';
+          s.printError = null;
+          void updateSessionPrintStatus(s.sessionCode, 'printed').catch(console.warn);
+        }
+      }
+      onUpdated?.();
+    } catch (err) {
+      console.error('[ReuploadModal] Gagal menandai semua selesai:', err);
     }
   }
 
@@ -493,31 +541,61 @@
           </button>
         </div>
 
-        <button
-          type="button"
-          onclick={() => handleOpenSessionsFolder(null)}
-          style="
-            padding: 6px 14px;
-            border-radius: 10px;
-            background: {NEU_BG};
-            box-shadow: {neuCfg.btnSm};
-            border: none;
-            display: flex;
-            align-items: center;
-            gap: 6px;
-            font-size: 11px;
-            font-weight: 700;
-            color: #1e293b;
-            cursor: pointer;
-            transition: all 0.15s ease;
-          "
-          title={sessionsDirPath ? `Lokasi lokal: ${sessionsDirPath}` : 'Buka folder penyimpanan sesi lokal di Windows Explorer'}
-          onmousedown={(e) => (e.currentTarget.style.boxShadow = neuCfg.inset)}
-          onmouseup={(e) => (e.currentTarget.style.boxShadow = neuCfg.btnSm)}
-        >
-          <FolderOpen size={15} class="text-indigo-600" />
-          <span>Buka Folder Sesi Lokal</span>
-        </button>
+        <div style="display: flex; align-items: center; gap: 8px;">
+          {#if pendingCount > 0}
+            <button
+              type="button"
+              onclick={handleMarkAllDone}
+              style="
+                padding: 6px 14px;
+                border-radius: 10px;
+                background: {NEU_BG};
+                box-shadow: {neuCfg.btnSm};
+                border: 1px solid rgba(16,185,129,0.35);
+                display: flex;
+                align-items: center;
+                gap: 6px;
+                font-size: 11px;
+                font-weight: 700;
+                color: #047857;
+                cursor: pointer;
+                transition: all 0.15s ease;
+              "
+              title="Tandai seluruh sesi yang tertunda sebagai selesai"
+              onmousedown={(e) => (e.currentTarget.style.boxShadow = neuCfg.inset)}
+              onmouseup={(e) => (e.currentTarget.style.boxShadow = neuCfg.btnSm)}
+            >
+              <CheckCircle2 size={15} class="text-emerald-600" />
+              <span>Tandai Selesai ({pendingCount})</span>
+            </button>
+          {/if}
+
+          <button
+            type="button"
+            onclick={() => handleOpenSessionsFolder(null)}
+            style="
+              padding: 6px 14px;
+              border-radius: 10px;
+              background: {NEU_BG};
+              box-shadow: {neuCfg.btnSm};
+              border: none;
+              display: flex;
+              align-items: center;
+              gap: 6px;
+              font-size: 11px;
+              font-weight: 700;
+              color: #1e293b;
+              cursor: pointer;
+              transition: all 0.15s ease;
+            "
+            title={sessionsDirPath ? `Lokasi lokal: ${sessionsDirPath}` : 'Buka folder penyimpanan sesi lokal di Windows Explorer'}
+            onmousedown={(e) => (e.currentTarget.style.boxShadow = neuCfg.inset)}
+            onmouseup={(e) => (e.currentTarget.style.boxShadow = neuCfg.btnSm)}
+          >
+            <FolderOpen size={15} class="text-indigo-600" />
+            <span>Buka Folder Sesi Lokal</span>
+          </button>
+        </div>
       </div>
 
       <!-- Modal Body: Scrollable Session Grid / List -->
@@ -724,9 +802,23 @@
                       <span style="overflow: hidden; text-overflow: ellipsis;">{item.softfileTarget}</span>
                     </div>
                   {:else}
-                    <span style="font-size: 10px; color: #94a3b8; font-style: italic;">
-                      Tanpa Target Softfile (Offline)
-                    </span>
+                    <div
+                      style="
+                        display: flex;
+                        align-items: center;
+                        gap: 5px;
+                        font-size: 10px;
+                        font-weight: 500;
+                        color: #64748b;
+                        overflow: hidden;
+                        text-overflow: ellipsis;
+                        white-space: nowrap;
+                      "
+                      title="Pelanggan mengunduh softfile langsung via QR Code di layar (tanpa Email/WA)"
+                    >
+                      <QrCode size={11} color="#64748b" />
+                      <span>Download via QR Code (Tanpa Email/WA)</span>
+                    </div>
                   {/if}
 
                   <!-- Feedback Notice on action -->
@@ -876,6 +968,38 @@
                     <FolderOpen size={16} />
                   </button>
                 </div>
+
+                <!-- Tombol Tandai Selesai (Jika Sesi Masih Pending / Gagal) -->
+                {#if item.status !== 'done' || item.printStatus === 'failed'}
+                  <button
+                    type="button"
+                    onclick={() => handleMarkDone(item)}
+                    style="
+                      width: 100%;
+                      height: 32px;
+                      border-radius: 10px;
+                      background: {NEU_BG};
+                      box-shadow: {neuCfg.btnSm};
+                      border: 1px solid rgba(16,185,129,0.3);
+                      cursor: pointer;
+                      display: flex;
+                      align-items: center;
+                      justify-content: center;
+                      gap: 6px;
+                      color: #047857;
+                      font-weight: 700;
+                      font-size: 11px;
+                      transition: transform 0.1s ease, box-shadow 0.1s ease;
+                      margin-top: -2px;
+                    "
+                    title="Tandai sesi ini selesai"
+                    onmousedown={(e) => (e.currentTarget.style.boxShadow = neuCfg.inset)}
+                    onmouseup={(e) => (e.currentTarget.style.boxShadow = neuCfg.btnSm)}
+                  >
+                    <CheckCircle2 size={13} class="text-emerald-600" />
+                    <span>Tandai Selesai</span>
+                  </button>
+                {/if}
               </div>
             {/each}
           </div>

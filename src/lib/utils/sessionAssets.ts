@@ -8,6 +8,7 @@ import { generateBlurPlaceholder } from './imagePlaceholder';
 import { generateThumbnailBlob } from './imageThumbnail';
 import { buildSessionGif } from './gif';
 import { saveLocalSessionAssets, saveInitialSessionPhotos } from './localSessionStorage';
+import { markOutboxJobDoneByLocalRef } from '$lib/db/local';
 import {
   compositeTemplateVideoOverlay,
   getSortedPhotoSlots,
@@ -140,6 +141,9 @@ export async function saveSessionAssets(
       );
       compositeUploaded = true;
       await info('[saveSessionAssets] Sukses upload composite strip foto').catch(() => {});
+      if (sessionCode) {
+        void markOutboxJobDoneByLocalRef(sessionCode).catch(() => {});
+      }
     } catch (e) {
       lastUploadError = String(e);
       await error(`[saveSessionAssets] Gagal upload composite strip: ${String(e)}`).catch(() => {});

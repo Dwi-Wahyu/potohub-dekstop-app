@@ -421,9 +421,27 @@ export async function listPendingOutboxJobs(): Promise<OutboxJob[]> {
 export async function markOutboxJobDone(id: number): Promise<void> {
   const conn = await db();
   await conn.execute(
-    "UPDATE offline_outbox SET status = 'done', updated_at = $2 WHERE id = $1",
+    "UPDATE offline_outbox SET status = 'done', last_error = NULL, updated_at = $2 WHERE id = $1",
     [id, Date.now()],
   );
+}
+
+export async function markOutboxJobDoneByLocalRef(localRef: string): Promise<void> {
+  const conn = await db();
+  await conn.execute(
+    "UPDATE offline_outbox SET status = 'done', last_error = NULL, updated_at = $2 WHERE local_ref = $1",
+    [localRef, Date.now()],
+  );
+}
+
+export async function markAllPendingOutboxJobsDone(): Promise<number> {
+  const conn = await db();
+  const now = Date.now();
+  const res = await conn.execute(
+    "UPDATE offline_outbox SET status = 'done', last_error = NULL, updated_at = $1 WHERE status IN ('pending', 'dead_letter')",
+    [now],
+  );
+  return res.rowsAffected ?? 0;
 }
 
 export async function markOutboxJobFailedAttempt(id: number, error: string): Promise<void> {
@@ -530,7 +548,12 @@ export async function upsertSessionOutboxJob(
       merged.printStatus = 'printed';
       merged.printError = null;
     }
-    const finalStatus = existingPayload.softfileTarget && existing.status === 'pending' ? 'pending' : targetStatus;
+    const finalStatus =
+      targetStatus === 'done'
+        ? 'done'
+        : existingPayload.softfileTarget && existing.status === 'pending'
+          ? 'pending'
+          : targetStatus;
     await conn.execute(
       `UPDATE offline_outbox 
        SET payload = $2, status = $3, attempts = 0, last_error = $4, updated_at = $5

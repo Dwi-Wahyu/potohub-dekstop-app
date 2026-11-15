@@ -52,7 +52,7 @@ export async function runCaptureSequence(
       if (c === 1 && cameraStore.cameraMode === 'usb') {
         await new Promise((r) => setTimeout(r, 800));
         // Hentikan request EVF baru 200ms sebelum angka 0 agar bus USB kosong & shutter berbunyi tepat bersamaan dengan flash putih
-        cameraStore.isPreparingCapture = true;
+        cameraStore.setPreparingCapture(true);
         await new Promise((r) => setTimeout(r, 200));
       } else {
         await new Promise((r) => setTimeout(r, 1000));
@@ -186,6 +186,7 @@ export async function runCaptureSequence(
       console.error('Capture error:', err);
     } finally {
       // Hilangkan overlay saat kamera sudah stabil & siap untuk slot berikutnya
+      cameraStore.setPreparingCapture(false);
       boothFlow.isFlashActive = false;
       boothFlow.isCapturingCamera = false;
       boothFlow.captureMessage = null;

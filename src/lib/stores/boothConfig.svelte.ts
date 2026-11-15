@@ -67,7 +67,7 @@ export const DEFAULT_CFG: BoothCfg = {
   cameraMode: isDevWebcamEnabled() ? 'webcam' : 'usb',
   bootScreen: 'welcome',
   liveviewClipPreSecs: 2.5,
-  liveviewClipPostSecs: 0.5,
+  liveviewClipPostSecs: 0,
   enableLiveviewVideo: true,
   enableSessionGif: true,
   idleBannerTimeoutMins: 2,

@@ -5,6 +5,7 @@ use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 use thiserror::Error;
 
+#[derive(Clone)]
 pub struct LiveviewFrame {
     pub data: Vec<u8>,
     pub timestamp_ms: u128,
@@ -14,6 +15,8 @@ pub struct LiveviewBuffer {
     pub frames: VecDeque<LiveviewFrame>,
     pub max_age_ms: u128,
 }
+
+const MAX_LIVEVIEW_BUFFER_FRAMES: usize = 900;
 
 impl LiveviewBuffer {
     pub fn new(max_age_ms: u128) -> Self {
@@ -34,7 +37,7 @@ impl LiveviewBuffer {
         });
         let cutoff = now.saturating_sub(self.max_age_ms);
         while let Some(front) = self.frames.front() {
-            if front.timestamp_ms < cutoff {
+            if front.timestamp_ms < cutoff || self.frames.len() > MAX_LIVEVIEW_BUFFER_FRAMES {
                 self.frames.pop_front();
             } else {
                 break;
@@ -42,14 +45,27 @@ impl LiveviewBuffer {
         }
     }
 
-    /// Ambil semua frame dalam window [capture_ts_ms - pre_ms, capture_ts_ms + post_ms]
-    pub fn extract_window(&self, capture_ts_ms: u128, pre_ms: u128, post_ms: u128) -> Vec<Vec<u8>> {
+    /// Ambil semua frame (beserta timestamp asli) dalam window [capture_ts_ms - pre_ms, capture_ts_ms + post_ms]
+    pub fn extract_window_frames(
+        &self,
+        capture_ts_ms: u128,
+        pre_ms: u128,
+        post_ms: u128,
+    ) -> Vec<LiveviewFrame> {
         let from = capture_ts_ms.saturating_sub(pre_ms);
         let to = capture_ts_ms + post_ms;
         self.frames
             .iter()
             .filter(|f| f.timestamp_ms >= from && f.timestamp_ms <= to)
-            .map(|f| f.data.clone())
+            .cloned()
+            .collect()
+    }
+
+    /// Ambil semua frame dalam window [capture_ts_ms - pre_ms, capture_ts_ms + post_ms]
+    pub fn extract_window(&self, capture_ts_ms: u128, pre_ms: u128, post_ms: u128) -> Vec<Vec<u8>> {
+        self.extract_window_frames(capture_ts_ms, pre_ms, post_ms)
+            .into_iter()
+            .map(|f| f.data)
             .collect()
     }
 }
@@ -438,5 +454,9 @@ mod tests {
         assert_eq!(window.len(), 2);
         assert_eq!(window[0], vec![1, 2, 3]);
         assert_eq!(window[1], vec![4, 5, 6]);
+
+        let frames = buf.extract_window_frames(now, 1000, 1000);
+        assert_eq!(frames.len(), 2);
+        assert!(frames[0].timestamp_ms <= frames[1].timestamp_ms);
     }
 }

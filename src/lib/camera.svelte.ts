@@ -302,7 +302,15 @@ class CameraStore {
     this.status = "idle";
     this.device = null;
     this.isLiveviewActive = false;
+    this.setPreparingCapture(false);
     this.cleanupLiveviewUrl();
+  }
+
+  setPreparingCapture(preparing: boolean) {
+    this.isPreparingCapture = preparing;
+    if (this.cameraMode === "usb") {
+      invoke("set_liveview_capture_preparing", { preparing }).catch(() => {});
+    }
   }
 
   async capture(): Promise<Uint8Array | null> {
@@ -313,7 +321,7 @@ class CameraStore {
       await this.connectingPromise;
     }
     if (this.status !== "connected") {
-      this.isPreparingCapture = false;
+      this.setPreparingCapture(false);
       return null;
     }
     this.isCapturing = true;
@@ -338,7 +346,7 @@ class CameraStore {
       return null;
     } finally {
       this.isCapturing = false;
-      this.isPreparingCapture = false;
+      this.setPreparingCapture(false);
     }
   }
 
@@ -447,6 +455,7 @@ class CameraStore {
       }
     }
     this.isLiveviewActive = false;
+    this.setPreparingCapture(false);
     this.cleanupLiveviewUrl();
   }
 
@@ -465,9 +474,10 @@ class CameraStore {
       }
       this.isFetchingFrame = true;
       try {
-        const bytes = await invoke<number[]>("get_liveview_frame");
-        if (bytes && bytes.length > 0) {
-          const blob = new Blob([new Uint8Array(bytes)], { type: "image/jpeg" });
+        const raw = await invoke<ArrayBuffer | number[]>("get_liveview_frame");
+        const bytes = raw instanceof ArrayBuffer ? new Uint8Array(raw) : new Uint8Array(raw);
+        if (bytes && bytes.byteLength > 0) {
+          const blob = new Blob([bytes], { type: "image/jpeg" });
           const url = URL.createObjectURL(blob);
           this.cleanupLiveviewUrl();
           this.currentLiveviewUrl = url;
@@ -677,19 +687,14 @@ class CameraStore {
   private async extractLiveviewClipNonWebcam(
     captureTs: number,
     preSecs: number,
-    postSecs: number
+    _postSecs: number
   ): Promise<Blob | null> {
     if (this.cameraMode === "usb") {
-      const neededUntil = captureTs + postSecs * 1000;
-      const remainingMs = Math.max(0, neededUntil - Date.now());
-      if (remainingMs > 0) {
-        await new Promise((r) => setTimeout(r, remainingMs));
-      }
       try {
         const encoded = await invoke<number[]>("extract_and_encode_liveview_clip", {
           captureTsMs: captureTs,
           preMs: Math.round(preSecs * 1000),
-          postMs: Math.round(postSecs * 1000),
+          postMs: 0,
         });
         return new Blob([new Uint8Array(encoded)], { type: "video/mp4" });
       } catch (err) {

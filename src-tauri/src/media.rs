@@ -70,6 +70,101 @@ pub async fn encode_photos_to_gif(
     .map_err(|e| e.to_string())?
 }
 
+pub fn build_ffconcat_manifest(frames: &[crate::gphoto::LiveviewFrame]) -> String {
+    let mut out = String::from("ffconcat version 1.0\n");
+    if frames.is_empty() {
+        return out;
+    }
+    if frames.len() == 1 {
+        out.push_str("file 'f_0000.jpg'\n");
+        out.push_str("duration 0.500\n");
+        out.push_str("file 'f_0000.jpg'\n");
+        return out;
+    }
+
+    let mut deltas_ms = Vec::with_capacity(frames.len() - 1);
+    for i in 0..(frames.len() - 1) {
+        let d = frames[i + 1].timestamp_ms.saturating_sub(frames[i].timestamp_ms);
+        deltas_ms.push(d.clamp(16, 500));
+    }
+    let avg_ms = (deltas_ms.iter().sum::<u128>() / deltas_ms.len() as u128).clamp(16, 200);
+
+    for i in 0..frames.len() {
+        let dur_ms = if i < deltas_ms.len() {
+            deltas_ms[i]
+        } else {
+            avg_ms
+        };
+        out.push_str(&format!("file 'f_{:04}.jpg'\n", i));
+        out.push_str(&format!("duration {:.3}\n", dur_ms as f64 / 1000.0));
+    }
+    out.push_str(&format!("file 'f_{:04}.jpg'\n", frames.len() - 1));
+    out
+}
+
+pub async fn encode_liveview_frames_to_video(
+    app: &tauri::AppHandle,
+    frames: Vec<crate::gphoto::LiveviewFrame>,
+    target_fps: u32,
+) -> Result<Vec<u8>, String> {
+    if frames.is_empty() {
+        return Err("Daftar frame kosong".to_string());
+    }
+
+    let out_fps = target_fps.max(1);
+    let tmp_dir = std::env::temp_dir().join(format!("liveview_clip_{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&tmp_dir).map_err(|e| e.to_string())?;
+
+    for (i, frame) in frames.iter().enumerate() {
+        let path = tmp_dir.join(format!("f_{:04}.jpg", i));
+        std::fs::File::create(&path)
+            .and_then(|mut f| f.write_all(&frame.data))
+            .map_err(|e| e.to_string())?;
+    }
+
+    let concat_path = tmp_dir.join("frames.txt");
+    let manifest = build_ffconcat_manifest(&frames);
+    std::fs::write(&concat_path, manifest).map_err(|e| e.to_string())?;
+
+    let out_path = tmp_dir.join("clip.mp4");
+    let vf_filter = format!("fps={},scale=trunc(iw/2)*2:trunc(ih/2)*2", out_fps);
+
+    let sidecar = app.shell().sidecar("ffmpeg").map_err(|e| e.to_string())?;
+    let output = sidecar
+        .args([
+            "-y",
+            "-f",
+            "concat",
+            "-safe",
+            "0",
+            "-i",
+            concat_path.to_str().unwrap(),
+            "-vf",
+            &vf_filter,
+            "-c:v",
+            "libx264",
+            "-preset",
+            "veryfast",
+            "-pix_fmt",
+            "yuv420p",
+            "-movflags",
+            "+faststart",
+            out_path.to_str().unwrap(),
+        ])
+        .output()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    if !output.status.success() {
+        let _ = std::fs::remove_dir_all(&tmp_dir);
+        return Err(String::from_utf8_lossy(&output.stderr).to_string());
+    }
+
+    let bytes = std::fs::read(&out_path).map_err(|e| e.to_string())?;
+    let _ = std::fs::remove_dir_all(&tmp_dir);
+    Ok(bytes)
+}
+
 pub async fn encode_jpeg_frames_to_video_internal(
     app: &tauri::AppHandle,
     frames: Vec<Vec<u8>>,
@@ -175,6 +270,8 @@ pub async fn compose_template_video(
     let overlay_idx = if let Some(bg_bytes) = background_jpeg {
         let bg_path = tmp_dir.join("overlay.png");
         std::fs::write(&bg_path, bg_bytes).map_err(|e| e.to_string())?;
+        input_args.push("-framerate".into());
+        input_args.push("30".into());
         input_args.push("-loop".into());
         input_args.push("1".into());
         input_args.push("-i".into());
@@ -185,7 +282,7 @@ pub async fn compose_template_video(
     };
 
     filter.push_str(&format!(
-        "color=c=white:s={}x{}[base];",
+        "color=c=white:s={}x{}:r=30[base];",
         canvas_w, canvas_h
     ));
 
@@ -199,7 +296,7 @@ pub async fn compose_template_video(
         let sy = *y as i32;
 
         filter.push_str(&format!(
-            "[{}:v]scale={}:{}:force_original_aspect_ratio=increase,crop={}:{},setsar=1,setpts=PTS-STARTPTS{}[{}];",
+            "[{}:v]fps=30,scale={}:{}:force_original_aspect_ratio=increase,crop={}:{},setsar=1,setpts=PTS-STARTPTS{}[{}];",
             i,
             sw,
             sh,
@@ -246,8 +343,12 @@ pub async fn compose_template_video(
         filter,
         "-map".into(),
         format!("[{}]", last_label),
+        "-r".into(),
+        "30".into(),
         "-c:v".into(),
         "libx264".into(),
+        "-preset".into(),
+        "veryfast".into(),
         "-pix_fmt".into(),
         "yuv420p".into(),
         "-movflags".into(),
@@ -293,5 +394,29 @@ mod tests {
         assert!(!gif_bytes.is_empty());
         // Verify GIF header starts with "GIF89a" or "GIF87a"
         assert_eq!(&gif_bytes[0..3], b"GIF");
+    }
+
+    #[test]
+    fn test_build_ffconcat_manifest() {
+        let frames = vec![
+            crate::gphoto::LiveviewFrame {
+                data: vec![1],
+                timestamp_ms: 1000,
+            },
+            crate::gphoto::LiveviewFrame {
+                data: vec![2],
+                timestamp_ms: 1033,
+            },
+            crate::gphoto::LiveviewFrame {
+                data: vec![3],
+                timestamp_ms: 1073,
+            },
+        ];
+        let manifest = build_ffconcat_manifest(&frames);
+        assert!(manifest.starts_with("ffconcat version 1.0\n"));
+        assert!(manifest.contains("file 'f_0000.jpg'\nduration 0.033\n"));
+        assert!(manifest.contains("file 'f_0001.jpg'\nduration 0.040\n"));
+        assert!(manifest.contains("file 'f_0002.jpg'\nduration 0.036\n"));
+        assert!(manifest.ends_with("file 'f_0002.jpg'\n"));
     }
 }

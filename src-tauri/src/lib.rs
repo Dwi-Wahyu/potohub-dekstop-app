@@ -11,12 +11,13 @@ use gphoto::{DeviceInfo, GphotoError};
 use gphoto2::Camera;
 use printer::{PrintOptions, PrinterError, PrinterStatus};
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex as StdMutex};
 use tauri::{Manager, State};
 use tokio::sync::Mutex;
 
 pub struct AppState {
     pub camera: Mutex<Option<Camera>>,
-    pub liveview_buffer: Mutex<gphoto::LiveviewBuffer>,
+    pub liveview_buffer: Arc<StdMutex<gphoto::LiveviewBuffer>>,
 }
 
 #[tauri::command]
@@ -278,21 +279,28 @@ async fn stop_liveview(state: State<'_, AppState>) -> Result<(), GphotoError> {
 }
 
 #[tauri::command]
-async fn get_liveview_frame(state: State<'_, AppState>) -> Result<Vec<u8>, GphotoError> {
+async fn set_liveview_capture_preparing(preparing: bool) -> Result<(), GphotoError> {
+    canon_edsdk::platform::set_capture_preparing(preparing);
+    Ok(())
+}
+
+#[tauri::command]
+async fn get_liveview_frame(state: State<'_, AppState>) -> Result<tauri::ipc::Response, GphotoError> {
     #[cfg(target_os = "windows")]
     {
         if canon_edsdk::platform::is_available() {
             let bytes = canon_edsdk::platform::get_liveview_frame().await
                 .map_err(|e| GphotoError::Operation(e))?;
-            state.liveview_buffer.lock().await.push(bytes.clone());
-            return Ok(bytes);
+            return Ok(tauri::ipc::Response::new(bytes));
         }
     }
     let guard = state.camera.lock().await;
     let camera = guard.as_ref().ok_or(GphotoError::NotConnected)?;
     let bytes = gphoto::get_liveview_frame(camera).await?;
-    state.liveview_buffer.lock().await.push(bytes.clone());
-    Ok(bytes)
+    if let Ok(mut buf) = state.liveview_buffer.lock() {
+        buf.push(bytes.clone());
+    }
+    Ok(tauri::ipc::Response::new(bytes))
 }
 
 #[tauri::command]
@@ -302,7 +310,10 @@ async fn get_liveview_clip_frames(
     pre_ms: u64,
     post_ms: u64,
 ) -> Result<Vec<Vec<u8>>, GphotoError> {
-    let buf = state.liveview_buffer.lock().await;
+    let buf = state
+        .liveview_buffer
+        .lock()
+        .map_err(|e| GphotoError::Operation(e.to_string()))?;
     let total_in_buffer = buf.frames.len();
     let result = buf.extract_window(capture_ts_ms as u128, pre_ms as u128, post_ms as u128);
     println!(
@@ -324,9 +335,12 @@ async fn extract_and_encode_liveview_clip(
     pre_ms: u64,
     post_ms: u64,
 ) -> Result<Vec<u8>, String> {
-    let buf = state.liveview_buffer.lock().await;
-    let total_in_buffer = buf.frames.len();
-    let frames = buf.extract_window(capture_ts_ms as u128, pre_ms as u128, post_ms as u128);
+    let (total_in_buffer, frames) = {
+        let buf = state.liveview_buffer.lock().map_err(|e| e.to_string())?;
+        let total = buf.frames.len();
+        let extracted = buf.extract_window_frames(capture_ts_ms as u128, pre_ms as u128, post_ms as u128);
+        (total, extracted)
+    };
     println!(
         "extract_and_encode_liveview_clip: total_buffer={} matched_window={} capture_ts={}",
         total_in_buffer,
@@ -336,18 +350,14 @@ async fn extract_and_encode_liveview_clip(
     if frames.is_empty() {
         return Err("Buffer kosong untuk window ini".to_string());
     }
-    let fps = if frames.len() <= 12 {
-        (frames.len() as u32 / 2).max(4)
-    } else {
-        8
-    };
-    drop(buf);
-    media::encode_jpeg_frames_to_video_internal(&app, frames, fps).await
+    media::encode_liveview_frames_to_video(&app, frames, 30).await
 }
 
 #[tauri::command]
 async fn clear_liveview_buffer(state: State<'_, AppState>) -> Result<(), GphotoError> {
-    state.liveview_buffer.lock().await.frames.clear();
+    if let Ok(mut buf) = state.liveview_buffer.lock() {
+        buf.frames.clear();
+    }
     Ok(())
 }
 
@@ -710,6 +720,9 @@ pub fn run() {
         default_panic(info);
     }));
 
+    let liveview_buffer = Arc::new(StdMutex::new(gphoto::LiveviewBuffer::new(20000)));
+    canon_edsdk::platform::init_liveview_buffer(liveview_buffer.clone());
+
     tauri::Builder::default()
         .plugin(
             tauri_plugin_log::Builder::new()
@@ -748,7 +761,7 @@ pub fn run() {
         )
         .manage(AppState {
             camera: Mutex::new(None),
-            liveview_buffer: Mutex::new(gphoto::LiveviewBuffer::new(12000)),
+            liveview_buffer,
         })
         .setup(|_app| {
             #[cfg(target_os = "linux")]
@@ -782,6 +795,7 @@ pub fn run() {
             capture_photo,
             start_liveview,
             stop_liveview,
+            set_liveview_capture_preparing,
             get_liveview_frame,
             get_liveview_clip_frames,
             extract_and_encode_liveview_clip,

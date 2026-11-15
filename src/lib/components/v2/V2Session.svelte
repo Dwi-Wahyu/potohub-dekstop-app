@@ -162,7 +162,7 @@
         } finally {
           fetchingFrame = false;
         }
-      }, 150);
+      }, 40);
     }
 
     await templatePromise;
@@ -211,7 +211,7 @@
       boothFlow.countdown = c;
       if (c === 1 && cameraStore.cameraMode === 'usb') {
         await new Promise((r) => setTimeout(r, 800));
-        cameraStore.isPreparingCapture = true;
+        cameraStore.setPreparingCapture(true);
         await new Promise((r) => setTimeout(r, 200));
       } else {
         await new Promise((r) => setTimeout(r, 1000));
@@ -326,6 +326,7 @@
     } catch (err) {
       console.error('Retake capture error:', err);
     } finally {
+      cameraStore.setPreparingCapture(false);
       boothFlow.isFlashActive = false;
       boothFlow.isCapturingCamera = false;
       boothFlow.captureMessage = null;

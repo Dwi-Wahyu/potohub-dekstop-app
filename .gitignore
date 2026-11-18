@@ -14,4 +14,12 @@ src-tauri/binaries/*
 !src-tauri/binaries/.gitkeep
 
 # gphoto-libs: Windows camera runtime libraries (~7 MB total).
-# Tracked deliberately to ensure zero-setup and reproducible builds across different Windows machines.
+# Tracked deliberately to ensure zero-setup and reproducible builds across different Windows machines.
+
+# Signing & Private Keys (NEVER commit private keys or certificates to GitHub)
+*.key
+*.pem
+*.p12
+*.pfx
+*.minisign
+.tauri/

@@ -121,11 +121,14 @@ class BoothFlowStore {
       }).catch(() => {});
     }
 
-    // Trigger idle queue processor otomatis saat kembali ke layar standby awal
+    // Trigger idle queue processor & pending UI layout sync otomatis saat kembali ke layar standby awal
     if (typeof window !== 'undefined') {
       setTimeout(() => {
         import('$lib/utils/idleCoordinator').then(({ checkAndFlushQueuesIfIdle }) => {
           void checkAndFlushQueuesIfIdle();
+        });
+        import('$lib/stores/networkStatus.svelte').then(({ networkStatus }) => {
+          void networkStatus.flushPendingUiSyncIfIdle();
         });
       }, 500);
     }

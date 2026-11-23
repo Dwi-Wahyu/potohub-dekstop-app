@@ -36,6 +36,12 @@ export default defineConfig(async () => ({
     __DEV_WEBCAM__: JSON.stringify(isDevWebcam),
   },
   plugins: [tailwindcss(), sveltekit(), svelteEmptyStyleFallbackPlugin()],
+  optimizeDeps: {
+    exclude: ['@potohub/booth-ui'],
+  },
+  ssr: {
+    noExternal: ['@potohub/booth-ui'],
+  },
 
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
   //
@@ -46,6 +52,9 @@ export default defineConfig(async () => ({
     port: 1420,
     strictPort: true,
     host: host || false,
+    fs: {
+      allow: ['..'],
+    },
     hmr: host
       ? {
           protocol: "ws",

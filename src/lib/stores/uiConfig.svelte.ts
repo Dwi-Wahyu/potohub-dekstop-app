@@ -1,5 +1,10 @@
 import { invoke, convertFileSrc } from '@tauri-apps/api/core';
 import { getAssetCacheMeta } from '$lib/db/local';
+import {
+  collectDesignBlockAssetUrls,
+  migrateLegacyConfigToDesignBlocks,
+  type DesignBlocksDocument,
+} from '@potohub/booth-ui';
 
 export interface TextStyle {
   size: 'Kecil' | 'Sedang' | 'Besar';
@@ -62,6 +67,9 @@ export interface BoothUIConfig {
   elementPositions: ElementPosition[];
   elementStyles: ElementStyle[];
   stepStyles: StepStyle[];
+  layoutVersion: number;
+  layoutSchemaVersion: number;
+  designBlocks: DesignBlocksDocument | null;
 }
 
 export const DEFAULT_TEXT_STYLE: TextStyle = { size: 'Sedang', font: 'Sans Serif', color: '#ffffff' };
@@ -93,7 +101,10 @@ export const DEFAULT_UI_CONFIG: BoothUIConfig = {
   categories: DEFAULT_CATEGORIES,
   elementPositions: [],
   elementStyles: [],
-  stepStyles: []
+  stepStyles: [],
+  layoutVersion: 1,
+  layoutSchemaVersion: 1,
+  designBlocks: null,
 };
 
 class UIConfigStore {
@@ -103,6 +114,59 @@ class UIConfigStore {
 
   get templateVariant() {
     return this.config.templateVariant;
+  }
+
+  get resolvedDesignBlocks(): DesignBlocksDocument {
+    if (this.config.designBlocks) return this.config.designBlocks;
+    return migrateLegacyConfigToDesignBlocks({
+      template_variant: this.config.templateVariant,
+      booth_name: this.config.boothName,
+      tagline: this.config.tagline,
+      show_step_indicator: this.config.showStepIndicator,
+      tutorial_image_url: this.tutorialImageUrl || this.config.tutorialImageUrl,
+      primary_color: this.config.primaryColor,
+      text_styles: [
+        {
+          element_key: 'booth_name',
+          font_size: this.config.boothNameStyle.size,
+          font_family: this.config.boothNameStyle.font,
+          color: this.config.boothNameStyle.color,
+        },
+        {
+          element_key: 'tagline',
+          font_size: this.config.taglineStyle.size,
+          font_family: this.config.taglineStyle.font,
+          color: this.config.taglineStyle.color,
+        },
+        {
+          element_key: 'frame_title',
+          font_size: this.config.frameTitleStyle.size,
+          font_family: this.config.frameTitleStyle.font,
+          color: this.config.frameTitleStyle.color,
+        },
+      ],
+      element_positions: (this.config.elementPositions ?? []).map((p) => ({
+        screen_key: p.screenKey,
+        element_key: p.elementKey,
+        x_percent: p.xPercent,
+        y_percent: p.yPercent,
+      })),
+      element_styles: (this.config.elementStyles ?? []).map((s) => ({
+        screen_key: s.screenKey,
+        element_key: s.elementKey,
+        bg_color: s.bgColor,
+        text_color: s.textColor,
+        font_size: s.fontSize,
+        font_family: s.fontFamily,
+        label: s.label,
+      })),
+      step_styles: (this.config.stepStyles ?? []).map((s) => ({
+        step: s.step,
+        bg_type: s.bgType,
+        bg_value: s.bgValue,
+        bg_blur: s.bgBlur,
+      })),
+    });
   }
 
   get tutorialImageUrl(): string {
@@ -125,61 +189,45 @@ class UIConfigStore {
   }
 
   async resolveCachedAssets() {
+    const urlsToResolve = new Set<string>();
     for (const s of this.config.stepStyles ?? []) {
-      if (
-        s.bgType === 'image' &&
-        s.bgValue &&
-        !s.bgValue.startsWith('data:') &&
-        !s.bgValue.startsWith('asset:') &&
-        !s.bgValue.startsWith('http://asset.localhost')
-      ) {
-        try {
-          const meta = await getAssetCacheMeta(s.bgValue);
-          if (meta) {
-            const filePath = await invoke<string | null>('get_cached_asset_path', {
-              cacheKey: meta.cache_key,
-            });
-            if (filePath) {
-              this.resolvedBackgrounds[s.bgValue] = convertFileSrc(filePath);
-            } else {
-              const dataUrl = await invoke<string | null>('read_cached_asset', {
-                cacheKey: meta.cache_key,
-              });
-              if (dataUrl) {
-                this.resolvedBackgrounds[s.bgValue] = dataUrl;
-              }
-            }
-          }
-        } catch (e) {
-          console.warn('[uiConfig] Gagal resolve background cache:', e);
-        }
-      }
+      if (s.bgType === 'image' && s.bgValue) urlsToResolve.add(s.bgValue);
     }
-    if (
-      this.config.tutorialImageUrl &&
-      !this.config.tutorialImageUrl.startsWith('data:') &&
-      !this.config.tutorialImageUrl.startsWith('asset:') &&
-      !this.config.tutorialImageUrl.startsWith('http://asset.localhost')
-    ) {
+    if (this.config.tutorialImageUrl) {
+      urlsToResolve.add(this.config.tutorialImageUrl);
+    }
+    for (const u of collectDesignBlockAssetUrls(this.resolvedDesignBlocks)) {
+      urlsToResolve.add(u);
+    }
+
+    for (const rawUrl of urlsToResolve) {
+      if (
+        !rawUrl ||
+        rawUrl.startsWith('data:') ||
+        rawUrl.startsWith('asset:') ||
+        rawUrl.startsWith('http://asset.localhost')
+      ) {
+        continue;
+      }
       try {
-        const meta = await getAssetCacheMeta(this.config.tutorialImageUrl);
+        const meta = await getAssetCacheMeta(rawUrl);
         if (meta) {
           const filePath = await invoke<string | null>('get_cached_asset_path', {
             cacheKey: meta.cache_key,
           });
           if (filePath) {
-            this.resolvedBackgrounds[this.config.tutorialImageUrl] = convertFileSrc(filePath);
+            this.resolvedBackgrounds[rawUrl] = convertFileSrc(filePath);
           } else {
             const dataUrl = await invoke<string | null>('read_cached_asset', {
               cacheKey: meta.cache_key,
             });
             if (dataUrl) {
-              this.resolvedBackgrounds[this.config.tutorialImageUrl] = dataUrl;
+              this.resolvedBackgrounds[rawUrl] = dataUrl;
             }
           }
         }
       } catch (e) {
-        console.warn('[uiConfig] Gagal resolve tutorial image cache:', e);
+        console.warn('[uiConfig] Gagal resolve asset cache:', e);
       }
     }
   }

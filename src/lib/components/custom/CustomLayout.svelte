@@ -13,10 +13,11 @@
     updateCheckpointSelection,
     updateCheckpointStatus,
   } from '$lib/utils/activeSessionCheckpoint';
-  import CustomLanding from './CustomLanding.svelte';
-  import V1Tutorial from '$lib/components/v1/V1Tutorial.svelte';
+  import { StartScreen, TutorialScreen } from '@potohub/booth-ui';
+  import { createDesktopUiAdapter } from '$lib/adapters/boothUiAdapter.svelte';
+  import KioskStartShell from '$lib/components/shared/KioskStartShell.svelte';
+  import KioskFrameWrapper from '$lib/components/shared/KioskFrameWrapper.svelte';
   import V1PaymentMethod from '$lib/components/v1/V1PaymentMethod.svelte';
-  import V1CategoryFrame from '$lib/components/v1/V1CategoryFrame.svelte';
   import V1PrintQty from '$lib/components/v1/V1PrintQty.svelte';
   import V1QRISPayment from '$lib/components/v1/V1QRISPayment.svelte';
   import V1Camera from '$lib/components/v1/V1Camera.svelte';
@@ -196,6 +197,19 @@
 
   const CUSTOM_DEFAULT_BG = '#ebf0f7';
   const getCustomBg = (stepKey: string) => uiConfig.getStepStyle(stepKey).background ?? CUSTOM_DEFAULT_BG;
+
+  let designBlockAdapter = $derived(
+    createDesktopUiAdapter({
+      categories: [],
+      templates: [],
+      customTutorialImg,
+      callbacks: {
+        onStart: handleStart,
+        onNext: handleTutorialNext,
+        onBack: () => (currentSubStep = 'welcome'),
+      },
+    }),
+  );
 </script>
 
 <ProgressiveBackground
@@ -205,13 +219,15 @@
   style="background: {getCustomBg(SUBSTEP_TO_UI_STEP[currentSubStep])};"
 >
   {#if currentSubStep === 'welcome'}
-    <CustomLanding background={getCustomBg('start')} onStart={handleStart} onOpenConfig={handleOpenConfig} />
+    <KioskStartShell variant="custom" onOpenConfig={handleOpenConfig}>
+      <StartScreen doc={uiConfig.resolvedDesignBlocks} adapter={designBlockAdapter} />
+    </KioskStartShell>
   {:else if currentSubStep === 'tutorial'}
-    <V1Tutorial background={getCustomBg('tutorial')} {customTutorialImg} onNext={handleTutorialNext} onBack={() => (currentSubStep = 'welcome')} />
+    <TutorialScreen doc={uiConfig.resolvedDesignBlocks} adapter={designBlockAdapter} />
   {:else if currentSubStep === 'category_frame'}
-    <V1CategoryFrame
-      background={getCustomBg('frame')}
-      onNext={handleCategoryFrameNext}
+    <KioskFrameWrapper
+      doc={uiConfig.resolvedDesignBlocks}
+      onSelectFrame={(frameId, price) => handleCategoryFrameNext(price, frameId)}
       onBack={() => {
         if (boothConfig.config.earlyPaymentPage && !boothConfig.config.skipPayment) {
           currentSubStep = 'method_select';

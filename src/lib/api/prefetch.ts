@@ -1,6 +1,7 @@
 import { fetchCategories, fetchTemplates, fetchBanners, fetchEmots } from './boothClient';
 import { uiConfig } from '$lib/stores/uiConfig.svelte';
 import { ensureAsset, writeApiCache } from '$lib/utils/offlineCache';
+import { collectDesignBlockAssetUrls } from '@potohub/booth-ui';
 
 function collectAssetUrls(): string[] {
   const urls: string[] = [];
@@ -13,6 +14,9 @@ function collectAssetUrls(): string[] {
   // payment logos bila ada (logoUrl)
   for (const p of uiConfig.config.paymentMethods ?? []) {
     if (p.logoUrl) urls.push(p.logoUrl);
+  }
+  for (const u of collectDesignBlockAssetUrls(uiConfig.resolvedDesignBlocks)) {
+    urls.push(u);
   }
   return urls;
 }

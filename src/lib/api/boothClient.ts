@@ -6,6 +6,7 @@ import {
   type TextStyle,
   type BoothUIConfig,
 } from "$lib/stores/uiConfig.svelte";
+import type { DesignBlocksDocument } from "@potohub/booth-ui";
 import { boothConfig } from "$lib/stores/boothConfig.svelte";
 import {
   getActivation,
@@ -40,7 +41,13 @@ export interface PublicUIConfigResponse {
     show_step_indicator: boolean;
     tutorial_asset_id?: string | null;
     tutorial_image_url?: string | null;
+    layout_schema_version?: number;
+    layout_version?: number;
+    design_blocks?: DesignBlocksDocument | null;
   };
+  layout_schema_version?: number;
+  layout_version?: number;
+  design_blocks?: DesignBlocksDocument | null;
   text_styles: Array<{
     element_key: string;
     font_size: "kecil" | "sedang" | "besar";
@@ -160,7 +167,11 @@ function mapPublicConfigToBoothUIConfig(
       step: s.step,
       bgType: s.bg_type,
       bgValue: s.bg_value,
+      bgBlur: s.bg_blur ?? null,
     })),
+    layoutVersion: data.layout_version ?? data.general.layout_version ?? 1,
+    layoutSchemaVersion: data.layout_schema_version ?? data.general.layout_schema_version ?? 1,
+    designBlocks: data.design_blocks ?? data.general.design_blocks ?? null,
   };
 }
 

@@ -13,12 +13,13 @@
     updateCheckpointSelection,
     updateCheckpointStatus,
   } from '$lib/utils/activeSessionCheckpoint';
-  import V2Landing from './V2Landing.svelte';
-  import V2Tutorial from './V2Tutorial.svelte';
+  import { StartScreen, TutorialScreen } from '@potohub/booth-ui';
+  import { createDesktopUiAdapter } from '$lib/adapters/boothUiAdapter.svelte';
+  import KioskStartShell from '$lib/components/shared/KioskStartShell.svelte';
+  import KioskFrameWrapper from '$lib/components/shared/KioskFrameWrapper.svelte';
   import V2Payment from './V2Payment.svelte';
   import V2Qris from './V2Qris.svelte';
   import V2Ticket from './V2Ticket.svelte';
-  import V2Frame from './V2Frame.svelte';
   import V2Session from './V2Session.svelte';
   import V2Filter from './V2Filter.svelte';
   import V2Download from './V2Download.svelte';
@@ -205,6 +206,19 @@
 
   const V2_DEFAULT_BG = '#fafafa';
   const getV2Bg = (stepKey: string) => uiConfig.getStepStyle(stepKey).background ?? V2_DEFAULT_BG;
+
+  let designBlockAdapter = $derived(
+    createDesktopUiAdapter({
+      categories: [],
+      templates: [],
+      customTutorialImg,
+      callbacks: {
+        onStart: handleStart,
+        onNext: handleTutorialNext,
+        onBack: () => (step = 'landing'),
+      },
+    }),
+  );
 </script>
 
 <ProgressiveBackground
@@ -214,9 +228,11 @@
   style="background: {getV2Bg(V2_STEP_TO_UI_STEP[step])};"
 >
   {#if step === 'landing'}
-    <V2Landing background={getV2Bg('start')} onStart={handleStart} onOpenConfig={handleOpenConfig} />
+    <KioskStartShell variant="v2" onOpenConfig={handleOpenConfig}>
+      <StartScreen doc={uiConfig.resolvedDesignBlocks} adapter={designBlockAdapter} />
+    </KioskStartShell>
   {:else if step === 'tutorial'}
-    <V2Tutorial background={getV2Bg('tutorial')} {customTutorialImg} onNext={handleTutorialNext} onBack={() => (step = 'landing')} />
+    <TutorialScreen doc={uiConfig.resolvedDesignBlocks} adapter={designBlockAdapter} />
   {:else if step === 'payment'}
     <V2Payment
       background={getV2Bg('payment')}
@@ -234,9 +250,9 @@
   {:else if step === 'ticket'}
     <V2Ticket background={getV2Bg('ticket')} onConfirm={handleTicketConfirm} onBack={() => (step = 'payment')} />
   {:else if step === 'frame'}
-    <V2Frame
-      background={getV2Bg('frame')}
-      onSelectFrame={handleSelectFrame}
+    <KioskFrameWrapper
+      doc={uiConfig.resolvedDesignBlocks}
+      onSelectFrame={(frameId) => handleSelectFrame(frameId)}
       onBack={() => {
         if (boothConfig.config.earlyPaymentPage && !boothConfig.config.skipPayment) {
           step = 'payment';

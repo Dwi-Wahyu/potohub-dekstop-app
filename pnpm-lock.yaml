@@ -14,6 +14,9 @@ importers:
       '@lucide/svelte':
         specifier: ^1.33.0
         version: 1.33.0(svelte@5.56.7)
+      '@potohub/booth-ui':
+        specifier: file:../booth-ui
+        version: file:../booth-ui(svelte@5.56.7)
       '@tauri-apps/api':
         specifier: ^2.12.4
         version: 2.12.4
@@ -253,8 +256,20 @@ packages:
     cpu: [x64]
     os: [win32]
 
+  '@fontsource/dancing-script@5.3.0':
+    resolution: {integrity: sha512-/FFbz4ZCNN+eG2a6phkZB41iKmyCC6rq2blA/kG9OFeI3/tpzLNazND1bBdEnogLhpfg7o4NfauTbEEYSpSUGg==}
+
+  '@fontsource/nunito@5.3.0':
+    resolution: {integrity: sha512-vw9TaTQJ/zpEpKrsODuPmOvaVjXgdda6B+xXA4YqjrdeJ62MLgVoDerdRXFQHyBnSCt2yQ2nHKCHPP/Pv7Xq4Q==}
+
+  '@fontsource/playfair-display@5.3.0':
+    resolution: {integrity: sha512-uJSABalvdWc10fEPppQjQocamT21LEyRfzzWfRfqbkPz+sRv+kKpYDKyluBUskvJREkJTos9epj1WjQROGu99Q==}
+
   '@fontsource/poppins@5.3.0':
     resolution: {integrity: sha512-cms1nM7U6SN8epIV1WMVOV8VsA645aSm3wHfzIQnkk188U341ThbJGSl2Sv54V29gnDbT2arMPfLzvVIIVCceQ==}
+
+  '@fontsource/space-mono@5.3.0':
+    resolution: {integrity: sha512-FrpBMOVWn3PRdRHlrZWC55X3kZG/2BTH7SM5ZyS/bky3iKya2BturI5lk+t0RoDQL2JyHzURsVq/EisCsxpI5A==}
 
   '@jridgewell/gen-mapping@0.3.13':
     resolution: {integrity: sha512-2kkt/7niJ6MgEPxF0bYdQ6etZaA+fQvDcLKckhy1yIQOzaoKjBBjSj63/aLVjYE3qhRt5dvM+uUyfCg6UKCBbA==}
@@ -279,6 +294,11 @@ packages:
 
   '@polka/url@1.0.0-next.29':
     resolution: {integrity: sha512-wwQAWhWSuHaag8c4q/KN/vCoeOJYshAIvMQwD4GpSb3OiZklFfvAgmj0VCBBImRpuF/aFgIRzllXlVX93Jevww==}
+
+  '@potohub/booth-ui@file:../booth-ui':
+    resolution: {directory: ../booth-ui, type: directory}
+    peerDependencies:
+      svelte: ^5.0.0
 
   '@rollup/rollup-android-arm-eabi@4.62.2':
     resolution: {integrity: sha512-6o7ZLZK+BeenkZCFNDXqpbjw9bD6nuWonvS/lwQJp7NoVVxm6p3qE7qQ5jGuBjiFsgvqjD8mZAU5oWxTmbOeOg==}
@@ -1191,7 +1211,15 @@ snapshots:
   '@esbuild/win32-x64@0.25.12':
     optional: true
 
+  '@fontsource/dancing-script@5.3.0': {}
+
+  '@fontsource/nunito@5.3.0': {}
+
+  '@fontsource/playfair-display@5.3.0': {}
+
   '@fontsource/poppins@5.3.0': {}
+
+  '@fontsource/space-mono@5.3.0': {}
 
   '@jridgewell/gen-mapping@0.3.13':
     dependencies:
@@ -1217,6 +1245,16 @@ snapshots:
       svelte: 5.56.7
 
   '@polka/url@1.0.0-next.29': {}
+
+  '@potohub/booth-ui@file:../booth-ui(svelte@5.56.7)':
+    dependencies:
+      '@fontsource/dancing-script': 5.3.0
+      '@fontsource/nunito': 5.3.0
+      '@fontsource/playfair-display': 5.3.0
+      '@fontsource/poppins': 5.3.0
+      '@fontsource/space-mono': 5.3.0
+      '@lucide/svelte': 1.33.0(svelte@5.56.7)
+      svelte: 5.56.7
 
   '@rollup/rollup-android-arm-eabi@4.62.2':
     optional: true

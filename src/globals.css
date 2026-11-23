@@ -14,7 +14,9 @@
 @import "@fontsource/poppins/700-italic.css";
 @import "@fontsource/poppins/800-italic.css";
 @import "@fontsource/poppins/900-italic.css";
+@import "@potohub/booth-ui/fonts.css";
 @import "tailwindcss";
+@source "../../booth-ui/src";
 
 @theme {
   --font-sans: 'Poppins', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;

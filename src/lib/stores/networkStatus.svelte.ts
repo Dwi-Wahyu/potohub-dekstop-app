@@ -3,6 +3,10 @@ import { getActivation, getOrCreateDeviceId, countPendingOutboxJobs, countPendin
 import { printerStore } from '$lib/printer.svelte';
 import { cameraStore } from '$lib/camera.svelte';
 import { boothConfig } from '$lib/stores/boothConfig.svelte';
+import { uiConfig } from '$lib/stores/uiConfig.svelte';
+import { boothFlow } from '$lib/stores/booth.svelte';
+import { fetchAndCacheUiConfig } from '$lib/api/boothClient';
+import { prefetchBoothAssets } from '$lib/api/prefetch';
 import { getVersion } from '@tauri-apps/api/app';
 
 const envs = import.meta.env as Record<string, string>;
@@ -28,6 +32,24 @@ class NetworkStatusStore {
   private offlineDebounceTimer: any = null;
   private consecutiveFailures = 0;
   private cachedAppVersion: string | null = null;
+  pendingUiSync = $state(false);
+  private syncingUi = false;
+
+  async flushPendingUiSyncIfIdle(): Promise<void> {
+    if (!this.pendingUiSync || this.syncingUi || boothFlow.step !== 'welcome') return;
+    const activation = await getActivation().catch(() => null);
+    if (!activation?.boothId) return;
+    this.syncingUi = true;
+    try {
+      await fetchAndCacheUiConfig();
+      void prefetchBoothAssets(activation.boothId).catch(() => {});
+      this.pendingUiSync = false;
+    } catch (e) {
+      console.warn('[NetworkStatus] Gagal sync UI tertunda:', e);
+    } finally {
+      this.syncingUi = false;
+    }
+  }
 
   private async getAppVersion(): Promise<string> {
     if (this.cachedAppVersion) return this.cachedAppVersion;
@@ -143,6 +165,20 @@ class NetworkStatusStore {
         signal: ctrl.signal,
       });
       clearTimeout(t);
+      if (res.ok) {
+        try {
+          const ack = (await res.json()) as { ui_layout_version?: number };
+          if (
+            typeof ack?.ui_layout_version === 'number' &&
+            ack.ui_layout_version > uiConfig.config.layoutVersion
+          ) {
+            this.pendingUiSync = true;
+            if (boothFlow.step === 'welcome') {
+              void this.flushPendingUiSyncIfIdle();
+            }
+          }
+        } catch {}
+      }
       return res.ok;
     } catch {
       return false;
@@ -162,6 +198,20 @@ class NetworkStatusStore {
         cache: 'no-store',
       });
       clearTimeout(t);
+      if (res.ok) {
+        try {
+          const ack = (await res.json()) as { ui_layout_version?: number };
+          if (
+            typeof ack?.ui_layout_version === 'number' &&
+            ack.ui_layout_version > uiConfig.config.layoutVersion
+          ) {
+            this.pendingUiSync = true;
+            if (boothFlow.step === 'welcome') {
+              void this.flushPendingUiSyncIfIdle();
+            }
+          }
+        } catch {}
+      }
       return res.ok;
     } catch {
       return false;

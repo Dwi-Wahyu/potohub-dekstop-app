@@ -14,12 +14,13 @@
     updateCheckpointSelection,
     updateCheckpointStatus,
   } from '$lib/utils/activeSessionCheckpoint';
-  import V3Start from './V3Start.svelte';
-  import V3Tutorial from './V3Tutorial.svelte';
+  import { StartScreen, TutorialScreen } from '@potohub/booth-ui';
+  import { createDesktopUiAdapter } from '$lib/adapters/boothUiAdapter.svelte';
+  import KioskStartShell from '$lib/components/shared/KioskStartShell.svelte';
+  import KioskFrameWrapper from '$lib/components/shared/KioskFrameWrapper.svelte';
   import V3Package from './V3Package.svelte';
   import V3Payment from './V3Payment.svelte';
   import V3Ticket from './V3Ticket.svelte';
-  import V3Frame from './V3Frame.svelte';
   import V3Session from './V3Session.svelte';
   import V3Filter from './V3Filter.svelte';
   import V3Loading from './V3Loading.svelte';
@@ -244,6 +245,19 @@
     download: '#fdfdfd'
   };
   const getV3Bg = (stepKey: string) => uiConfig.getStepStyle(stepKey).background ?? V3_DEFAULT_BG_MAP[stepKey] ?? '#fdfdfd';
+
+  let designBlockAdapter = $derived(
+    createDesktopUiAdapter({
+      categories: [],
+      templates: [],
+      customTutorialImg,
+      callbacks: {
+        onStart: handleStart,
+        onNext: handleTutorialNext,
+        onBack: () => (step = 'start'),
+      },
+    }),
+  );
 </script>
 
 <ProgressiveBackground
@@ -253,9 +267,11 @@
   style="background: {getV3Bg(step)};"
 >
   {#if step === 'start'}
-    <V3Start background={getV3Bg('start')} onStart={handleStart} onOpenConfig={handleOpenConfig} />
+    <KioskStartShell variant="v3" onOpenConfig={handleOpenConfig}>
+      <StartScreen doc={uiConfig.resolvedDesignBlocks} adapter={designBlockAdapter} />
+    </KioskStartShell>
   {:else if step === 'tutorial'}
-    <V3Tutorial background={getV3Bg('tutorial')} {customTutorialImg} onNext={handleTutorialNext} onBack={() => (step = 'start')} />
+    <TutorialScreen doc={uiConfig.resolvedDesignBlocks} adapter={designBlockAdapter} />
   {:else if step === 'package'}
     <V3Package
       background={getV3Bg('package')}
@@ -274,9 +290,9 @@
   {:else if step === 'ticket'}
     <V3Ticket background={getV3Bg('ticket')} onConfirm={handleTicketConfirm} onBack={() => (step = 'payment')} />
   {:else if step === 'frame'}
-    <V3Frame
-      background={getV3Bg('frame')}
-      onSelectFrame={handleSelectFrame}
+    <KioskFrameWrapper
+      doc={uiConfig.resolvedDesignBlocks}
+      onSelectFrame={(frameId) => handleSelectFrame(frameId)}
       onBack={() => {
         if (boothConfig.config.earlyPaymentPage && !boothConfig.config.skipPayment) {
           step = 'payment';

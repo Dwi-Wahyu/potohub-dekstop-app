@@ -66,7 +66,7 @@ export const DEFAULT_CFG: BoothCfg = {
   skipPayment: false,
   cameraMode: isDevWebcamEnabled() ? 'webcam' : 'usb',
   bootScreen: 'welcome',
-  liveviewClipPreSecs: 2.5,
+  liveviewClipPreSecs: 3,
   liveviewClipPostSecs: 0,
   enableLiveviewVideo: true,
   enableSessionGif: true,
@@ -107,10 +107,18 @@ class BoothConfigStore {
             ? (Number(rawSessionSecs) === 10 ? DEFAULT_CFG.photoSessionTimeSecs : Number(rawSessionSecs))
             : DEFAULT_CFG.photoSessionTimeSecs;
 
+        const rawPreSecs = Number(parsed.liveviewClipPreSecs);
+        const validPreSecs =
+          !isNaN(rawPreSecs) && rawPreSecs >= DEFAULT_CFG.liveviewClipPreSecs
+            ? rawPreSecs
+            : DEFAULT_CFG.liveviewClipPreSecs;
+
         this.config = {
           ...DEFAULT_CFG,
           ...parsed,
           photoSessionTimeSecs: validSessionSecs,
+          liveviewClipPreSecs: validPreSecs,
+          liveviewClipPostSecs: DEFAULT_CFG.liveviewClipPostSecs,
           earlyPaymentPage: !!early,
           paymentPage: !!early,
           basePrice: baseVal,

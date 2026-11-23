@@ -385,6 +385,82 @@
           </div>
         </div>
       {/if}
+
+      <!-- Phase: Error -->
+      {#if updaterStore.phase === 'error'}
+        <div style="display: flex; flex-direction: column; align-items: center; gap: 22px; text-align: center; padding-top: 8px;">
+          <div
+            style="
+              width: 96px;
+              height: 96px;
+              border-radius: 50%;
+              background: #fee2e2;
+              box-shadow: {sh.btn};
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              color: #dc2626;
+            "
+          >
+            <ShieldAlert size={48} />
+          </div>
+
+          <div>
+            <h2 style="margin: 0; font-size: 24px; font-weight: 700; color: #1e293b;">
+              Pembaruan Gagal
+            </h2>
+            <p style="margin: 8px 0 0; font-size: 14px; color: #b91c1c; font-weight: 600; word-break: break-word;">
+              {updaterStore.errorMessage || 'Terjadi kesalahan saat memperbarui aplikasi.'}
+            </p>
+            <p style="margin: 8px 0 0; font-size: 12px; color: #64748b;">
+              Versi terpasang saat ini: <b>v{updaterStore.currentVersion}</b>
+            </p>
+          </div>
+
+          <div style="width: 100%; display: flex; gap: 14px; margin-top: 4px;">
+            <button
+              type="button"
+              onclick={handleClose}
+              class="mm-btn"
+              style="
+                flex: 1;
+                min-height: 58px;
+                border-radius: 18px;
+                border: none;
+                cursor: pointer;
+                font-family: {FONT};
+                font-weight: 700;
+                font-size: 16px;
+                background: {BG};
+                color: #334155;
+                box-shadow: {sh.btn};
+              "
+            >
+              Tutup
+            </button>
+            <button
+              type="button"
+              onclick={() => updaterStore.checkForUpdates(false)}
+              class="mm-btn"
+              style="
+                flex: 1.4;
+                min-height: 58px;
+                border-radius: 18px;
+                border: none;
+                cursor: pointer;
+                font-family: {FONT};
+                font-weight: 700;
+                font-size: 16px;
+                background: linear-gradient(135deg, #3d3aa0, {NAVY});
+                color: #fff;
+                box-shadow: 0 8px 20px rgba(42, 40, 115, 0.38);
+              "
+            >
+              Coba Lagi
+            </button>
+          </div>
+        </div>
+      {/if}
     </div>
   </div>
 {/if}

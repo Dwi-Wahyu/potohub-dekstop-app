@@ -3,6 +3,7 @@ import { getActivation, getOrCreateDeviceId, countPendingOutboxJobs, countPendin
 import { printerStore } from '$lib/printer.svelte';
 import { cameraStore } from '$lib/camera.svelte';
 import { boothConfig } from '$lib/stores/boothConfig.svelte';
+import { getVersion } from '@tauri-apps/api/app';
 
 const envs = import.meta.env as Record<string, string>;
 const rawBase =
@@ -26,6 +27,21 @@ class NetworkStatusStore {
   private heartbeatTimer: any = null;
   private offlineDebounceTimer: any = null;
   private consecutiveFailures = 0;
+  private cachedAppVersion: string | null = null;
+
+  private async getAppVersion(): Promise<string> {
+    if (this.cachedAppVersion) return this.cachedAppVersion;
+    if (typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window) {
+      try {
+        const ver = await getVersion();
+        if (ver) {
+          this.cachedAppVersion = ver;
+          return ver;
+        }
+      } catch {}
+    }
+    return '0.1.1';
+  }
 
   init() {
     if (typeof window === 'undefined' || this.listenersBound) return;
@@ -101,9 +117,10 @@ class NetworkStatusStore {
         ? printerStore.status.paper_remaining
         : (typeof boothConfig.config.paperCount === 'number' ? boothConfig.config.paperCount : null);
 
+    const appVersion = await this.getAppVersion();
     const payload = {
       device_id: identity.deviceId,
-      app_version: '0.1.0',
+      app_version: appVersion,
       mode: mode,
       camera_status: cameraStatus,
       printer_status: printerStatus,

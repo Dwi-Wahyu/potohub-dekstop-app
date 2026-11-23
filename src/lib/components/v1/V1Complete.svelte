@@ -55,6 +55,9 @@
   let isSavingSession = $state(false);
   let selectedTemplate = $state<BoothTemplate | null>(null);
   let activePreviewTab = $state<'strip' | 'gif' | 'liveview'>('strip');
+  // Snapshot lokal agar kebal terhadap boothFlow.reset() jika user menekan Selesai sebelum upload aset rampung
+  let activeLocalSessionCode = '';
+  let activeBackendSessionId: string | null = null;
 
   const envs = import.meta.env as Record<string, string>;
   const rawSoftfileUrl =
@@ -115,6 +118,7 @@
     }
 
     const localSessionCode = generateSessionCode(uiConfig.config.boothName);
+    activeLocalSessionCode = localSessionCode;
     boothFlow.sessionCode = localSessionCode;
 
     let softfileUrl = `${ADMIN_DASHBOARD_PUBLIC_URL}/softfile/pending-${localSessionCode}`;
@@ -154,6 +158,7 @@
     } else {
       boothFlow.sessionId = null;
     }
+    activeBackendSessionId = isValidUUID(boothFlow.sessionId) ? boothFlow.sessionId! : null;
 
     qrDataUrl = await QRCode.toDataURL(softfileUrl, { margin: 1, width: 200 }).catch(() => '');
 
@@ -192,7 +197,7 @@
       paymentMethod: (boothFlow.paymentMethod === 'Cashless' ? 'Cashless' : 'Ticket') as 'Ticket' | 'Cashless',
       softfileTarget: null,
       localSessionCode,
-      backendSessionId: isValidUUID(boothFlow.sessionId) ? boothFlow.sessionId! : undefined,
+      backendSessionId: activeBackendSessionId ?? undefined,
       assetRelativePaths: buildAssetRelativePaths(
         localSessionCode,
         uiConfig.config.boothName,
@@ -205,7 +210,7 @@
     };
 
     // Segera catat sesi ke database outbox lokal agar operator bisa melihatnya di dialog sesi
-    void upsertSessionOutboxJob(localSessionCode, sessionPayload, { status: 'pending' }).catch(console.warn);
+    await upsertSessionOutboxJob(localSessionCode, sessionPayload, { status: 'pending' }).catch(console.warn);
 
     if (copies > 0 && compositeUrl) {
       void (async () => {
@@ -292,8 +297,7 @@
       console.error('Failed to save session assets:', err);
     } finally {
       isSavingSession = false;
-      const sCode = boothFlow.sessionCode || localSessionCode;
-      const isSyncedOnline = Boolean(isValidUUID(boothFlow.sessionId) && assetResult?.compositeUploaded);
+      const isSyncedOnline = Boolean(isValidUUID(activeBackendSessionId) && assetResult?.compositeUploaded);
       const syncError = isSyncedOnline
         ? null
         : assetResult?.lastUploadError ||
@@ -301,7 +305,7 @@
           (!networkStatus.isOnline ? 'Booth sedang offline saat sesi selesai' : 'Gagal unggah softfile ke server');
 
       void upsertSessionOutboxJob(
-        sCode,
+        localSessionCode,
         sessionPayload,
         {
           status: isSyncedOnline ? 'done' : 'pending',
@@ -319,7 +323,8 @@
   let sendError = $state('');
 
   async function enqueueSoftfileJob(target: string) {
-    const sCode = boothFlow.sessionCode || generateSessionCode(uiConfig.config.boothName);
+    const sCode = activeLocalSessionCode || boothFlow.sessionCode || generateSessionCode(uiConfig.config.boothName);
+    const resolvedSessionId = activeBackendSessionId ?? boothFlow.sessionId;
     const effectiveCount = (photos.length > 0 ? photos : boothFlow.photosTaken).length;
     await upsertSessionOutboxJob(
       sCode,
@@ -331,7 +336,7 @@
         paymentMethod: boothFlow.paymentMethod === 'Cashless' ? 'Cashless' : 'Ticket',
         softfileTarget: target,
         localSessionCode: sCode,
-        backendSessionId: isValidUUID(boothFlow.sessionId) ? boothFlow.sessionId! : undefined,
+        backendSessionId: isValidUUID(resolvedSessionId) ? resolvedSessionId! : undefined,
         assetRelativePaths: buildAssetRelativePaths(
           sCode,
           uiConfig.config.boothName,
@@ -350,8 +355,9 @@
   async function handleSendEmail() {
     if (!email.trim() || emailSent) return;
     sendError = '';
+    const targetSessionId = activeBackendSessionId ?? boothFlow.sessionId;
 
-    if (!networkStatus.isOnline || !isValidUUID(boothFlow.sessionId)) {
+    if (!networkStatus.isOnline || !isValidUUID(targetSessionId)) {
       await enqueueSoftfileJob(email.trim());
       return;
     }
@@ -365,7 +371,7 @@
           kbOpen = false;
         }
       },
-      boothFlow.sessionId ?? undefined
+      targetSessionId ?? undefined
     );
     if (!ok && !emailSent) {
       sendError = 'Gagal mengirim Email. Periksa konfigurasi SMTP / App Password.';
@@ -376,8 +382,9 @@
   async function handleSendWA() {
     if (!phone.trim() || waSent) return;
     sendError = '';
+    const targetSessionId = activeBackendSessionId ?? boothFlow.sessionId;
 
-    if (!networkStatus.isOnline || !isValidUUID(boothFlow.sessionId)) {
+    if (!networkStatus.isOnline || !isValidUUID(targetSessionId)) {
       await enqueueSoftfileJob(phone.trim());
       return;
     }
@@ -391,7 +398,7 @@
           kbOpen = false;
         }
       },
-      boothFlow.sessionId ?? undefined
+      targetSessionId ?? undefined
     );
     if (!ok && !waSent) {
       sendError = 'Gagal mengirim WhatsApp. Periksa token Fonnte & format nomor WA.';

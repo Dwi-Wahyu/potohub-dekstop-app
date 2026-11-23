@@ -16,8 +16,10 @@
     Filter,
     FolderOpen,
     Trash2,
-    QrCode
+    QrCode,
+    ArrowRight
   } from '@lucide/svelte';
+  import { goto } from '$app/navigation';
   import { invoke } from '@tauri-apps/api/core';
   import {
     listAllSessionOutboxJobs,
@@ -27,9 +29,11 @@
     clearAllPendingPrintJobs,
     cancelPendingPrintJobsBySessionCode,
     markOutboxJobDone,
-    markAllPendingOutboxJobsDone,
+    markOutboxJobsDoneBulk,
+    markSessionsPrintedBulk,
     type SessionHistoryItem,
   } from '$lib/db/local';
+  import { getActiveBoothId } from '$lib/api/boothClient';
   import { processSingleJobById, type JobProcessOutcome } from '$lib/utils/offlineOutbox';
   import { reprintSessionDirectly } from '$lib/utils/printQueue';
 
@@ -72,15 +76,16 @@
     return sessions;
   });
 
-  let pendingCount = $derived(
-    sessions.filter((s) => s.status === 'pending' || s.status === 'dead_letter' || s.printStatus === 'failed').length
+  let pendingUploadCount = $derived(
+    sessions.filter((s) => s.status === 'pending' || s.status === 'dead_letter').length
   );
   let pendingPrintCount = $state(0);
 
   async function loadSessions() {
     isLoading = true;
     try {
-      sessions = await listAllSessionOutboxJobs(50);
+      const boothId = await getActiveBoothId().catch(() => null);
+      sessions = await listAllSessionOutboxJobs(50, boothId);
       pendingPrintCount = await countPendingPrintJobs().catch(() => 0);
       // Muat preview thumbnail untuk sesi yang ada
       for (const item of sessions) {
@@ -96,6 +101,11 @@
     } finally {
       isLoading = false;
     }
+  }
+
+  function handleOpenAllSessionsPage() {
+    onClose();
+    void goto('/settings/sessions');
   }
 
   async function handleClearAllPrints() {
@@ -130,17 +140,12 @@
     }
   }
 
-  async function handleMarkDone(item: SessionHistoryItem) {
+  async function handleMarkSent(item: SessionHistoryItem) {
     try {
       await markOutboxJobDone(item.id);
       item.status = 'done';
       item.lastError = null;
-      if (item.printStatus === 'failed') {
-        item.printStatus = 'printed';
-        item.printError = null;
-        void updateSessionPrintStatus(item.sessionCode, 'printed').catch(console.warn);
-      }
-      feedbackMap[item.id] = { type: 'success', text: 'Ditandai selesai' };
+      feedbackMap[item.id] = { type: 'success', text: 'Ditandai sudah dikirim' };
       onUpdated?.();
     } catch (err) {
       feedbackMap[item.id] = { type: 'error', text: String(err) };
@@ -151,27 +156,38 @@
     }
   }
 
-  async function handleMarkAllDone() {
-    if (pendingCount === 0) return;
-    const ok = confirm(`Tandai seluruh ${pendingCount} antrean sesi tertunda sebagai selesai?`);
+  async function handleMarkPrinted(item: SessionHistoryItem) {
+    try {
+      await markSessionsPrintedBulk([{ id: item.id, sessionCode: item.sessionCode }]);
+      item.printStatus = 'printed';
+      item.printError = null;
+      feedbackMap[item.id] = { type: 'success', text: 'Ditandai sudah print' };
+      pendingPrintCount = await countPendingPrintJobs().catch(() => 0);
+      onUpdated?.();
+    } catch (err) {
+      feedbackMap[item.id] = { type: 'error', text: String(err) };
+    } finally {
+      setTimeout(() => {
+        delete feedbackMap[item.id];
+      }, 3500);
+    }
+  }
+
+  async function handleMarkAllSent() {
+    const pendingItems = sessions.filter((s) => s.status === 'pending' || s.status === 'dead_letter');
+    if (pendingItems.length === 0) return;
+    const ok = confirm(`Tandai ${pendingItems.length} sesi yang tertunda sebagai sudah dikirim (tanpa menghapus file lokal)?`);
     if (!ok) return;
 
     try {
-      await markAllPendingOutboxJobsDone();
-      for (const s of sessions) {
-        if (s.status === 'pending' || s.status === 'dead_letter') {
-          s.status = 'done';
-          s.lastError = null;
-        }
-        if (s.printStatus === 'failed') {
-          s.printStatus = 'printed';
-          s.printError = null;
-          void updateSessionPrintStatus(s.sessionCode, 'printed').catch(console.warn);
-        }
+      await markOutboxJobsDoneBulk(pendingItems.map((s) => s.id));
+      for (const s of pendingItems) {
+        s.status = 'done';
+        s.lastError = null;
       }
       onUpdated?.();
     } catch (err) {
-      console.error('[ReuploadModal] Gagal menandai semua selesai:', err);
+      console.error('[ReuploadModal] Gagal menandai semua sudah dikirim:', err);
     }
   }
 
@@ -518,7 +534,7 @@
             "
           >
             <span style="width: 7px; height: 7px; border-radius: 50%; background: #f59e0b;"></span>
-            Pending / Gagal ({pendingCount})
+            Pending / Gagal ({sessions.filter((s) => s.status === 'pending' || s.status === 'dead_letter' || s.printStatus === 'failed').length})
           </button>
 
           <button
@@ -541,11 +557,11 @@
           </button>
         </div>
 
-        <div style="display: flex; align-items: center; gap: 8px;">
-          {#if pendingCount > 0}
+        <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+          {#if pendingUploadCount > 0}
             <button
               type="button"
-              onclick={handleMarkAllDone}
+              onclick={handleMarkAllSent}
               style="
                 padding: 6px 14px;
                 border-radius: 10px;
@@ -561,14 +577,38 @@
                 cursor: pointer;
                 transition: all 0.15s ease;
               "
-              title="Tandai seluruh sesi yang tertunda sebagai selesai"
+              title="Tandai sesi yang tertunda sebagai sudah dikirim tanpa menghapus file lokal"
               onmousedown={(e) => (e.currentTarget.style.boxShadow = neuCfg.inset)}
               onmouseup={(e) => (e.currentTarget.style.boxShadow = neuCfg.btnSm)}
             >
               <CheckCircle2 size={15} class="text-emerald-600" />
-              <span>Tandai Selesai ({pendingCount})</span>
+              <span>Tandai Sudah Dikirim ({pendingUploadCount})</span>
             </button>
           {/if}
+
+          <button
+            type="button"
+            onclick={handleOpenAllSessionsPage}
+            style="
+              padding: 6px 14px;
+              border-radius: 10px;
+              background: linear-gradient(135deg, #3d3aa0, {NEU_PRIMARY});
+              box-shadow: 0 3px 10px rgba(42,40,115,0.28);
+              border: none;
+              display: flex;
+              align-items: center;
+              gap: 6px;
+              font-size: 11px;
+              font-weight: 700;
+              color: white;
+              cursor: pointer;
+              transition: all 0.15s ease;
+            "
+            title="Buka halaman riwayat lengkap seluruh sesi booth (pagination, checklist, & pemulihan)"
+          >
+            <span>Lihat Semua Sesi</span>
+            <ArrowRight size={14} />
+          </button>
 
           <button
             type="button"
@@ -821,6 +861,34 @@
                     </div>
                   {/if}
 
+                  <!-- Klik Lokasi Aset Sesi -->
+                  <button
+                    type="button"
+                    onclick={() => handleOpenSessionsFolder(item.compositePath, item.sessionCode)}
+                    style="
+                      display: flex;
+                      align-items: center;
+                      gap: 5px;
+                      padding: 4px 8px;
+                      border-radius: 8px;
+                      border: none;
+                      background: rgba(42,40,115,0.06);
+                      color: {NEU_PRIMARY};
+                      font-size: 10px;
+                      font-weight: 600;
+                      cursor: pointer;
+                      text-align: left;
+                      overflow: hidden;
+                      width: 100%;
+                    "
+                    title="Klik untuk membuka folder lokasi aset sesi ini di Windows Explorer"
+                  >
+                    <FolderOpen size={11} style="flex-shrink: 0;" />
+                    <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                      {item.assetLocationLabel || item.sessionCode}
+                    </span>
+                  </button>
+
                   <!-- Feedback Notice on action -->
                   {#if feedbackMap[item.id]}
                     <div
@@ -969,36 +1037,68 @@
                   </button>
                 </div>
 
-                <!-- Tombol Tandai Selesai (Jika Sesi Masih Pending / Gagal) -->
-                {#if item.status !== 'done' || item.printStatus === 'failed'}
-                  <button
-                    type="button"
-                    onclick={() => handleMarkDone(item)}
-                    style="
-                      width: 100%;
-                      height: 32px;
-                      border-radius: 10px;
-                      background: {NEU_BG};
-                      box-shadow: {neuCfg.btnSm};
-                      border: 1px solid rgba(16,185,129,0.3);
-                      cursor: pointer;
-                      display: flex;
-                      align-items: center;
-                      justify-content: center;
-                      gap: 6px;
-                      color: #047857;
-                      font-weight: 700;
-                      font-size: 11px;
-                      transition: transform 0.1s ease, box-shadow 0.1s ease;
-                      margin-top: -2px;
-                    "
-                    title="Tandai sesi ini selesai"
-                    onmousedown={(e) => (e.currentTarget.style.boxShadow = neuCfg.inset)}
-                    onmouseup={(e) => (e.currentTarget.style.boxShadow = neuCfg.btnSm)}
-                  >
-                    <CheckCircle2 size={13} class="text-emerald-600" />
-                    <span>Tandai Selesai</span>
-                  </button>
+                <!-- Tombol Tandai Sudah Dikirim / Tandai Sudah Print -->
+                {#if item.status !== 'done' || item.printStatus !== 'printed'}
+                  <div style="display: flex; flex-direction: column; gap: 6px; margin-top: -2px;">
+                    {#if item.status !== 'done'}
+                      <button
+                        type="button"
+                        onclick={() => handleMarkSent(item)}
+                        style="
+                          width: 100%;
+                          height: 32px;
+                          border-radius: 10px;
+                          background: {NEU_BG};
+                          box-shadow: {neuCfg.btnSm};
+                          border: 1px solid rgba(16,185,129,0.3);
+                          cursor: pointer;
+                          display: flex;
+                          align-items: center;
+                          justify-content: center;
+                          gap: 6px;
+                          color: #047857;
+                          font-weight: 700;
+                          font-size: 11px;
+                          transition: transform 0.1s ease, box-shadow 0.1s ease;
+                        "
+                        title="Hapus warning gagal kirim tanpa menghapus sesi di lokal"
+                        onmousedown={(e) => (e.currentTarget.style.boxShadow = neuCfg.inset)}
+                        onmouseup={(e) => (e.currentTarget.style.boxShadow = neuCfg.btnSm)}
+                      >
+                        <CheckCircle2 size={13} class="text-emerald-600" />
+                        <span>Tandai Sudah Dikirim</span>
+                      </button>
+                    {/if}
+                    {#if item.printStatus !== 'printed'}
+                      <button
+                        type="button"
+                        onclick={() => handleMarkPrinted(item)}
+                        style="
+                          width: 100%;
+                          height: 32px;
+                          border-radius: 10px;
+                          background: {NEU_BG};
+                          box-shadow: {neuCfg.btnSm};
+                          border: 1px solid rgba(99,102,241,0.3);
+                          cursor: pointer;
+                          display: flex;
+                          align-items: center;
+                          justify-content: center;
+                          gap: 6px;
+                          color: #4338ca;
+                          font-weight: 700;
+                          font-size: 11px;
+                          transition: transform 0.1s ease, box-shadow 0.1s ease;
+                        "
+                        title="Tandai sesi ini sudah tercetak"
+                        onmousedown={(e) => (e.currentTarget.style.boxShadow = neuCfg.inset)}
+                        onmouseup={(e) => (e.currentTarget.style.boxShadow = neuCfg.btnSm)}
+                      >
+                        <Printer size={13} />
+                        <span>Tandai Sudah Print</span>
+                      </button>
+                    {/if}
+                  </div>
                 {/if}
               </div>
             {/each}
@@ -1016,30 +1116,56 @@
           align-items: center;
           justify-content: space-between;
           flex-shrink: 0;
+          gap: 12px;
+          flex-wrap: wrap;
         "
       >
         <span style="font-size: 11px; color: #64748b;">
-          Total sesi ditemukan: <strong>{filteredSessions.length}</strong> sesi
+          Menampilkan: <strong>{filteredSessions.length}</strong> sesi (maks. 50 terbaru di dialog)
         </span>
 
-        <button
-          type="button"
-          onclick={onClose}
-          style="
-            padding: 8px 22px;
-            border-radius: 12px;
-            background: {NEU_BG};
-            box-shadow: {neuCfg.btnSm};
-            border: none;
-            cursor: pointer;
-            font-size: 12px;
-            font-weight: 700;
-            color: #334155;
-            transition: all 0.15s ease;
-          "
-        >
-          Tutup
-        </button>
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <button
+            type="button"
+            onclick={handleOpenAllSessionsPage}
+            style="
+              padding: 8px 18px;
+              border-radius: 12px;
+              background: linear-gradient(135deg, #3d3aa0, {NEU_PRIMARY});
+              box-shadow: 0 4px 12px rgba(42,40,115,0.28);
+              border: none;
+              cursor: pointer;
+              font-size: 12px;
+              font-weight: 700;
+              color: white;
+              display: flex;
+              align-items: center;
+              gap: 6px;
+            "
+          >
+            <span>Lihat Semua Riwayat Sesi</span>
+            <ArrowRight size={14} />
+          </button>
+
+          <button
+            type="button"
+            onclick={onClose}
+            style="
+              padding: 8px 22px;
+              border-radius: 12px;
+              background: {NEU_BG};
+              box-shadow: {neuCfg.btnSm};
+              border: none;
+              cursor: pointer;
+              font-size: 12px;
+              font-weight: 700;
+              color: #334155;
+              transition: all 0.15s ease;
+            "
+          >
+            Tutup
+          </button>
+        </div>
       </div>
     </div>
   </div>

@@ -1,4 +1,5 @@
 import { check as tauriCheck, type Update } from '@tauri-apps/plugin-updater';
+import { getVersion } from '@tauri-apps/api/app';
 import { relaunch } from '@tauri-apps/plugin-process';
 
 const envs = import.meta.env as Record<string, string>;
@@ -6,7 +7,7 @@ const rawBase =
   envs.VITE_API_BASE_URL || envs.PUBLIC_API_BASE_URL || 'http://localhost:8080/api';
 const API_BASE = rawBase.replace(/\/+$/, '');
 
-export type UpdatePhase = 'available' | 'loading' | 'uptodate';
+export type UpdatePhase = 'available' | 'loading' | 'uptodate' | 'error';
 
 function parseChangelog(markdown: string): string[] {
   if (!markdown) return [];
@@ -27,22 +28,36 @@ class UpdaterStore {
   isChecking = $state(false);
   hasUpdate = $state(false);
   modalOpen = $state(false);
-  currentVersion = $state('0.1.0-beta.0');
-  latestVersion = $state('0.1.0-beta.1');
-  versionName = $state('PotoHub Booth v0.1.0 Beta 1 — In-Place Auto Update & Offline Sync');
-  changelog = $state<string[]>([
-    'One-Click Sync Update: Aplikasi kini dapat memperbarui dirinya sendiri secara otomatis langsung dari server.',
-    'Deteksi Versi Real-time: Notifikasi otomatis saat rilis versi sistem terbaru tersedia.',
-    'Preservasi Pengaturan & Database: Konfigurasi kamera, template, PIN admin, dan data aktivasi booth tetap aman tersimpan setelah update.',
-    'Peningkatan stabilitas background sync antrean cetak dan telemetry heartbeat.',
-    'Penambahan indikator progress bar dan visual feedback saat proses unduh paket pembaruan berlangsung',
-  ]);
+  currentVersion = $state('0.1.1');
+  latestVersion = $state('0.1.1');
+  versionName = $state('PotoHub Booth');
+  changelog = $state<string[]>([]);
   downloadProgress = $state(0);
   isInstalled = $state(false);
   errorMessage = $state<string | null>(null);
 
   private tauriUpdateObj: Update | null = null;
   private simTimer: any = null;
+  private versionLoaded = false;
+
+  private isTauriRuntime(): boolean {
+    return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+  }
+
+  async syncCurrentVersion() {
+    if (this.versionLoaded) return;
+    if (this.isTauriRuntime()) {
+      try {
+        const ver = await getVersion();
+        if (ver) {
+          this.currentVersion = ver;
+          this.versionLoaded = true;
+        }
+      } catch (err) {
+        console.warn('[Updater] Gagal membaca versi aplikasi Tauri:', err);
+      }
+    }
+  }
 
   get stage(): string {
     if (this.downloadProgress < 55) return 'Mengunduh paket pembaruan…';
@@ -56,6 +71,8 @@ class UpdaterStore {
     this.errorMessage = null;
 
     try {
+      await this.syncCurrentVersion();
+
       // 1. Fetch latest release info from backend API for full details (version name, description)
       try {
         const res = await fetch(`${API_BASE}/app/releases/latest`);
@@ -86,10 +103,14 @@ class UpdaterStore {
           this.tauriUpdateObj = null;
         }
       } catch (err) {
-        console.warn('[Updater] Tauri updater check fallback:', err);
-        // Fallback: compare versions if not in full Tauri desktop runner
-        if (this.latestVersion !== this.currentVersion && !this.isInstalled) {
+        console.warn('[Updater] Tauri updater check failed:', err);
+        if (!this.isTauriRuntime() && this.latestVersion !== this.currentVersion && !this.isInstalled) {
           updateAvailable = true;
+        } else if (this.isTauriRuntime() && !silent) {
+          this.errorMessage = err instanceof Error ? err.message : String(err);
+          this.phase = 'error';
+          this.modalOpen = true;
+          return false;
         }
       }
 
@@ -110,7 +131,7 @@ class UpdaterStore {
     } catch (err: any) {
       this.errorMessage = err?.message || 'Gagal memeriksa pembaruan';
       if (!silent) {
-        this.phase = 'uptodate';
+        this.phase = 'error';
         this.modalOpen = true;
       }
       return false;
@@ -164,12 +185,22 @@ class UpdaterStore {
         return;
       } catch (err: any) {
         console.error('[Updater] Download & install failed:', err);
-        this.errorMessage = err?.message || 'Proses update gagal';
-        // Fallback to simulated smooth progression if native updater encounters mock environment
+        this.errorMessage =
+          (err instanceof Error ? err.message : typeof err === 'string' ? err : err?.message) ||
+          'Proses update gagal';
+        this.phase = 'error';
+        return;
       }
     }
 
-    // Simulated progress for dev/preview/fallback environment
+    // Pada runtime Tauri asli tanpa objek update valid, jangan jalankan simulasi palsu
+    if (this.isTauriRuntime()) {
+      this.errorMessage = 'Paket pembaruan belum siap atau gagal diverifikasi dari server.';
+      this.phase = 'error';
+      return;
+    }
+
+    // Simulated progress hanya untuk mode preview browser non-Tauri
     if (this.simTimer) clearInterval(this.simTimer);
     this.simTimer = setInterval(() => {
       this.downloadProgress = Math.min(100, this.downloadProgress + 1.2 + Math.random() * 2.8);
@@ -187,6 +218,10 @@ class UpdaterStore {
   }
 
   openModal() {
+    if (this.errorMessage && this.phase === 'error') {
+      this.modalOpen = true;
+      return;
+    }
     this.phase = this.isInstalled || !this.hasUpdate ? 'uptodate' : 'available';
     this.modalOpen = true;
   }

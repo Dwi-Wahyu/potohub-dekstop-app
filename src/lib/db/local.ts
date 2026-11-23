@@ -459,8 +459,23 @@ export async function markOutboxJobFailedAttempt(id: number, error: string): Pro
     `UPDATE offline_outbox 
      SET status = $2, attempts = $3, last_error = $4, updated_at = $5 
      WHERE id = $1`,
-    [newStatus, currentAttempts, error, now],
+    [id, newStatus, currentAttempts, error, now],
   );
+}
+
+export async function markOutboxJobsDoneBulk(ids: number[]): Promise<number> {
+  const cleanIds = Array.from(new Set(ids.filter((id) => Number.isInteger(id) && id > 0)));
+  if (cleanIds.length === 0) return 0;
+  const conn = await db();
+  const now = Date.now();
+  const placeholders = cleanIds.map((_, idx) => `$${idx + 2}`).join(', ');
+  const res = await conn.execute(
+    `UPDATE offline_outbox
+     SET status = 'done', last_error = NULL, updated_at = $1
+     WHERE id IN (${placeholders})`,
+    [now, ...cleanIds],
+  );
+  return Number(res.rowsAffected ?? 0);
 }
 
 export async function markOutboxJobDeadLetter(id: number, reason: string): Promise<void> {
@@ -483,6 +498,7 @@ export async function countPendingOutboxJobs(): Promise<number> {
 
 export interface SessionHistoryItem {
   id: number;
+  boothId: string | null;
   sessionCode: string;
   status: 'pending' | 'processing' | 'done' | 'dead_letter';
   attempts: number;
@@ -490,11 +506,28 @@ export interface SessionHistoryItem {
   createdAt: number;
   softfileTarget: string | null;
   compositePath: string | null;
+  assetLocationLabel: string | null;
   printQty: number;
   paperSize?: string;
   useSecondary?: boolean;
   printStatus?: 'printed' | 'pending' | 'failed';
   printError?: string | null;
+}
+
+export type SessionHistoryFilter = 'all' | 'pending' | 'print_failed' | 'done';
+
+export interface PaginatedSessionHistoryResult {
+  items: SessionHistoryItem[];
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+  counts: {
+    all: number;
+    pending: number;
+    printFailed: number;
+    done: number;
+  };
 }
 
 export async function getOutboxJobByLocalRef(localRef: string): Promise<OutboxJob | null> {
@@ -548,17 +581,26 @@ export async function upsertSessionOutboxJob(
       merged.printStatus = 'printed';
       merged.printError = null;
     }
-    const finalStatus =
-      targetStatus === 'done'
-        ? 'done'
-        : existingPayload.softfileTarget && existing.status === 'pending'
-          ? 'pending'
-          : targetStatus;
+    let finalStatus: OutboxJob['status'];
+    if (targetStatus === 'done') {
+      // Jika sudah ada softfileTarget yang belum dikirim pada job pending, tetap pending agar outbox mengirim email/WA
+      finalStatus = existingPayload.softfileTarget && existing.status === 'pending' && !payload.softfileTarget
+        ? 'pending'
+        : 'done';
+    } else if (existing.status === 'done' && !payload.softfileTarget) {
+      // Jangan pernah menurunkan status 'done' kembali ke 'pending' oleh callback background
+      finalStatus = 'done';
+    } else if (existingPayload.softfileTarget && existing.status === 'pending') {
+      finalStatus = 'pending';
+    } else {
+      finalStatus = targetStatus;
+    }
+    const finalError = finalStatus === 'done' ? null : targetError;
     await conn.execute(
       `UPDATE offline_outbox 
        SET payload = $2, status = $3, attempts = 0, last_error = $4, updated_at = $5
        WHERE id = $1`,
-      [existing.id, JSON.stringify(merged), finalStatus, targetError, now],
+      [existing.id, JSON.stringify(merged), finalStatus, finalError, now],
     );
     return existing.id;
   } else {
@@ -571,16 +613,7 @@ export async function upsertSessionOutboxJob(
   }
 }
 
-export async function listAllSessionOutboxJobs(limit = 60): Promise<SessionHistoryItem[]> {
-  const conn = await db();
-  const rows = await conn.select<any[]>(
-    `SELECT * FROM offline_outbox 
-     WHERE job_type = 'session_softfile' 
-     ORDER BY id DESC LIMIT $1`,
-    [limit],
-  );
-
-  // Ambil data antrean cetak yang sedang pending atau failed untuk sinkronisasi akurat
+async function fetchPrintQueueLookup(conn: Awaited<ReturnType<typeof db>>) {
   let printQueueRows: any[] = [];
   try {
     printQueueRows = await conn.select<any[]>(
@@ -597,58 +630,234 @@ export async function listAllSessionOutboxJobs(limit = 60): Promise<SessionHisto
       activePrintErrors.set(pq.session_code, pq.last_error || 'Gagal cetak antrean');
     }
   }
+  return { activePrintErrors, pendingPrintSessions };
+}
 
-  return rows.map((r) => {
-    let payloadObj: any = {};
-    try {
-      payloadObj = JSON.parse(r.payload);
-    } catch {}
-    const compositePath =
-      payloadObj.assetRelativePaths?.find((a: any) => a.role === 'composite')?.path ||
-      payloadObj.assetRelativePaths?.[0]?.path ||
-      null;
-    const sessionCode = r.local_ref || payloadObj.localSessionCode || `sesi-${r.id}`;
+function deriveAssetLocationLabel(compositePath: string | null, sessionCode: string): string | null {
+  if (!compositePath) return sessionCode || null;
+  const clean = compositePath.replace(/\\/g, '/').replace(/^\/+/, '');
+  const parts = clean.split('/').filter(Boolean);
+  if (parts.length >= 2) {
+    return `${parts[0]}/${parts[1]}`;
+  }
+  return clean || sessionCode || null;
+}
 
-    let resolvedPrintStatus: 'printed' | 'pending' | 'failed' = payloadObj.printStatus || 'pending';
-    let resolvedPrintError: string | null = payloadObj.printError || null;
+function mapSessionHistoryRow(
+  r: any,
+  activePrintErrors: Map<string, string>,
+  pendingPrintSessions: Set<string>,
+): SessionHistoryItem {
+  let payloadObj: any = {};
+  try {
+    payloadObj = JSON.parse(r.payload);
+  } catch {}
+  const compositePath =
+    payloadObj.assetRelativePaths?.find((a: any) => a.role === 'composite')?.path ||
+    payloadObj.assetRelativePaths?.[0]?.path ||
+    null;
+  const sessionCode = r.local_ref || payloadObj.localSessionCode || `sesi-${r.id}`;
 
-    if (activePrintErrors.has(sessionCode)) {
-      resolvedPrintStatus = 'failed';
-      resolvedPrintError = activePrintErrors.get(sessionCode) || null;
-    } else if (pendingPrintSessions.has(sessionCode)) {
-      resolvedPrintStatus = 'pending';
-    } else if (payloadObj.printStatus === 'printed') {
+  let resolvedPrintStatus: 'printed' | 'pending' | 'failed' = payloadObj.printStatus || 'pending';
+  let resolvedPrintError: string | null = payloadObj.printError || null;
+
+  if (activePrintErrors.has(sessionCode)) {
+    resolvedPrintStatus = 'failed';
+    resolvedPrintError = activePrintErrors.get(sessionCode) || null;
+  } else if (pendingPrintSessions.has(sessionCode)) {
+    resolvedPrintStatus = 'pending';
+  } else if (payloadObj.printStatus === 'printed') {
+    resolvedPrintStatus = 'printed';
+    resolvedPrintError = null;
+  } else if (
+    payloadObj.printStatus === 'pending' &&
+    !activePrintErrors.has(sessionCode) &&
+    !pendingPrintSessions.has(sessionCode)
+  ) {
+    // Jika sesi telah rampung/terkirim atau tidak ada kegagalan cetak yang dicatat,
+    // ini adalah sesi yang telah berhasil dicetak langsung saat alur foto selesai
+    // (bukan tertunda/gagal), sehingga tidak memicu false alarm "Print: Belum"
+    if (r.status === 'done' || !payloadObj.printError) {
       resolvedPrintStatus = 'printed';
-      resolvedPrintError = null;
-    } else if (
-      payloadObj.printStatus === 'pending' &&
-      !activePrintErrors.has(sessionCode) &&
-      !pendingPrintSessions.has(sessionCode)
-    ) {
-      // Jika sesi telah rampung/terkirim atau tidak ada kegagalan cetak yang dicatat,
-      // ini adalah sesi yang telah berhasil dicetak langsung saat alur foto selesai
-      // (bukan tertunda/gagal), sehingga tidak memicu false alarm "Print: Belum"
-      if (r.status === 'done' || !payloadObj.printError) {
-        resolvedPrintStatus = 'printed';
-      }
     }
+  }
 
-    return {
-      id: r.id,
-      sessionCode,
-      status: r.status,
-      attempts: r.attempts,
-      lastError: r.last_error,
-      createdAt: r.created_at || Date.now(),
-      softfileTarget: payloadObj.softfileTarget || null,
-      compositePath,
-      printQty: payloadObj.printQty || 1,
-      paperSize: payloadObj.paperSize || '4x6',
-      useSecondary: payloadObj.useSecondary ?? false,
-      printStatus: resolvedPrintStatus,
-      printError: resolvedPrintError,
-    };
-  });
+  return {
+    id: r.id,
+    boothId: payloadObj.boothId || null,
+    sessionCode,
+    status: r.status,
+    attempts: r.attempts,
+    lastError: r.last_error,
+    createdAt: r.created_at || Date.now(),
+    softfileTarget: payloadObj.softfileTarget || null,
+    compositePath,
+    assetLocationLabel: deriveAssetLocationLabel(compositePath, sessionCode),
+    printQty: payloadObj.printQty || 1,
+    paperSize: payloadObj.paperSize || '4x6',
+    useSecondary: payloadObj.useSecondary ?? false,
+    printStatus: resolvedPrintStatus,
+    printError: resolvedPrintError,
+  };
+}
+
+export async function listAllSessionOutboxJobs(limit = 60, boothId?: string | null): Promise<SessionHistoryItem[]> {
+  const conn = await db();
+  const params: any[] = [];
+  let whereSql = `job_type = 'session_softfile'`;
+  if (boothId && boothId !== 'default') {
+    params.push(`%"boothId":"${boothId}"%`);
+    whereSql += ` AND payload LIKE $${params.length}`;
+  }
+  params.push(limit);
+  const rows = await conn.select<any[]>(
+    `SELECT * FROM offline_outbox
+     WHERE ${whereSql}
+     ORDER BY id DESC LIMIT $${params.length}`,
+    params,
+  );
+
+  const { activePrintErrors, pendingPrintSessions } = await fetchPrintQueueLookup(conn);
+  return rows.map((r) => mapSessionHistoryRow(r, activePrintErrors, pendingPrintSessions));
+}
+
+function buildFilterCondition(filter: SessionHistoryFilter): string {
+  if (filter === 'pending') {
+    return `status IN ('pending', 'dead_letter')`;
+  }
+  if (filter === 'print_failed') {
+    return `(payload LIKE '%"printStatus":"failed"%' OR local_ref IN (SELECT session_code FROM print_queue WHERE status IN ('pending', 'failed')))`;
+  }
+  if (filter === 'done') {
+    return `status = 'done'`;
+  }
+  return '1=1';
+}
+
+export async function listSessionOutboxJobsPaginated(options: {
+  boothId?: string | null;
+  filter?: SessionHistoryFilter;
+  search?: string;
+  page?: number;
+  pageSize?: number;
+}): Promise<PaginatedSessionHistoryResult> {
+  const conn = await db();
+  const filter = options.filter ?? 'all';
+  const pageSize = Math.max(1, Math.min(100, Math.floor(options.pageSize ?? 10)));
+  const requestedPage = Math.max(1, Math.floor(options.page ?? 1));
+
+  const baseConditions: string[] = [`job_type = 'session_softfile'`];
+  const baseParams: any[] = [];
+
+  if (options.boothId && options.boothId !== 'default') {
+    baseParams.push(`%"boothId":"${options.boothId}"%`);
+    baseConditions.push(`payload LIKE $${baseParams.length}`);
+  }
+
+  const trimmedSearch = options.search?.trim();
+  if (trimmedSearch) {
+    baseParams.push(`%${trimmedSearch}%`);
+    const pIdx = baseParams.length;
+    baseConditions.push(`(local_ref LIKE $${pIdx} OR payload LIKE $${pIdx})`);
+  }
+
+  const baseWhere = baseConditions.join(' AND ');
+
+  // Hitung ringkasan jumlah per tab filter untuk booth & pencarian ini
+  const countSql = `
+    SELECT
+      COUNT(*) as total_all,
+      SUM(CASE WHEN ${buildFilterCondition('pending')} THEN 1 ELSE 0 END) as total_pending,
+      SUM(CASE WHEN ${buildFilterCondition('print_failed')} THEN 1 ELSE 0 END) as total_print_failed,
+      SUM(CASE WHEN ${buildFilterCondition('done')} THEN 1 ELSE 0 END) as total_done
+    FROM offline_outbox
+    WHERE ${baseWhere}
+  `;
+  const countRows = await conn.select<any[]>(countSql, baseParams);
+  const c = countRows[0] ?? {};
+  const counts = {
+    all: Number(c.total_all ?? 0),
+    pending: Number(c.total_pending ?? 0),
+    printFailed: Number(c.total_print_failed ?? 0),
+    done: Number(c.total_done ?? 0),
+  };
+
+  const total =
+    filter === 'pending'
+      ? counts.pending
+      : filter === 'print_failed'
+        ? counts.printFailed
+        : filter === 'done'
+          ? counts.done
+          : counts.all;
+
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const safePage = Math.min(requestedPage, totalPages);
+  const offset = (safePage - 1) * pageSize;
+
+  const filterWhere = `${baseWhere} AND ${buildFilterCondition(filter)}`;
+  const dataParams = [...baseParams, pageSize, offset];
+  const rows = await conn.select<any[]>(
+    `SELECT * FROM offline_outbox
+     WHERE ${filterWhere}
+     ORDER BY id DESC
+     LIMIT $${dataParams.length - 1} OFFSET $${dataParams.length}`,
+    dataParams,
+  );
+
+  const { activePrintErrors, pendingPrintSessions } = await fetchPrintQueueLookup(conn);
+  return {
+    items: rows.map((r) => mapSessionHistoryRow(r, activePrintErrors, pendingPrintSessions)),
+    total,
+    page: safePage,
+    pageSize,
+    totalPages,
+    counts,
+  };
+}
+
+export async function markSessionsPrintedBulk(
+  items: { id: number; sessionCode: string }[],
+): Promise<number> {
+  if (!items.length) return 0;
+  const conn = await db();
+  const now = Date.now();
+  let updated = 0;
+
+  const ids = Array.from(new Set(items.map((i) => i.id).filter((id) => Number.isInteger(id) && id > 0)));
+  if (ids.length > 0) {
+    const idPlaceholders = ids.map((_, idx) => `$${idx + 1}`).join(', ');
+    const rows = await conn.select<any[]>(
+      `SELECT id, payload FROM offline_outbox WHERE id IN (${idPlaceholders})`,
+      ids,
+    );
+    for (const r of rows) {
+      let payloadObj: any = {};
+      try {
+        payloadObj = JSON.parse(r.payload);
+      } catch {}
+      payloadObj.printStatus = 'printed';
+      payloadObj.printError = null;
+      await conn.execute(
+        `UPDATE offline_outbox SET payload = $2, updated_at = $3 WHERE id = $1`,
+        [r.id, JSON.stringify(payloadObj), now],
+      );
+      updated++;
+    }
+  }
+
+  const sessionCodes = Array.from(new Set(items.map((i) => i.sessionCode).filter(Boolean)));
+  if (sessionCodes.length > 0) {
+    const codePlaceholders = sessionCodes.map((_, idx) => `$${idx + 2}`).join(', ');
+    await conn.execute(
+      `UPDATE print_queue
+       SET status = 'cancelled', last_error = NULL, updated_at = $1
+       WHERE session_code IN (${codePlaceholders}) AND status IN ('pending', 'failed')`,
+      [now, ...sessionCodes],
+    );
+  }
+
+  return updated;
 }
 
 export async function updateSessionPrintStatus(
@@ -671,8 +880,17 @@ export async function updateSessionPrintStatus(
   );
 }
 
-export async function countPendingSessionSoftfileJobs(): Promise<number> {
+export async function countPendingSessionSoftfileJobs(boothId?: string | null): Promise<number> {
   const conn = await db();
+  if (boothId && boothId !== 'default') {
+    const rows = await conn.select<any[]>(
+      `SELECT COUNT(*) as c FROM offline_outbox 
+       WHERE job_type = 'session_softfile' AND status IN ('pending', 'dead_letter')
+       AND payload LIKE $1`,
+      [`%"boothId":"${boothId}"%`],
+    );
+    return Number(rows[0]?.c ?? 0);
+  }
   const rows = await conn.select<any[]>(
     `SELECT COUNT(*) as c FROM offline_outbox 
      WHERE job_type = 'session_softfile' AND status IN ('pending', 'dead_letter')`,
@@ -819,7 +1037,7 @@ export async function markPrintJobFailedAttempt(id: number, error: string): Prom
   const newStatus = attempts >= 5 ? 'failed' : 'pending';
   await conn.execute(
     `UPDATE print_queue SET status = $2, attempts = $3, last_error = $4, updated_at = $5 WHERE id = $1`,
-    [newStatus, attempts, error, Date.now()]
+    [id, newStatus, attempts, error, Date.now()]
   );
 }
 

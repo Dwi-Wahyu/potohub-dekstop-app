@@ -30,7 +30,6 @@
   import { syncBoothSettings, getActiveBoothId, pushPaperSettingsToServer, pushTimerSettingsToServer } from '$lib/api/boothClient';
   import { networkStatus } from '$lib/stores/networkStatus.svelte';
   import {
-    countPendingOutboxJobs,
     countPendingSessionSoftfileJobs,
     countPendingPrintJobs,
     clearAllPendingPrintJobs,
@@ -55,7 +54,7 @@
   let boothName = $state<string | null>(null);
   let fallbackMode = $state<'demo' | null>(null);
   let saveNotice = $state<string | null>(null);
-  let pendingJobs = $state(0);
+  let activeBoothId = $state<string | null>(null);
   let pendingSoftfileSessions = $state(0);
   let pendingPrintJobs = $state(0);
   let isReuploadModalOpen = $state(false);
@@ -129,8 +128,9 @@
   }
 
   async function refreshPendingCount() {
-    pendingJobs = await countPendingOutboxJobs().catch(() => 0);
-    pendingSoftfileSessions = await countPendingSessionSoftfileJobs().catch(() => 0);
+    const bId = activeBoothId ?? (await getActiveBoothId().catch(() => null));
+    activeBoothId = bId;
+    pendingSoftfileSessions = await countPendingSessionSoftfileJobs(bId).catch(() => 0);
     pendingPrintJobs = await countPendingPrintJobs().catch(() => 0);
   }
 
@@ -304,6 +304,7 @@
   onMount(async () => {
     window.addEventListener('keydown', handleKeydown);
     const boothId = await getActiveBoothId();
+    activeBoothId = boothId;
     if (boothId) {
       await boothConfig.init(boothId);
     }
@@ -524,20 +525,6 @@
         <button type="button" style={headerBtnStyle} onclick={onLogout}>Logout</button>
       </div>
 
-      {#if pendingJobs > 0}
-        <div role="alert" style="display: flex; align-items: center; gap: 12px; padding: 10px 24px; background: #fff7e0; border-bottom: 1px solid #f5d98a; flex-shrink: 0;">
-          <span style="width: 10px; height: 10px; border-radius: 50%; background: #f59e0b; flex-shrink: 0;"></span>
-          <div style="flex: 1;">
-            <p style="margin: 0; font-size: 13px; font-weight: 700; color: #78350f;">{pendingJobs} data menunggu sync</p>
-            <p style="margin: 0; font-size: 11px; color: #92400e;">Terakhir sync {lastSyncedAt ?? 'belum pernah'}</p>
-          </div>
-          <button type="button" style="{btnPrimaryStyle} min-height: 40px;" onclick={handleSync} disabled={syncStatus === 'Syncing...'}>
-            <RefreshCw size={15} class={syncStatus === 'Syncing...' ? 'animate-spin' : ''} />
-            {syncStatus === 'Syncing...' ? 'Menyinkronkan...' : `Sync sekarang (${pendingJobs})`}
-          </button>
-        </div>
-      {/if}
-
       <div class="custom-scrollbar" style="flex: 1; overflow-y: auto; padding: 24px;">
         <!-- Kartu info -->
         <div style="{cardStyle} max-width: 1400px; margin: 0 auto 20px; display: flex; align-items: center; gap: 28px; padding: 14px 20px; flex-wrap: wrap;">
@@ -565,7 +552,6 @@
             </div>
           </div>
           <div style="flex: 1;"></div>
-          <span style="padding: 5px 12px; border-radius: 999px; background: #fff7e0; color: #78350f; font-size: 11px; font-weight: 700;">Pending sync offline: {pendingJobs}</span>
           {#if pendingPrintJobs > 0}
             <span style="padding: 5px 12px; border-radius: 999px; background: #ede9fe; color: #5b21b6; font-size: 11px; font-weight: 700; display: flex; align-items: center; gap: 6px;">
               <Printer size={12} />Pending cetak: {pendingPrintJobs}

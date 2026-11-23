@@ -652,9 +652,10 @@ class CameraStore {
 
       if (matchedFrames.length >= 4) {
         try {
+          const totalSecs = Math.max(1, preSecs + postSecs);
           const fps =
-            matchedFrames.length <= 12
-              ? Math.max(4, Math.floor(matchedFrames.length / 2))
+            matchedFrames.length <= Math.round(totalSecs * 5)
+              ? Math.max(4, Math.floor(matchedFrames.length / totalSecs))
               : 8;
           const encoded = await invoke<number[]>("encode_jpeg_frames_to_video", {
             frames: matchedFrames,
@@ -739,7 +740,7 @@ class CameraStore {
       ctx.beginPath();
       ctx.arc(320 + Math.sin(t) * 80, 240, 30, 0, Math.PI * 2);
       ctx.fill();
-      if (Date.now() - start < 2500) {
+      if (Date.now() - start < 3000) {
         requestAnimationFrame(draw);
       } else {
         if (recorder.state !== "inactive") recorder.stop();

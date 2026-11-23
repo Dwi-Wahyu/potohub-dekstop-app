@@ -1,4 +1,5 @@
 import Database from "@tauri-apps/plugin-sql";
+import { invoke } from "@tauri-apps/api/core";
 
 export interface BoothActivation {
   boothId: string;
@@ -858,6 +859,48 @@ export async function markSessionsPrintedBulk(
   }
 
   return updated;
+}
+
+export async function deleteLocalSessionsBulk(
+  items: { id: number; sessionCode: string; compositePath?: string | null }[],
+): Promise<{ deletedDb: number; deletedDirs: number }> {
+  if (!items.length) return { deletedDb: 0, deletedDirs: 0 };
+  const conn = await db();
+
+  let deletedDirs = 0;
+  for (const item of items) {
+    try {
+      const removed = await invoke<boolean>('delete_session_dir', {
+        relativePath: item.compositePath || null,
+        sessionCode: item.sessionCode || null,
+      });
+      if (removed) deletedDirs++;
+    } catch (err) {
+      console.warn(`[deleteLocalSessionsBulk] Gagal hapus folder lokal sesi ${item.sessionCode}:`, err);
+    }
+  }
+
+  let deletedDb = 0;
+  const ids = Array.from(new Set(items.map((i) => i.id).filter((id) => Number.isInteger(id) && id > 0)));
+  if (ids.length > 0) {
+    const idPlaceholders = ids.map((_, idx) => `$${idx + 1}`).join(', ');
+    const res = await conn.execute(
+      `DELETE FROM offline_outbox WHERE id IN (${idPlaceholders})`,
+      ids,
+    );
+    deletedDb = Number(res.rowsAffected ?? 0);
+  }
+
+  const sessionCodes = Array.from(new Set(items.map((i) => i.sessionCode).filter(Boolean)));
+  if (sessionCodes.length > 0) {
+    const codePlaceholders = sessionCodes.map((_, idx) => `$${idx + 1}`).join(', ');
+    await conn.execute(
+      `DELETE FROM print_queue WHERE session_code IN (${codePlaceholders})`,
+      sessionCodes,
+    );
+  }
+
+  return { deletedDb, deletedDirs };
 }
 
 export async function updateSessionPrintStatus(

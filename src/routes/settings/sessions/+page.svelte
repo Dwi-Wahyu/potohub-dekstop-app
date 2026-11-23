@@ -16,12 +16,13 @@
     Mail,
     Phone,
     FolderOpen,
-    QrCode,
     Search,
     X,
     CheckSquare,
     Square,
-    MinusSquare
+    MinusSquare,
+    MoreVertical,
+    Trash2
   } from '@lucide/svelte';
   import { invoke } from '@tauri-apps/api/core';
   import {
@@ -30,6 +31,7 @@
     markOutboxJobDone,
     markOutboxJobsDoneBulk,
     markSessionsPrintedBulk,
+    deleteLocalSessionsBulk,
     resetOutboxJobForRetry,
     updateSessionPrintStatus,
     countPendingPrintJobs,
@@ -352,6 +354,75 @@
     }
   }
 
+  let openMenuId = $state<number | null>(null);
+
+  function toggleCardMenu(id: number, e: MouseEvent) {
+    e.stopPropagation();
+    openMenuId = openMenuId === id ? null : id;
+  }
+
+  async function handleDeleteSingleSession(item: SessionHistoryItem) {
+    openMenuId = null;
+    const ok = confirm(
+      `Hapus sesi lokal "${item.sessionCode}"?\nData sesi di database lokal dan file fotonya di komputer ini akan dihapus permanen (sesi yang sudah terupload di server tidak terpengaruh).`
+    );
+    if (!ok) return;
+
+    try {
+      await deleteLocalSessionsBulk([
+        { id: item.id, sessionCode: item.sessionCode, compositePath: item.compositePath },
+      ]);
+      if (previewUrls[item.id]) {
+        try {
+          URL.revokeObjectURL(previewUrls[item.id]);
+        } catch {}
+        delete previewUrls[item.id];
+      }
+      const nextSel = { ...selectedMap };
+      delete nextSel[item.id];
+      selectedMap = nextSel;
+      await loadSessions({ keepSelection: true });
+      showGlobalNotice('success', `Sesi lokal ${item.sessionCode} berhasil dihapus.`);
+    } catch (err) {
+      setItemFeedback(item.id, 'error', `Gagal menghapus sesi: ${String(err)}`);
+    }
+  }
+
+  async function handleBulkDeleteSessions() {
+    if (selectedCount === 0 || isBulkProcessing) return;
+    const targets = selectedItems;
+    const ok = confirm(
+      `Hapus ${targets.length} sesi lokal terpilih?\nData di database lokal dan file fotonya di komputer ini akan dihapus permanen.`
+    );
+    if (!ok) return;
+
+    isBulkProcessing = true;
+    try {
+      const { deletedDb } = await deleteLocalSessionsBulk(
+        targets.map((t) => ({
+          id: t.id,
+          sessionCode: t.sessionCode,
+          compositePath: t.compositePath,
+        }))
+      );
+      for (const t of targets) {
+        if (previewUrls[t.id]) {
+          try {
+            URL.revokeObjectURL(previewUrls[t.id]);
+          } catch {}
+          delete previewUrls[t.id];
+        }
+      }
+      selectedMap = {};
+      await loadSessions();
+      showGlobalNotice('success', `${deletedDb || targets.length} sesi lokal berhasil dihapus.`);
+    } catch (err) {
+      showGlobalNotice('error', `Gagal menghapus sesi: ${String(err)}`);
+    } finally {
+      isBulkProcessing = false;
+    }
+  }
+
   function handleBack() {
     if (window.history.length > 1) {
       window.history.back();
@@ -372,8 +443,9 @@
   }
 
   function handleKeydown(e: KeyboardEvent) {
-    if (e.key === 'Escape' && lightboxItem) {
-      lightboxItem = null;
+    if (e.key === 'Escape') {
+      if (openMenuId !== null) openMenuId = null;
+      if (lightboxItem) lightboxItem = null;
     }
   }
 
@@ -400,7 +472,12 @@
   const btnBaseStyle = `min-height: 36px; padding: 0 14px; border-radius: 10px; background: ${NEU_BG}; box-shadow: ${neuCfg.btnSm}; border: none; cursor: pointer; font-family: 'Poppins',sans-serif; font-weight: 700; font-size: 12px; color: #334155; display: inline-flex; align-items: center; gap: 6px; touch-action: manipulation;`;
 </script>
 
-<svelte:window onkeydown={handleKeydown} />
+<svelte:window
+  onkeydown={handleKeydown}
+  onclick={() => {
+    if (openMenuId !== null) openMenuId = null;
+  }}
+/>
 
 <div class="w-screen h-screen overflow-hidden flex flex-col" style="background: {NEU_BG}; font-family: 'Poppins', sans-serif;">
   <!-- Header -->
@@ -733,6 +810,23 @@
           <Printer size={15} />
           <span>Tandai Sudah Print{selectedCount > 0 ? ` (${selectedCount})` : ''}</span>
         </button>
+
+        <button
+          type="button"
+          onclick={handleBulkDeleteSessions}
+          disabled={selectedCount === 0 || isBulkProcessing}
+          style="
+            {btnBaseStyle}
+            border: 1px solid rgba(220,38,38,0.35);
+            color: #dc2626;
+            opacity: {selectedCount === 0 || isBulkProcessing ? 0.5 : 1};
+            cursor: {selectedCount === 0 || isBulkProcessing ? 'not-allowed' : 'pointer'};
+          "
+          title="Hapus permanen sesi lokal & file fotonya di komputer ini (untuk membersihkan sesi zombie)"
+        >
+          <Trash2 size={15} />
+          <span>Hapus Sesi Lokal{selectedCount > 0 ? ` (${selectedCount})` : ''}</span>
+        </button>
       </div>
     </div>
   </div>
@@ -780,8 +874,11 @@
         >
           {#each sessions as item (item.id)}
             {@const isChecked = Boolean(selectedMap[item.id])}
+            {@const isMenuOpen = openMenuId === item.id}
             <div
               style="
+                position: relative;
+                z-index: {isMenuOpen ? 30 : 1};
                 background: {NEU_BG};
                 box-shadow: {neuCfg.card};
                 border-radius: 18px;
@@ -793,8 +890,8 @@
                 transition: border-color 0.15s ease;
               "
             >
-              <!-- Card Top Row: Checklist + Session Code -->
-              <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+              <!-- Card Top Row: Checklist + Session Code + Timestamp + Ellipsis Menu -->
+              <div style="display: flex; align-items: center; justify-content: space-between; gap: 6px; position: relative;">
                 <button
                   type="button"
                   onclick={() => toggleSelectItem(item.id)}
@@ -812,6 +909,7 @@
                     font-size: 11px;
                     text-align: left;
                     min-width: 0;
+                    flex: 1;
                   "
                 >
                   {#if isChecked}
@@ -824,9 +922,177 @@
                   </span>
                 </button>
 
-                <span style="font-size: 10px; color: #64748b; white-space: nowrap;">
-                  {formatDate(item.createdAt)}
-                </span>
+                <div style="display: flex; align-items: center; gap: 4px; flex-shrink: 0;">
+                  <span style="font-size: 10px; color: #64748b; white-space: nowrap;">
+                    {formatDate(item.createdAt)}
+                  </span>
+
+                  <div style="position: relative;">
+                    <button
+                      type="button"
+                      onclick={(e) => toggleCardMenu(item.id, e)}
+                      aria-label="Menu aksi sesi {item.sessionCode}"
+                      aria-expanded={isMenuOpen}
+                      style="
+                        width: 28px;
+                        height: 28px;
+                        border-radius: 8px;
+                        background: {NEU_BG};
+                        box-shadow: {isMenuOpen ? neuCfg.inset : neuCfg.btnSm};
+                        border: none;
+                        cursor: pointer;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        color: {isMenuOpen ? NEU_PRIMARY : '#475569'};
+                      "
+                      title="Opsi sesi (Upload, Print, Lokasi Aset, Hapus)"
+                    >
+                      <MoreVertical size={15} />
+                    </button>
+
+                    {#if isMenuOpen}
+                      <div
+                        role="menu"
+                        tabindex="-1"
+                        onclick={(e) => e.stopPropagation()}
+                        onkeydown={(e) => {
+                          if (e.key === 'Escape') openMenuId = null;
+                        }}
+                        style="
+                          position: absolute;
+                          top: calc(100% + 6px);
+                          right: 0;
+                          min-width: 195px;
+                          background: {NEU_BG};
+                          box-shadow: 0 12px 28px rgba(15,23,42,0.22), {neuCfg.card};
+                          border: 1px solid rgba(255,255,255,0.85);
+                          border-radius: 14px;
+                          padding: 6px;
+                          display: flex;
+                          flex-direction: column;
+                          gap: 3px;
+                          z-index: 50;
+                        "
+                      >
+                        <button
+                          type="button"
+                          role="menuitem"
+                          disabled={uploadingMap[item.id]}
+                          onclick={() => {
+                            openMenuId = null;
+                            void handleManualUpload(item);
+                          }}
+                          style="
+                            width: 100%;
+                            padding: 8px 10px;
+                            border-radius: 9px;
+                            border: none;
+                            background: transparent;
+                            cursor: {uploadingMap[item.id] ? 'not-allowed' : 'pointer'};
+                            display: flex;
+                            align-items: center;
+                            gap: 8px;
+                            font-size: 12px;
+                            font-weight: 600;
+                            color: #1e293b;
+                            text-align: left;
+                          "
+                          class="hover:bg-black/5"
+                        >
+                          <RefreshCw size={14} class={uploadingMap[item.id] ? 'animate-spin text-indigo-600' : ''} />
+                          <span>{uploadingMap[item.id] ? 'Mengupload...' : 'Upload Ulang'}</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          role="menuitem"
+                          disabled={printingMap[item.id] || !item.compositePath}
+                          onclick={() => {
+                            openMenuId = null;
+                            void handleManualPrint(item);
+                          }}
+                          style="
+                            width: 100%;
+                            padding: 8px 10px;
+                            border-radius: 9px;
+                            border: none;
+                            background: transparent;
+                            cursor: {printingMap[item.id] || !item.compositePath ? 'not-allowed' : 'pointer'};
+                            opacity: {!item.compositePath ? 0.5 : 1};
+                            display: flex;
+                            align-items: center;
+                            gap: 8px;
+                            font-size: 12px;
+                            font-weight: 600;
+                            color: #1e293b;
+                            text-align: left;
+                          "
+                          class="hover:bg-black/5"
+                        >
+                          <Printer size={14} />
+                          <span>{printingMap[item.id] ? 'Mencetak...' : 'Print Ulang'}</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          role="menuitem"
+                          onclick={() => {
+                            openMenuId = null;
+                            void handleOpenSessionsFolder(item.compositePath, item.sessionCode, item.id);
+                          }}
+                          style="
+                            width: 100%;
+                            padding: 8px 10px;
+                            border-radius: 9px;
+                            border: none;
+                            background: transparent;
+                            cursor: pointer;
+                            display: flex;
+                            align-items: center;
+                            gap: 8px;
+                            font-size: 12px;
+                            font-weight: 600;
+                            color: {NEU_PRIMARY};
+                            text-align: left;
+                          "
+                          title={item.assetLocationLabel || item.sessionCode}
+                          class="hover:bg-black/5"
+                        >
+                          <FolderOpen size={14} />
+                          <span>Buka Lokasi Aset</span>
+                        </button>
+
+                        <div style="height: 1px; background: rgba(148,163,184,0.3); margin: 2px 4px;"></div>
+
+                        <button
+                          type="button"
+                          role="menuitem"
+                          onclick={() => void handleDeleteSingleSession(item)}
+                          style="
+                            width: 100%;
+                            padding: 8px 10px;
+                            border-radius: 9px;
+                            border: none;
+                            background: transparent;
+                            cursor: pointer;
+                            display: flex;
+                            align-items: center;
+                            gap: 8px;
+                            font-size: 12px;
+                            font-weight: 700;
+                            color: #dc2626;
+                            text-align: left;
+                          "
+                          class="hover:bg-red-500/10"
+                        >
+                          <Trash2 size={14} />
+                          <span>Hapus Sesi Lokal</span>
+                        </button>
+                      </div>
+                    {/if}
+                  </div>
+                </div>
               </div>
 
               <!-- Thumbnail Preview -->
@@ -937,162 +1203,54 @@
                 </div>
               </div>
 
-              <!-- Meta: Softfile Target + Clickable Asset Location -->
-              <div style="display: flex; flex-direction: column; gap: 5px;">
-                {#if item.softfileTarget}
-                  <div
-                    style="display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 600; color: #334155;"
-                    title={item.softfileTarget}
-                  >
-                    {#if item.softfileTarget.includes('@')}
-                      <Mail size={12} color="#6366f1" style="flex-shrink: 0;" />
-                    {:else}
-                      <Phone size={12} color="#10b981" style="flex-shrink: 0;" />
-                    {/if}
-                    <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-                      {item.softfileTarget}
-                    </span>
-                  </div>
-                {:else}
-                  <div style="display: flex; align-items: center; gap: 5px; font-size: 10px; color: #64748b;">
-                    <QrCode size={11} />
-                    <span>Download via QR Code</span>
-                  </div>
-                {/if}
+              <!-- Meta: Softfile Target (jika ada Email/WA), Error & Feedback -->
+              {#if item.softfileTarget || (item.lastError && item.status !== 'done') || feedbackMap[item.id]}
+                <div style="display: flex; flex-direction: column; gap: 5px;">
+                  {#if item.softfileTarget}
+                    <div
+                      style="display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 600; color: #334155;"
+                      title={item.softfileTarget}
+                    >
+                      {#if item.softfileTarget.includes('@')}
+                        <Mail size={12} color="#6366f1" style="flex-shrink: 0;" />
+                      {:else}
+                        <Phone size={12} color="#10b981" style="flex-shrink: 0;" />
+                      {/if}
+                      <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                        {item.softfileTarget}
+                      </span>
+                    </div>
+                  {/if}
 
-                <!-- Clickable Asset Location -->
-                <button
-                  type="button"
-                  onclick={() => handleOpenSessionsFolder(item.compositePath, item.sessionCode, item.id)}
-                  style="
-                    display: flex;
-                    align-items: center;
-                    gap: 6px;
-                    padding: 5px 9px;
-                    border-radius: 8px;
-                    border: none;
-                    background: rgba(42,40,115,0.07);
-                    color: {NEU_PRIMARY};
-                    font-size: 10px;
-                    font-weight: 600;
-                    cursor: pointer;
-                    text-align: left;
-                    width: 100%;
-                    overflow: hidden;
-                  "
-                  title="Klik untuk membuka folder lokasi aset sesi ini di File Explorer"
-                >
-                  <FolderOpen size={12} style="flex-shrink: 0;" />
-                  <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-                    Lokasi aset: {item.assetLocationLabel || item.sessionCode}
-                  </span>
-                </button>
+                  {#if item.lastError && item.status !== 'done'}
+                    <p
+                      style="margin: 0; font-size: 10px; color: #b91c1c; background: rgba(239,68,68,0.08); padding: 4px 8px; border-radius: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"
+                      title={item.lastError}
+                    >
+                      {item.lastError}
+                    </p>
+                  {/if}
 
-                {#if item.lastError && item.status !== 'done'}
-                  <p
-                    style="margin: 0; font-size: 10px; color: #b91c1c; background: rgba(239,68,68,0.08); padding: 4px 8px; border-radius: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"
-                    title={item.lastError}
-                  >
-                    {item.lastError}
-                  </p>
-                {/if}
-
-                {#if feedbackMap[item.id]}
-                  <div
-                    style="
-                      padding: 4px 8px;
-                      border-radius: 6px;
-                      font-size: 10px;
-                      font-weight: 600;
-                      background: {feedbackMap[item.id].type === 'success' ? '#dcfce7' : '#fee2e2'};
-                      color: {feedbackMap[item.id].type === 'success' ? '#15803d' : '#b91c1c'};
-                    "
-                  >
-                    {feedbackMap[item.id].text}
-                  </div>
-                {/if}
-              </div>
-
-              <!-- Action Buttons: Upload, Print, Open Folder -->
-              <div style="display: flex; gap: 6px; margin-top: auto;">
-                <button
-                  type="button"
-                  onclick={() => handleManualUpload(item)}
-                  disabled={uploadingMap[item.id]}
-                  style="
-                    flex: 1;
-                    height: 36px;
-                    border-radius: 10px;
-                    background: {NEU_BG};
-                    box-shadow: {neuCfg.btnSm};
-                    border: none;
-                    cursor: {uploadingMap[item.id] ? 'not-allowed' : 'pointer'};
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    gap: 4px;
-                    color: #1e293b;
-                    font-weight: 700;
-                    font-size: 11px;
-                  "
-                  title="Upload ulang sesi ini ke cloud"
-                >
-                  <RefreshCw size={13} class={uploadingMap[item.id] ? 'animate-spin text-indigo-600' : ''} />
-                  <span>{uploadingMap[item.id] ? '...' : 'Upload'}</span>
-                </button>
-
-                <button
-                  type="button"
-                  onclick={() => handleManualPrint(item)}
-                  disabled={printingMap[item.id] || !item.compositePath}
-                  style="
-                    flex: 1;
-                    height: 36px;
-                    border-radius: 10px;
-                    background: {NEU_BG};
-                    box-shadow: {neuCfg.btnSm};
-                    border: none;
-                    cursor: {printingMap[item.id] || !item.compositePath ? 'not-allowed' : 'pointer'};
-                    opacity: {!item.compositePath ? 0.5 : 1};
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    gap: 4px;
-                    color: #1e293b;
-                    font-weight: 700;
-                    font-size: 11px;
-                  "
-                  title="Cetak ulang strip foto ke printer"
-                >
-                  <Printer size={13} class={printingMap[item.id] ? 'animate-bounce text-emerald-600' : ''} />
-                  <span>{printingMap[item.id] ? '...' : 'Print'}</span>
-                </button>
-
-                <button
-                  type="button"
-                  onclick={() => handleOpenSessionsFolder(item.compositePath, item.sessionCode, item.id)}
-                  style="
-                    width: 36px;
-                    height: 36px;
-                    border-radius: 10px;
-                    background: {NEU_BG};
-                    box-shadow: {neuCfg.btnSm};
-                    border: none;
-                    cursor: pointer;
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    color: #475569;
-                  "
-                  title="Buka folder aset sesi di Windows Explorer"
-                >
-                  <FolderOpen size={15} />
-                </button>
-              </div>
+                  {#if feedbackMap[item.id]}
+                    <div
+                      style="
+                        padding: 4px 8px;
+                        border-radius: 6px;
+                        font-size: 10px;
+                        font-weight: 600;
+                        background: {feedbackMap[item.id].type === 'success' ? '#dcfce7' : '#fee2e2'};
+                        color: {feedbackMap[item.id].type === 'success' ? '#15803d' : '#b91c1c'};
+                      "
+                    >
+                      {feedbackMap[item.id].text}
+                    </div>
+                  {/if}
+                </div>
+              {/if}
 
               <!-- Narrative Mark Actions: Tandai Sudah Dikirim / Tandai Sudah Print -->
               {#if item.status !== 'done' || item.printStatus !== 'printed'}
-                <div style="display: flex; flex-direction: column; gap: 6px;">
+                <div style="display: flex; flex-direction: column; gap: 6px; margin-top: auto;">
                   {#if item.status !== 'done'}
                     <button
                       type="button"

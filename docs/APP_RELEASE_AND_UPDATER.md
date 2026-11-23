@@ -44,13 +44,16 @@ Fitur update aplikasi desktop menghubungkan **3 komponen**:
 3. Saat `pnpm tauri build` selesai, Tauri **otomatis menghasilkan file installer sekaligus file `.sig`** pasangannya di `src-tauri/target/release/bundle/...` tanpa perlu menjalankan `pnpm tauri signer sign` secara terpisah.
 
 ### B. Mode Manual (Jika Build Tanpa Env Signing)
-Jika Anda terlanjur melakukan build tanpa menyetel `TAURI_SIGNING_PRIVATE_KEY`, jalankan perintah berikut untuk menghasilkan file `.sig`:
-```bash
-TAURI_SIGNING_PRIVATE_KEY="path/ke/private.key" pnpm tauri signer sign path/ke/file-installer
-```
-Perintah ini akan menghasilkan file `<nama-file>.sig` di lokasi yang sama, sekaligus mencetak isi signature yang bisa disalin ke Dashboard Superadmin.
+Jika Anda melakukan build tanpa menyetel `TAURI_SIGNING_PRIVATE_KEY` (seperti konfigurasi default `tauri.conf.json` saat ini), jalankan perintah berikut setelah `pnpm tauri build` selesai untuk menghasilkan file `.sig`:
 
-> **Penting:** `pnpm tauri signer generate` cukup dijalankan **SEKALI** saja di awal proyek untuk membuat pasangan *private key* dan *public key* (`pubkey`). Jika Anda mengganti pasangan key (`pubkey` baru di `tauri.conf.json`), aplikasi versi lama yang memakai `pubkey` lama **tidak akan bisa memverifikasi** rilis baru yang ditandatangani dengan key baru.
+```powershell
+pnpm tauri signer sign -f "path\ke\potohub.key" -p "<PASSPHRASE_KEY>" --app-version "<VERSI_SEMVER>" "src-tauri/target/release/bundle/msi/PotoHub Booth Client_<VERSI_SEMVER>_x64_en-US.msi"
+```
+
+> **Penting:**
+> - `--app-version` **wajib sama persis** dengan versi build dan versi rilis di Admin Dashboard (misalnya `0.1.1`). Pada `tauri-plugin-updater` v2, jika nilai `version:` di `trusted comment` signature berbeda dengan versi yang diumumkan server, update akan ditolak dengan error **`SignedVersionMismatch`**.
+> - Setiap kali file `.msi` di-build ulang, **wajib generate ulang `.sig`** dan **upload ulang keduanya** (`.msi` baru + `.sig` / `Public signature` baru) karena signature terikat ke byte `.msi` hasil build tersebut.
+> - `pnpm tauri signer generate` cukup dijalankan **SEKALI** saja di awal proyek untuk membuat pasangan *private key* dan *public key* (`pubkey`). Jika Anda mengganti pasangan key (`pubkey` baru di `tauri.conf.json`), aplikasi versi lama yang memakai `pubkey` lama **tidak akan bisa memverifikasi** rilis baru yang ditandatangani dengan key baru.
 
 ---
 
@@ -102,17 +105,47 @@ Ya — **seragamkan dan kunci pada 1 format saja** mulai dari instalasi awal hin
 
 ---
 
-## 5. Checklist Merilis Versi Baru ke Superadmin Panel
+## 5. Workflow Step-by-Step Build & Merilis Versi Baru ke Superadmin Panel
 
-1. Naikkan versi di `dekstop-app/src-tauri/tauri.conf.json`, `dekstop-app/package.json`, dan `dekstop-app/src-tauri/Cargo.toml` (mis. `0.2.0` — gunakan format Semver yang valid).
-2. Build aplikasi dengan signing aktif (`TAURI_SIGNING_PRIVATE_KEY` terpasang).
-3. Siapkan 2 file hasil build untuk platform target (misal `.msi` dan `.msi.sig`).
-4. Login sebagai **Superadmin** di Admin Dashboard -> buka menu **Desktop Releases** (`/platform/releases`).
-5. Klik **Tambah Rilis Baru**:
-   - Isi **Versi (Semver)** (harus sama persis dengan versi build, mis. `0.2.0`).
-   - Pilih **Target Platform** (`windows-x86_64`).
-   - Klik **Upload ke R2** untuk mengunggah file installer (atau tempel URL R2).
-   - Klik **Muat file .sig** dan pilih file `.sig` pendampingnya.
-   - Tulis **Catatan Rilis / Changelog** (format Markdown).
-   - Atur toggle **Aktif (Auto-Update)** dan **Wajib Update (Mandatory)** sesuai kebutuhan, lalu simpan.
-6. Verifikasi pada salah satu unit booth client bahwa popup update muncul, proses unduh & verifikasi signature berhasil, dan aplikasi restart ke versi baru.
+1. **Naikkan versi Semver secara konsisten di 3 file** sebelum build:
+   - [`src-tauri/tauri.conf.json`](../src-tauri/tauri.conf.json) (`"version"` — **sumber utama** penamaan MSI, `ProductVersion`, `getVersion()`, dan `{{current_version}}` Tauri updater)
+   - [`src-tauri/Cargo.toml`](../src-tauri/Cargo.toml) (`version`)
+   - [`package.json`](../package.json) (`"version"`)
+   *(Jika hanya `Cargo.toml` yang dinaikkan sementara `tauri.conf.json` tidak diubah, hasil build `.msi` tetap berversi lama.)*
+2. **Pastikan build & type-check aman:**
+   ```powershell
+   pnpm check
+   pnpm tauri build
+   ```
+   Output installer MSI akan berada di:
+   `src-tauri/target/release/bundle/msi/PotoHub Booth Client_<VERSI>_x64_en-US.msi`
+   *(Jangan me-rename manual file MSI versi lama menjadi versi baru karena versi internal MSI tetap versi lama.)*
+3. **Generate file signature (`.msi.sig`):**
+   ```powershell
+   pnpm tauri signer sign -f "path\ke\potohub.key" -p "<PASSPHRASE>" --app-version "<VERSI>" "src-tauri/target/release/bundle/msi/PotoHub Booth Client_<VERSI>_x64_en-US.msi"
+   ```
+   Perintah ini menghasilkan file `.msi.sig` dan mencetak string **Public signature** (base64).
+4. **Upload ke Admin Dashboard (Superadmin):**
+   - Login sebagai **Superadmin** di Admin Dashboard -> buka menu **Desktop Releases** (`/platform/releases`).
+   - Klik **Tambah Rilis Baru** (atau edit rilis):
+     - Isi **Versi (Semver)** persis sama dengan versi build & `--app-version` (mis. `0.1.1`).
+     - Pilih **Target Platform** (`windows-x86_64`).
+     - Upload file `.msi` baru ke R2.
+     - Upload file `.msi.sig` baru (atau tempel **Public signature** baru ke field signature).
+     - Tulis **Catatan Rilis / Changelog** (format Markdown).
+     - Atur toggle **Aktif (Auto-Update)** dan **Wajib Update (Mandatory)** sesuai kebutuhan, lalu simpan.
+5. **Verifikasi:** Uji pada aplikasi client versi sebelumnya bahwa dialog update muncul, proses unduh & verifikasi signature berhasil, dan aplikasi restart ke versi baru.
+
+---
+
+## 6. Troubleshooting Error Updater Umum
+
+- **`Invalid encoding in minisign data`:**
+  - Terjadi jika `pubkey` yang tertanam di `.exe` terpasang korup/bukan 42-byte Minisign key valid, atau isi kolom `signature` di server terpotong / bukan base64 valid dari file `.sig` 4 baris.
+  - Jika penyebabnya adalah binary lama yang membawa `pubkey` lama/korup, perangkat tersebut wajib di-install manual 1x dengan installer `.msi` baru yang sudah membawa `pubkey` valid.
+- **`SignedVersionMismatch` (`signed` vs `announced`):**
+  - Terjadi jika `--app-version` saat `tauri signer sign` berbeda dengan versi yang diumumkan API `/api/app/update/...` (misalnya sign dengan `--app-version "0.1.0"` untuk rilis `0.1.1`). Generate ulang `.sig` dengan `--app-version` yang tepat dan upload ulang ke server.
+- **UI update tampak selesai 100% tapi versi aplikasi tidak berubah setelah restart:**
+  - Pastikan tidak ada error native updater yang tertelan di log; sejak versi `0.1.1`, [`updater.svelte.ts`](../src/lib/utils/updater.svelte.ts) dan [`UpdateModal.svelte`](../src/lib/components/shared/UpdateModal.svelte) menghentikan proses dan menampilkan layar **Pembaruan Gagal** apabila `downloadAndInstall()` gagal.
+- **DevTools terbuka di build development vs release:**
+  - Pada [`src-tauri/tauri.conf.json`](../src-tauri/tauri.conf.json), `app.windows[0].devtools` diset `false` dan [`src-tauri/src/main.rs`](../src-tauri/src/main.rs) membersihkan argumen `--auto-open-devtools-for-tabs` agar DevTools tidak terbuka otomatis saat aplikasi dijalankan. Gunakan file log aplikasi (`potohub.log`) untuk inspeksi diagnostik.

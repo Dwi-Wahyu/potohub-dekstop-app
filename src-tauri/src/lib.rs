@@ -813,6 +813,7 @@ pub fn run() {
             storage::delete_session_file,
             storage::get_sessions_dir,
             storage::open_sessions_dir,
+            storage::delete_session_dir,
             get_printer_list,
             get_printer_status,
             open_printer_properties,

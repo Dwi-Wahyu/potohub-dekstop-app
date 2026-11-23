@@ -40,7 +40,7 @@ class NetworkStatusStore {
         }
       } catch {}
     }
-    return '0.1.2';
+    return '0.1.4';
   }
 
   init() {

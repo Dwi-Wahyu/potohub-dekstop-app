@@ -2,6 +2,10 @@ use image::codecs::gif::{GifEncoder, Repeat};
 use image::{Frame, ImageBuffer, Rgba};
 use std::io::{Cursor, Write};
 use tauri_plugin_shell::ShellExt;
+use tokio::sync::Semaphore;
+
+/// Batasi encoding klip liveview agar tidak menjalankan banyak proses ffmpeg bersamaan saat sesi cepat.
+static LIVEVIEW_ENCODE_SEM: Semaphore = Semaphore::const_new(1);
 
 #[tauri::command]
 pub async fn fetch_image_as_data_url(url: String) -> Result<String, String> {
@@ -110,6 +114,11 @@ pub async fn encode_liveview_frames_to_video(
     if frames.is_empty() {
         return Err("Daftar frame kosong".to_string());
     }
+
+    let _permit = LIVEVIEW_ENCODE_SEM
+        .acquire()
+        .await
+        .map_err(|e| format!("Gagal acquire semaphore encode liveview: {}", e))?;
 
     let out_fps = target_fps.max(1);
     let tmp_dir = std::env::temp_dir().join(format!("liveview_clip_{}", uuid::Uuid::new_v4()));

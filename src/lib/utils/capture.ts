@@ -1,8 +1,55 @@
 import { invoke } from '@tauri-apps/api/core';
+import { warn as logWarn } from '@tauri-apps/plugin-log';
 import { cameraStore } from '$lib/camera.svelte';
 import { boothFlow } from '$lib/stores/booth.svelte';
 import { boothConfig } from '$lib/stores/boothConfig.svelte';
-import { recordCapturedSlotToCheckpoint } from '$lib/utils/activeSessionCheckpoint';
+import {
+  recordCapturedClipToCheckpoint,
+  recordCapturedSlotToCheckpoint,
+} from '$lib/utils/activeSessionCheckpoint';
+
+/**
+ * Ekstrak klip liveview untuk satu slot, simpan ke state boothFlow dan ke disk/checkpoint
+ * agar tetap aman apabila aplikasi ter-restart di tengah sesi, dan daftarkan promise-nya
+ * agar saveSessionAssets selalu menunggu encoding slot selesai.
+ */
+export function extractAndPersistSlotClip(slotIndex: number, captureTs: number): Promise<void> {
+  const promise = (async () => {
+    try {
+      const clipBlob = await cameraStore.extractLiveviewClip(
+        captureTs,
+        boothConfig.config.liveviewClipPreSecs,
+        boothConfig.config.liveviewClipPostSecs
+      );
+      const clipUrl = clipBlob ? URL.createObjectURL(clipBlob) : null;
+      const next = [...boothFlow.liveviewClips];
+      next[slotIndex] = clipUrl;
+      boothFlow.liveviewClips = next;
+
+      if (clipBlob) {
+        try {
+          const sessionCode = boothFlow.sessionCode || `LOCAL-${Date.now()}`;
+          const date = new Date().toISOString().slice(0, 10);
+          const ext = clipBlob.type.includes('webm') ? 'webm' : 'mp4';
+          const relPath = `${date}/${sessionCode}/video/slot_${String(slotIndex + 1).padStart(2, '0')}.${ext}`;
+          const bytes = new Uint8Array(await clipBlob.arrayBuffer());
+          await invoke('save_session_file', {
+            relativePath: relPath,
+            bytes: Array.from(bytes),
+          });
+          await recordCapturedClipToCheckpoint(slotIndex, relPath);
+        } catch (saveErr) {
+          console.warn(`[liveview] Gagal menyimpan klip slot ${slotIndex + 1} ke disk:`, saveErr);
+        }
+      }
+    } catch (err) {
+      console.error('Gagal ekstrak liveview clip slot', slotIndex, err);
+      void logWarn(`[liveview] Gagal ekstrak klip slot ${slotIndex + 1}: ${String(err)}`).catch(() => {});
+    }
+  })();
+
+  return boothFlow.trackClipPromise(promise);
+}
 
 export interface CaptureSequenceOptions {
   slotCount: number;
@@ -152,23 +199,7 @@ export async function runCaptureSequence(
       }
 
       if (boothConfig.config.enableLiveviewVideo) {
-        clipPromises.push(
-          cameraStore
-            .extractLiveviewClip(
-              captureTs,
-              boothConfig.config.liveviewClipPreSecs,
-              boothConfig.config.liveviewClipPostSecs
-            )
-            .then((clipBlob) => {
-              const clipUrl = clipBlob ? URL.createObjectURL(clipBlob) : null;
-              const next = [...boothFlow.liveviewClips];
-              next[slotIndex] = clipUrl;
-              boothFlow.liveviewClips = next;
-            })
-            .catch((err) =>
-              console.error('Gagal ekstrak liveview clip slot', slotIndex, err)
-            )
-        );
+        clipPromises.push(extractAndPersistSlotClip(slotIndex, captureTs));
       }
 
       // Pastikan pengambilan liveview langsung aktif kembali agar kamera siap dan tidak busy

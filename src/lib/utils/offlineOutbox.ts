@@ -37,6 +37,7 @@ export interface SessionSoftfilePayload {
   softfileTarget: string | null;
   localSessionCode: string;
   backendSessionId?: string;
+  uploadedRoles?: ('composite' | 'raw_photo' | 'gif' | 'video')[];
   assetRelativePaths: {
     role: 'composite' | 'raw_photo' | 'gif' | 'video';
     path: string;
@@ -164,12 +165,16 @@ export async function processJob(job: OutboxJob): Promise<JobProcessOutcome> {
         return { status: 'business_error', reason };
       }
 
-      let compositeUploaded = false;
-      let firstRawUploaded = false;
+      const uploadedRoles = new Set(payload.uploadedRoles ?? []);
+      let compositeUploaded = uploadedRoles.has('composite');
+      let firstRawUploaded = uploadedRoles.has('raw_photo');
       let lastAssetError: string | null = null;
 
-      // Upload file aset lokal yang tersimpan
+      // Upload file aset lokal yang tersimpan (lewati role yang sudah sukses diupload sebelumnya)
       for (const asset of payload.assetRelativePaths) {
+        if (uploadedRoles.has(asset.role)) {
+          continue;
+        }
         try {
           const bytes = await invoke<number[]>('read_session_file', { relativePath: asset.path });
           const blob = new Blob([new Uint8Array(bytes)], { type: asset.contentType });

@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { warn as logWarn } from "@tauri-apps/plugin-log";
 import { getCameraPreset } from "$lib/db/local";
 
 export type ConnectionStatus = "idle" | "connecting" | "connected" | "error";
@@ -700,6 +701,7 @@ class CameraStore {
         return new Blob([new Uint8Array(encoded)], { type: "video/mp4" });
       } catch (err) {
         console.warn("[liveview] Gagal extract & encode klip liveview:", err);
+        void logWarn(`[liveview] Gagal extract & encode klip liveview (captureTs=${captureTs}, preSecs=${preSecs}): ${String(err)}`).catch(() => {});
         return null;
       }
     }

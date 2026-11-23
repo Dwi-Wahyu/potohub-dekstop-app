@@ -8,7 +8,6 @@ import { generateBlurPlaceholder } from './imagePlaceholder';
 import { generateThumbnailBlob } from './imageThumbnail';
 import { buildSessionGif } from './gif';
 import { saveLocalSessionAssets, saveInitialSessionPhotos } from './localSessionStorage';
-import { markOutboxJobDoneByLocalRef } from '$lib/db/local';
 import {
   compositeTemplateVideoOverlay,
   getSortedPhotoSlots,
@@ -30,6 +29,9 @@ export interface SaveSessionAssetsResult {
   gifBlob: Blob | null;
   compositeVideoBlob: Blob | null;
   compositeUploaded: boolean;
+  gifUploaded: boolean;
+  videoUploaded: boolean;
+  uploadedRoles: ('composite' | 'raw_photo' | 'gif' | 'video')[];
   rawPhotosUploaded: number;
   lastUploadError: string | null;
 }
@@ -104,11 +106,18 @@ export async function saveSessionAssets(
   template?: BoothTemplate | null,
   softfileUrl?: string | null
 ): Promise<SaveSessionAssetsResult> {
+  // Tunggu ekstraksi klip liveview yang masih berjalan (mis. baru selesai retake) sebelum memulai
+  await boothFlow.waitForPendingClips();
+
   // Snapshot imutabel di awal agar kebal terhadap boothFlow.reset() saat user klik selesai
   const photos = photosSnapshot.length > 0 ? [...photosSnapshot] : [...boothFlow.photosTaken];
-  const validClips = (clipsSnapshot.length > 0 ? clipsSnapshot : boothFlow.liveviewClips).filter(
-    (c): c is string => !!c
-  );
+  const mergedClips = clipsSnapshot.length > 0 ? [...clipsSnapshot] : [...boothFlow.liveviewClips];
+  for (let i = 0; i < boothFlow.liveviewClips.length; i++) {
+    if (boothFlow.liveviewClips[i]) {
+      mergedClips[i] = boothFlow.liveviewClips[i];
+    }
+  }
+  const validClips = mergedClips.filter((c): c is string => !!c);
   const sessionCode = sessionCodeSnapshot || boothFlow.sessionCode || sessionId || `session-${Date.now()}`;
   const isMirrored = boothConfig.config.mirrorOn ?? false;
   const isFlipVertical = boothConfig.config.flipVertical ?? false;
@@ -121,6 +130,9 @@ export async function saveSessionAssets(
   let gifBlob: Blob | null = null;
   let compositeVideoBlob: Blob | null = null;
   let compositeUploaded = false;
+  let gifUploaded = false;
+  let videoUploaded = false;
+  const uploadedRoles: ('composite' | 'raw_photo' | 'gif' | 'video')[] = [];
   let rawPhotosUploaded = 0;
   let lastUploadError: string | null = canUploadOnline
     ? null
@@ -140,10 +152,8 @@ export async function saveSessionAssets(
         templateHeight
       );
       compositeUploaded = true;
+      uploadedRoles.push('composite');
       await info('[saveSessionAssets] Sukses upload composite strip foto').catch(() => {});
-      if (sessionCode) {
-        void markOutboxJobDoneByLocalRef(sessionCode).catch(() => {});
-      }
     } catch (e) {
       lastUploadError = String(e);
       await error(`[saveSessionAssets] Gagal upload composite strip: ${String(e)}`).catch(() => {});
@@ -203,9 +213,8 @@ export async function saveSessionAssets(
   const fallbackClip = validClips[0];
   const normalizedClips: string[] = [];
   if (fallbackClip && photos.length > 0) {
-    const rawClips = clipsSnapshot.length > 0 ? clipsSnapshot : boothFlow.liveviewClips;
     for (let i = 0; i < photos.length; i++) {
-      normalizedClips.push(rawClips[i] || fallbackClip);
+      normalizedClips.push(mergedClips[i] || fallbackClip);
     }
   }
 
@@ -237,10 +246,9 @@ export async function saveSessionAssets(
 
           // Petakan klip liveview untuk masing-masing slot sesuai indeks foto capture-nya
           // (sehingga slot duplikat pada 2" cut mendapatkan klip yang selaras dan jumlah klip == jumlah slot)
-          const rawClips = clipsSnapshot.length > 0 ? clipsSnapshot : boothFlow.liveviewClips;
           clipsToUse = sortedPhotoSlots.map((slot) => {
             const targetIdx = findPhotoSlotIndex(slot, sortedPhotoSlots);
-            return rawClips[targetIdx] || fallbackClip;
+            return mergedClips[targetIdx] || fallbackClip;
           });
         }
 
@@ -428,8 +436,11 @@ export async function saveSessionAssets(
         gifResult.width,
         gifResult.height
       );
+      gifUploaded = true;
+      uploadedRoles.push('gif');
       await info('[saveSessionAssets] Sukses upload GIF sesi ke R2').catch(() => {});
     } catch (e) {
+      if (!lastUploadError) lastUploadError = `Gagal upload GIF: ${String(e)}`;
       await error(`[saveSessionAssets] Gagal upload GIF sesi ke R2: ${String(e)}`).catch(() => {});
     }
   }
@@ -450,10 +461,17 @@ export async function saveSessionAssets(
         effWidth,
         effHeight
       );
+      videoUploaded = true;
+      uploadedRoles.push('video');
       await info('[saveSessionAssets] Sukses upload video liveview composite ke R2').catch(() => {});
     } catch (e) {
+      if (!lastUploadError) lastUploadError = `Gagal upload video liveview: ${String(e)}`;
       await error(`[saveSessionAssets] Gagal upload video liveview ke R2: ${String(e)}`).catch(() => {});
     }
+  }
+
+  if (rawPhotosUploaded >= processedPhotoBlobs.length && processedPhotoBlobs.length > 0) {
+    uploadedRoles.push('raw_photo');
   }
 
   // 7. Penyimpanan lokal hasil sesi — WAJIB di-await agar file ada di disk sebelum outbox / print membacanya
@@ -478,6 +496,9 @@ export async function saveSessionAssets(
     gifBlob,
     compositeVideoBlob,
     compositeUploaded,
+    gifUploaded,
+    videoUploaded,
+    uploadedRoles,
     rawPhotosUploaded,
     lastUploadError,
   };

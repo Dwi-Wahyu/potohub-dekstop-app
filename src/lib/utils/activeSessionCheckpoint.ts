@@ -18,6 +18,7 @@ export interface ActiveSessionCheckpoint {
   createdAt: number;
   updatedAt: number;
   capturedSlots: CapturedSlotInfo[];
+  capturedClips?: CapturedSlotInfo[];
 }
 
 const CHECKPOINT_RELATIVE_PATH = '_active_checkpoint.json';
@@ -82,6 +83,7 @@ export async function initActiveCheckpoint(options: {
     createdAt: now,
     updatedAt: now,
     capturedSlots: [],
+    capturedClips: [],
   };
   await saveActiveCheckpoint(checkpoint);
   return checkpoint;
@@ -121,6 +123,45 @@ export async function recordCapturedSlotToCheckpoint(
     await saveActiveCheckpoint(cp);
   } catch (err) {
     console.warn('[ActiveCheckpoint] Gagal memperbarui slot foto pada checkpoint:', err);
+  }
+}
+
+/**
+ * Mencatat klip liveview per slot yang berhasil di-encode & disimpan ke disk.
+ */
+export async function recordCapturedClipToCheckpoint(
+  slotIndex: number,
+  relativePath: string
+): Promise<void> {
+  try {
+    let cp = await getActiveCheckpoint();
+    if (!cp) {
+      cp = {
+        sessionCode: boothFlow.sessionCode || `session-${Date.now()}`,
+        sessionId: boothFlow.sessionId,
+        paymentMethod: boothFlow.paymentMethod,
+        selectedFrameId: boothFlow.selectedFrameId,
+        selectedFilterId: boothFlow.selectedFilterId,
+        printQty: boothFlow.printQty,
+        totalSlots: 4,
+        status: 'capturing',
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        capturedSlots: [],
+        capturedClips: [],
+      };
+    }
+
+    const existingClips = cp.capturedClips ?? [];
+    const filtered = existingClips.filter((c) => c.slotIndex !== slotIndex);
+    filtered.push({ slotIndex, relativePath });
+    filtered.sort((a, b) => a.slotIndex - b.slotIndex);
+
+    cp.capturedClips = filtered;
+    cp.updatedAt = Date.now();
+    await saveActiveCheckpoint(cp);
+  } catch (err) {
+    console.warn('[ActiveCheckpoint] Gagal memperbarui klip liveview pada checkpoint:', err);
   }
 }
 
@@ -210,6 +251,27 @@ export async function restoreActiveSession(
     }
   }
   boothFlow.photosTaken = restoredArray;
+
+  // 3. Pulihkan klip liveview per slot jika sudah tersimpan di disk lokal
+  const restoredClips: (string | null)[] = [];
+  const sortedClips = [...(checkpoint.capturedClips ?? [])].sort((a, b) => a.slotIndex - b.slotIndex);
+  for (const clip of sortedClips) {
+    try {
+      const bytes = await invoke<number[]>('read_session_file', {
+        relativePath: clip.relativePath,
+      });
+      if (bytes && bytes.length > 0) {
+        const mime = clip.relativePath.endsWith('.webm') ? 'video/webm' : 'video/mp4';
+        const blob = new Blob([new Uint8Array(bytes)], { type: mime });
+        restoredClips[clip.slotIndex] = URL.createObjectURL(blob);
+      }
+    } catch (err) {
+      console.warn(`[ActiveCheckpoint] Gagal memuat klip slot ${clip.slotIndex + 1} dari disk:`, err);
+    }
+  }
+  if (restoredClips.some(Boolean)) {
+    boothFlow.liveviewClips = restoredClips;
+  }
 
   const validCount = restoredArray.filter(Boolean).length;
   const allSlotsRestored = validCount >= checkpoint.totalSlots;

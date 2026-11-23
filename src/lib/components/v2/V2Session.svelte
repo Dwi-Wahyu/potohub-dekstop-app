@@ -5,7 +5,7 @@
   import { boothFlow } from '$lib/stores/booth.svelte';
   import { uiConfig } from '$lib/stores/uiConfig.svelte';
   import { boothConfig } from '$lib/stores/boothConfig.svelte';
-  import { runCaptureSequence } from '$lib/utils/capture';
+  import { runCaptureSequence, extractAndPersistSlotClip } from '$lib/utils/capture';
   import { formatTime, getLiveviewTransformStyle } from '$lib/utils/shared';
   import { fetchTemplates, requireActiveBoothId, type BoothTemplate } from '$lib/api/boothClient';
   import { cachedFetch } from '$lib/utils/offlineCache';
@@ -184,6 +184,7 @@
     const startSlot = currentValidPhotos.length >= totalPhotos ? 0 : currentValidPhotos.length;
     if (startSlot === 0) {
       boothFlow.photosTaken = [];
+      boothFlow.liveviewClips = [];
     }
 
     await runCaptureSequence({
@@ -302,21 +303,7 @@
       }
 
       if (boothConfig.config.enableLiveviewVideo) {
-        cameraStore
-          .extractLiveviewClip(
-            captureTs,
-            boothConfig.config.liveviewClipPreSecs,
-            boothConfig.config.liveviewClipPostSecs
-          )
-          .then((clipBlob) => {
-            const clipUrl = clipBlob ? URL.createObjectURL(clipBlob) : null;
-            const next = [...boothFlow.liveviewClips];
-            next[index] = clipUrl;
-            boothFlow.liveviewClips = next;
-          })
-          .catch((err) =>
-            console.error('Gagal ekstrak liveview clip retake slot', index, err)
-          );
+        void extractAndPersistSlotClip(index, captureTs);
       }
 
       if (cameraStore.cameraMode === 'usb') {

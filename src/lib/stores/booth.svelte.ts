@@ -53,6 +53,20 @@ class BoothFlowStore {
   isGeneratingVideo = $state<boolean>(false);
   // Dikunci per URL foto (bukan index slot) supaya retake otomatis membuang crop lama
   photoTransforms = $state<Record<string, PhotoTransform>>({});
+  private pendingClipPromises = new Set<Promise<void>>();
+
+  trackClipPromise(promise: Promise<void>): Promise<void> {
+    const tracked = promise.finally(() => {
+      this.pendingClipPromises.delete(tracked);
+    });
+    this.pendingClipPromises.add(tracked);
+    return tracked;
+  }
+
+  async waitForPendingClips(): Promise<void> {
+    if (this.pendingClipPromises.size === 0) return;
+    await Promise.allSettled(Array.from(this.pendingClipPromises));
+  }
 
   goTo(step: BoothStep) {
     this.step = step;
@@ -95,6 +109,7 @@ class BoothFlowStore {
     this.isGeneratingGif = false;
     this.isGeneratingVideo = false;
     this.photoTransforms = {};
+    this.pendingClipPromises.clear();
 
     // Hapus checkpoint sesi aktif saat sesi di-reset kembali ke welcome
     if (typeof window !== 'undefined') {

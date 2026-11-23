@@ -207,6 +207,7 @@
       ),
       printStatus: (copies === 0 ? 'printed' : 'pending') as 'printed' | 'pending' | 'failed',
       printError: null as string | null,
+      uploadedRoles: [] as ('composite' | 'raw_photo' | 'gif' | 'video')[],
     };
 
     // Segera catat sesi ke database outbox lokal agar operator bisa melihatnya di dialog sesi
@@ -297,7 +298,13 @@
       console.error('Failed to save session assets:', err);
     } finally {
       isSavingSession = false;
-      const isSyncedOnline = Boolean(isValidUUID(activeBackendSessionId) && assetResult?.compositeUploaded);
+      sessionPayload.uploadedRoles = assetResult?.uploadedRoles ?? [];
+      const allGeneratedUploaded = Boolean(
+        assetResult?.compositeUploaded &&
+          (!assetResult.gifBlob || assetResult.gifUploaded) &&
+          (!assetResult.compositeVideoBlob || assetResult.videoUploaded)
+      );
+      const isSyncedOnline = Boolean(isValidUUID(activeBackendSessionId) && allGeneratedUploaded);
       const syncError = isSyncedOnline
         ? null
         : assetResult?.lastUploadError ||

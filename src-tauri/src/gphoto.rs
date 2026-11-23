@@ -16,7 +16,7 @@ pub struct LiveviewBuffer {
     pub max_age_ms: u128,
 }
 
-const MAX_LIVEVIEW_BUFFER_FRAMES: usize = 900;
+const MAX_LIVEVIEW_BUFFER_FRAMES: usize = 1500;
 
 impl LiveviewBuffer {
     pub fn new(max_age_ms: u128) -> Self {

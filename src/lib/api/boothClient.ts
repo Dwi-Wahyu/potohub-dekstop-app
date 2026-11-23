@@ -995,19 +995,48 @@ export async function uploadGalleryAsset(
     `[uploadGalleryAsset] presigned URL diterima untuk ${fileType}: ${file_url}`
   ).catch(() => {});
 
-  const putRes = await tauriFetch(upload_url, {
-    method: "PUT",
-    headers: { "Content-Type": contentType },
-    body: bytes,
-  });
-  if (!putRes.ok) {
-    const errBody = await putRes.text().catch(() => "");
-    await logError(
-      `[uploadGalleryAsset] PUT ke R2 gagal (status ${putRes.status}) untuk ${fileType}: ${errBody}`
-    ).catch(() => {});
-    throw new Error(
-      `Gagal PUT ${fileType} ke R2 (status ${putRes.status}): ${errBody}`,
-    );
+  let putRes: Response | null = null;
+  let lastPutErr: unknown = null;
+  const maxPutAttempts = 3;
+
+  for (let attempt = 1; attempt <= maxPutAttempts; attempt++) {
+    try {
+      const res = await tauriFetch(upload_url, {
+        method: "PUT",
+        headers: { "Content-Type": contentType },
+        body: bytes,
+      });
+      if (res.ok) {
+        putRes = res;
+        break;
+      }
+      const errBody = await res.text().catch(() => "");
+      const shouldRetry = res.status >= 500 || res.status === 429;
+      if (!shouldRetry || attempt === maxPutAttempts) {
+        await logError(
+          `[uploadGalleryAsset] PUT ke R2 gagal (status ${res.status}) untuk ${fileType}: ${errBody}`
+        ).catch(() => {});
+        throw new Error(
+          `Gagal PUT ${fileType} ke R2 (status ${res.status}): ${errBody}`,
+        );
+      }
+      await logWarn(
+        `[uploadGalleryAsset] PUT ke R2 status ${res.status} untuk ${fileType}, retry ${attempt}/${maxPutAttempts}...`
+      ).catch(() => {});
+    } catch (err) {
+      lastPutErr = err;
+      if (attempt === maxPutAttempts) {
+        throw err;
+      }
+      await logWarn(
+        `[uploadGalleryAsset] PUT ke R2 error transport untuk ${fileType} (percobaan ${attempt}/${maxPutAttempts}): ${String(err)}`
+      ).catch(() => {});
+    }
+    await new Promise((r) => setTimeout(r, 800 * attempt));
+  }
+
+  if (!putRes) {
+    throw lastPutErr instanceof Error ? lastPutErr : new Error(String(lastPutErr));
   }
   await logInfo(`[uploadGalleryAsset] PUT ke R2 sukses untuk ${fileType}`).catch(() => {});
 

@@ -341,16 +341,32 @@ async fn extract_and_encode_liveview_clip(
         let extracted = buf.extract_window_frames(capture_ts_ms as u128, pre_ms as u128, post_ms as u128);
         (total, extracted)
     };
-    println!(
-        "extract_and_encode_liveview_clip: total_buffer={} matched_window={} capture_ts={}",
+    log::info!(
+        "[liveview] extract_and_encode_liveview_clip: total_buffer={} matched_window={} capture_ts={} pre_ms={} post_ms={}",
         total_in_buffer,
         frames.len(),
-        capture_ts_ms
+        capture_ts_ms,
+        pre_ms,
+        post_ms
     );
     if frames.is_empty() {
+        log::warn!(
+            "[liveview] Buffer kosong untuk window capture_ts={} (total_buffer={})",
+            capture_ts_ms,
+            total_in_buffer
+        );
         return Err("Buffer kosong untuk window ini".to_string());
     }
-    media::encode_liveview_frames_to_video(&app, frames, 30).await
+    match media::encode_liveview_frames_to_video(&app, frames, 30).await {
+        Ok(bytes) => {
+            log::info!("[liveview] Sukses encode klip MP4 ({} bytes) untuk capture_ts={}", bytes.len(), capture_ts_ms);
+            Ok(bytes)
+        }
+        Err(err) => {
+            log::error!("[liveview] Gagal encode klip MP4 untuk capture_ts={}: {}", capture_ts_ms, err);
+            Err(err)
+        }
+    }
 }
 
 #[tauri::command]
@@ -720,7 +736,7 @@ pub fn run() {
         default_panic(info);
     }));
 
-    let liveview_buffer = Arc::new(StdMutex::new(gphoto::LiveviewBuffer::new(20000)));
+    let liveview_buffer = Arc::new(StdMutex::new(gphoto::LiveviewBuffer::new(45000)));
     canon_edsdk::platform::init_liveview_buffer(liveview_buffer.clone());
 
     tauri::Builder::default()

@@ -11,6 +11,7 @@
     restoreActiveSession,
     clearActiveCheckpoint,
     initActiveCheckpoint,
+    updateCheckpointSelection,
     updateCheckpointStatus,
   } from '$lib/utils/activeSessionCheckpoint';
   import V3Start from './V3Start.svelte';
@@ -47,19 +48,31 @@
   let step = $state<V3Step>('start');
   let selectedPackage = $state<StoreCategory | null>(null);
   let selectedFrameId = $state('frame1');
+  let seenForceReset = boothFlow.forceResetCounter;
+
+  $effect(() => {
+    if (boothFlow.forceResetCounter !== seenForceReset) {
+      seenForceReset = boothFlow.forceResetCounter;
+      step = 'start';
+    }
+  });
 
   onMount(async () => {
     try {
       const cp = await getActiveCheckpoint();
       if (cp && isCheckpointValid(cp)) {
-        const { restoredSlotsCount, allSlotsRestored } = await restoreActiveSession(cp);
-        if (allSlotsRestored) {
+        const { allSlotsRestored } = await restoreActiveSession(cp);
+        if (cp.status === 'selecting_frame') {
+          selectedFrameId = cp.selectedFrameId || '';
+          step = 'frame';
+        } else if (allSlotsRestored || cp.status === 'customizing') {
+          selectedFrameId = cp.selectedFrameId || 'frame1';
           step = 'filter';
         } else {
           selectedFrameId = cp.selectedFrameId || 'frame1';
           step = 'session';
         }
-      } else if (cp && !isCheckpointValid(cp)) {
+      } else if (cp) {
         await clearActiveCheckpoint();
       }
     } catch (err) {
@@ -101,37 +114,43 @@
       step = 'ticket';
     } else {
       boothFlow.paymentMethod = 'Cashless';
-      if (boothConfig.config.earlyPaymentPage) {
+      const isEarly = boothConfig.config.earlyPaymentPage;
+      if (isEarly) {
         step = 'frame';
       } else {
         step = 'session';
-        void initActiveCheckpoint({
-          sessionCode: boothFlow.sessionCode || `TRX-${Date.now()}`,
-          sessionId: boothFlow.sessionId,
-          paymentMethod: 'Cashless',
-          selectedFrameId,
-          totalSlots: 3,
-          printQty: boothFlow.printQty,
-        });
       }
+      void initActiveCheckpoint({
+        sessionCode: boothFlow.sessionCode || `TRX-${Date.now()}`,
+        sessionId: boothFlow.sessionId,
+        paymentMethod: 'Cashless',
+        selectedFrameId: isEarly ? null : selectedFrameId,
+        totalSlots: 3,
+        printQty: boothFlow.printQty,
+        status: isEarly ? 'selecting_frame' : 'capturing',
+        isPaid: true,
+      });
     }
   }
 
   function handleTicketConfirm() {
     boothFlow.paymentMethod = 'Ticket';
-    if (boothConfig.config.earlyPaymentPage) {
+    const isEarly = boothConfig.config.earlyPaymentPage;
+    if (isEarly) {
       step = 'frame';
     } else {
       step = 'session';
-      void initActiveCheckpoint({
-        sessionCode: boothFlow.sessionCode || `LOCAL-${Date.now()}`,
-        sessionId: boothFlow.sessionId,
-        paymentMethod: 'Ticket',
-        selectedFrameId,
-        totalSlots: 3,
-        printQty: boothFlow.printQty,
-      });
     }
+    void initActiveCheckpoint({
+      sessionCode: boothFlow.sessionCode || `LOCAL-${Date.now()}`,
+      sessionId: boothFlow.sessionId,
+      paymentMethod: 'Ticket',
+      selectedFrameId: isEarly ? null : selectedFrameId,
+      totalSlots: 3,
+      printQty: boothFlow.printQty,
+      status: isEarly ? 'selecting_frame' : 'capturing',
+      isPaid: true,
+    });
   }
 
   function handleSelectFrame(frameId: string) {
@@ -147,16 +166,14 @@
         selectedFrameId: frameId,
         totalSlots: 3,
         printQty: boothFlow.printQty,
+        status: 'capturing',
+        isPaid: false,
       });
     } else if (boothConfig.config.earlyPaymentPage) {
       step = 'session';
-      void initActiveCheckpoint({
-        sessionCode: boothFlow.sessionCode || `LOCAL-${Date.now()}`,
-        sessionId: boothFlow.sessionId,
-        paymentMethod: boothFlow.paymentMethod,
+      void updateCheckpointSelection({
         selectedFrameId: frameId,
-        totalSlots: 3,
-        printQty: boothFlow.printQty,
+        status: 'capturing',
       });
     } else {
       step = 'package';

@@ -10,7 +10,7 @@
   import { formatTime, getLiveviewTransformStyle } from '$lib/utils/shared';
   import { fetchTemplates, requireActiveBoothId, type BoothTemplate } from '$lib/api/boothClient';
   import { cachedFetch } from '$lib/utils/offlineCache';
-  import { recordCapturedSlotToCheckpoint } from '$lib/utils/activeSessionCheckpoint';
+  import { recordCapturedSlotToCheckpoint, updateCheckpointTotalSlots } from '$lib/utils/activeSessionCheckpoint';
   import {
     getSortedPhotoSlots,
     getTotalPhotosNeeded,
@@ -36,6 +36,12 @@
   let totalPhotos = $derived(getTotalPhotosNeeded(templateLayers, 4));
   let bgLayer = $derived(templateLayers.find((l) => l.isBackground));
   let bgUrl = $derived(bgLayer?.imageUrl || selectedTemplate?.frame_image_url || '');
+
+  $effect(() => {
+    if (selectedTemplate && totalPhotos > 0) {
+      void updateCheckpointTotalSlots(totalPhotos);
+    }
+  });
 
   let sessionSecs = $state(boothConfig.config.photoSessionTimeSecs || 60);
   let isRunning = $state(false);

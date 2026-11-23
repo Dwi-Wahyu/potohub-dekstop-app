@@ -10,6 +10,7 @@
     restoreActiveSession,
     clearActiveCheckpoint,
     initActiveCheckpoint,
+    updateCheckpointSelection,
     updateCheckpointStatus,
   } from '$lib/utils/activeSessionCheckpoint';
   import V1Landing from './V1Landing.svelte';
@@ -49,19 +50,31 @@
 
   let selectedPrice = $state(35000);
   let selectedFrameConfigId = $state('grid4');
+  let seenForceReset = boothFlow.forceResetCounter;
+
+  $effect(() => {
+    if (boothFlow.forceResetCounter !== seenForceReset) {
+      seenForceReset = boothFlow.forceResetCounter;
+      currentSubStep = 'welcome';
+    }
+  });
 
   onMount(async () => {
     try {
       const cp = await getActiveCheckpoint();
       if (cp && isCheckpointValid(cp)) {
-        const { restoredSlotsCount, allSlotsRestored } = await restoreActiveSession(cp);
-        if (allSlotsRestored) {
+        const { allSlotsRestored } = await restoreActiveSession(cp);
+        if (cp.status === 'selecting_frame') {
+          selectedFrameConfigId = cp.selectedFrameId || '';
+          currentSubStep = 'category_frame';
+        } else if (allSlotsRestored || cp.status === 'customizing') {
+          selectedFrameConfigId = cp.selectedFrameId || 'grid4';
           currentSubStep = 'customize';
         } else {
           selectedFrameConfigId = cp.selectedFrameId || 'grid4';
           currentSubStep = 'camera';
         }
-      } else if (cp && !isCheckpointValid(cp)) {
+      } else if (cp) {
         await clearActiveCheckpoint();
       }
     } catch (err) {
@@ -102,6 +115,9 @@
     selectedPrice = price;
     selectedFrameConfigId = frameId;
     boothFlow.selectedFrameId = frameId;
+    if (boothConfig.config.earlyPaymentPage) {
+      void updateCheckpointSelection({ selectedFrameId: frameId });
+    }
     currentSubStep = 'print_qty';
   }
 
@@ -117,16 +133,15 @@
         selectedFrameId: selectedFrameConfigId,
         totalSlots: 4,
         printQty: quantity,
+        status: 'capturing',
+        isPaid: false,
       });
     } else if (boothConfig.config.earlyPaymentPage) {
       currentSubStep = 'camera';
-      void initActiveCheckpoint({
-        sessionCode: boothFlow.sessionCode || `LOCAL-${Date.now()}`,
-        sessionId: boothFlow.sessionId,
-        paymentMethod: boothFlow.paymentMethod,
+      void updateCheckpointSelection({
         selectedFrameId: selectedFrameConfigId,
-        totalSlots: 4,
         printQty: quantity,
+        status: 'capturing',
       });
     } else {
       currentSubStep = 'method_select';
@@ -145,7 +160,8 @@
 
   function handlePaymentSuccess() {
     boothFlow.paymentMethod = 'Cashless';
-    if (boothConfig.config.earlyPaymentPage) {
+    const isEarly = boothConfig.config.earlyPaymentPage;
+    if (isEarly) {
       currentSubStep = 'category_frame';
     } else {
       currentSubStep = 'camera';
@@ -154,9 +170,11 @@
       sessionCode: boothFlow.sessionCode || `TRX-${Date.now()}`,
       sessionId: boothFlow.sessionId,
       paymentMethod: 'Cashless',
-      selectedFrameId: selectedFrameConfigId,
+      selectedFrameId: isEarly ? null : selectedFrameConfigId,
       totalSlots: 4,
       printQty: boothFlow.printQty,
+      status: isEarly ? 'selecting_frame' : 'capturing',
+      isPaid: true,
     });
   }
 
@@ -226,11 +244,22 @@
       background={getV1Bg('ticket')}
       onSuccess={() => {
         boothFlow.paymentMethod = 'Ticket';
-        if (boothConfig.config.earlyPaymentPage) {
+        const isEarly = boothConfig.config.earlyPaymentPage;
+        if (isEarly) {
           currentSubStep = 'category_frame';
         } else {
           currentSubStep = 'camera';
         }
+        void initActiveCheckpoint({
+          sessionCode: boothFlow.sessionCode || `LOCAL-${Date.now()}`,
+          sessionId: boothFlow.sessionId,
+          paymentMethod: 'Ticket',
+          selectedFrameId: isEarly ? null : selectedFrameConfigId,
+          totalSlots: 4,
+          printQty: boothFlow.printQty,
+          status: isEarly ? 'selecting_frame' : 'capturing',
+          isPaid: true,
+        });
       }}
       onBack={() => (currentSubStep = 'method_select')}
     />

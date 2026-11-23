@@ -98,7 +98,7 @@
             preloadAndResolveTemplateAssets(d, categoriesData);
           }
         );
-        if (templatesData.length > 0) {
+        if (templatesData.length > 0 && !templatesData.some((t) => t.id === selectedFrame)) {
           selectedFrame = templatesData[0].id;
         }
       } catch (err) {

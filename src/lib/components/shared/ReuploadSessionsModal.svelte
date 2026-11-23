@@ -12,12 +12,11 @@
     Image as ImageIcon,
     Mail,
     Phone,
-    Layers,
-    Filter,
     FolderOpen,
     Trash2,
-    QrCode,
-    ArrowRight
+    ArrowRight,
+    MoreVertical,
+    Ban
   } from '@lucide/svelte';
   import { goto } from '$app/navigation';
   import { invoke } from '@tauri-apps/api/core';
@@ -31,11 +30,13 @@
     markOutboxJobDone,
     markOutboxJobsDoneBulk,
     markSessionsPrintedBulk,
+    deleteLocalSessionsBulk,
     type SessionHistoryItem,
   } from '$lib/db/local';
   import { getActiveBoothId } from '$lib/api/boothClient';
   import { processSingleJobById, type JobProcessOutcome } from '$lib/utils/offlineOutbox';
   import { reprintSessionDirectly } from '$lib/utils/printQueue';
+  import { clearActiveCheckpointIfMatches } from '$lib/utils/activeSessionCheckpoint';
 
   interface Props {
     open: boolean;
@@ -62,6 +63,12 @@
   let uploadingMap = $state<Record<number, boolean>>({});
   let printingMap = $state<Record<number, boolean>>({});
   let feedbackMap = $state<Record<number, { type: 'success' | 'error'; text: string }>>({});
+  let openMenuId = $state<number | null>(null);
+
+  function toggleCardMenu(id: number, e: MouseEvent) {
+    e.stopPropagation();
+    openMenuId = openMenuId === id ? null : id;
+  }
 
   let filteredSessions = $derived.by(() => {
     if (activeFilter === 'recent') {
@@ -123,17 +130,64 @@
     }
   }
 
-  async function handleCancelSessionPrint(item: SessionHistoryItem) {
+  async function handleCancelSessionQueue(item: SessionHistoryItem) {
+    openMenuId = null;
+    const hasPendingUpload = item.status !== 'done';
+    const hasPendingPrint = item.printStatus === 'pending';
+    if (!hasPendingUpload && !hasPendingPrint) return;
+
+    const ok = confirm(
+      `Batalkan antrian untuk sesi "${item.sessionCode}"?\n${hasPendingUpload ? '- Antrian upload cloud akan dibatalkan\n' : ''}${hasPendingPrint ? '- Antrian cetak foto akan dibatalkan\n' : ''}(File foto lokal tetap tersimpan.)`
+    );
+    if (!ok) return;
+
     try {
-      await cancelPendingPrintJobsBySessionCode(item.sessionCode);
-      item.printStatus = 'failed';
-      item.printError = 'Dibatalkan oleh operator';
-      feedbackMap[item.id] = { type: 'success', text: 'Cetak dibatalkan' };
+      if (hasPendingUpload) {
+        await markOutboxJobDone(item.id);
+        item.status = 'done';
+        item.lastError = null;
+      }
+      if (hasPendingPrint) {
+        await cancelPendingPrintJobsBySessionCode(item.sessionCode);
+        item.printStatus = 'failed';
+        item.printError = 'Dibatalkan oleh operator';
+      }
+      await clearActiveCheckpointIfMatches(item.sessionCode);
+      feedbackMap[item.id] = { type: 'success', text: 'Antrian sesi dibatalkan' };
       pendingPrintCount = await countPendingPrintJobs().catch(() => 0);
       onUpdated?.();
     } catch (err) {
       feedbackMap[item.id] = { type: 'error', text: String(err) };
     } finally {
+      setTimeout(() => {
+        delete feedbackMap[item.id];
+      }, 3500);
+    }
+  }
+
+  async function handleDeleteSingleSession(item: SessionHistoryItem) {
+    openMenuId = null;
+    const ok = confirm(
+      `Hapus sesi lokal "${item.sessionCode}"?\nData sesi di database lokal dan file fotonya di komputer ini akan dihapus permanen (sesi yang sudah terupload di server tidak terpengaruh).`
+    );
+    if (!ok) return;
+
+    try {
+      await deleteLocalSessionsBulk([
+        { id: item.id, sessionCode: item.sessionCode, compositePath: item.compositePath },
+      ]);
+      await clearActiveCheckpointIfMatches(item.sessionCode);
+      if (previewUrls[item.id]) {
+        try {
+          URL.revokeObjectURL(previewUrls[item.id]);
+        } catch {}
+        delete previewUrls[item.id];
+      }
+      sessions = sessions.filter((s) => s.id !== item.id);
+      pendingPrintCount = await countPendingPrintJobs().catch(() => 0);
+      onUpdated?.();
+    } catch (err) {
+      feedbackMap[item.id] = { type: 'error', text: `Gagal menghapus sesi: ${String(err)}` };
       setTimeout(() => {
         delete feedbackMap[item.id];
       }, 3500);
@@ -284,22 +338,26 @@
     const d = new Date(timestamp);
     return new Intl.DateTimeFormat('id-ID', {
       day: '2-digit',
-      month: '2-digit',
+      month: 'short',
       year: 'numeric',
       hour: '2-digit',
       minute: '2-digit',
-      second: '2-digit',
     }).format(d);
   }
 
   function handleKeydown(e: KeyboardEvent) {
     if (e.key === 'Escape' && open) {
+      if (openMenuId !== null) {
+        openMenuId = null;
+        return;
+      }
       onClose();
     }
   }
 
   $effect(() => {
     if (open) {
+      openMenuId = null;
       void loadSessions();
     }
   });
@@ -313,7 +371,12 @@
   });
 </script>
 
-<svelte:window onkeydown={handleKeydown} />
+<svelte:window
+  onkeydown={handleKeydown}
+  onclick={() => {
+    if (openMenuId !== null) openMenuId = null;
+  }}
+/>
 
 {#if open}
   <!-- Backdrop -->
@@ -688,8 +751,12 @@
             "
           >
             {#each filteredSessions as item (item.id)}
+              {@const isMenuOpen = openMenuId === item.id}
+              {@const canCancelQueue = item.status !== 'done' || item.printStatus === 'pending'}
               <div
                 style="
+                  position: relative;
+                  z-index: {isMenuOpen ? 30 : 1};
                   background: {NEU_BG};
                   box-shadow: {neuCfg.card};
                   border-radius: 18px;
@@ -697,15 +764,275 @@
                   display: flex;
                   flex-direction: column;
                   gap: 10px;
-                  border: 1px solid rgba(255,255,255,0.7);
+                  border: 1px solid rgba(255,255,255,0.75);
                   transition: transform 0.15s ease;
                 "
               >
-                <!-- Thumbnail Preview Frame (AspectRatio ~ 2:3 or photostrip) -->
+                <!-- Card Top Row: Timestamp + Ellipsis Menu -->
+                <div style="display: flex; align-items: center; justify-content: space-between; gap: 6px; position: relative;">
+                  <span style="font-size: 11px; font-weight: 700; color: #475569; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                    {formatDate(item.createdAt)}
+                  </span>
+
+                  <div style="position: relative; flex-shrink: 0;">
+                    <button
+                      type="button"
+                      onclick={(e) => toggleCardMenu(item.id, e)}
+                      aria-label="Menu aksi sesi {item.sessionCode}"
+                      aria-expanded={isMenuOpen}
+                      style="
+                        width: 28px;
+                        height: 28px;
+                        border-radius: 8px;
+                        background: {NEU_BG};
+                        box-shadow: {isMenuOpen ? neuCfg.inset : neuCfg.btnSm};
+                        border: none;
+                        cursor: pointer;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        color: {isMenuOpen ? NEU_PRIMARY : '#475569'};
+                      "
+                      title="Opsi sesi (Upload, Print, Lokasi Aset, Hapus)"
+                    >
+                      <MoreVertical size={15} />
+                    </button>
+
+                    {#if isMenuOpen}
+                      <div
+                        role="menu"
+                        tabindex="-1"
+                        onclick={(e) => e.stopPropagation()}
+                        onkeydown={(e) => {
+                          if (e.key === 'Escape') openMenuId = null;
+                        }}
+                        style="
+                          position: absolute;
+                          top: calc(100% + 6px);
+                          right: 0;
+                          min-width: 195px;
+                          background: {NEU_BG};
+                          box-shadow: 0 12px 28px rgba(15,23,42,0.22), {neuCfg.card};
+                          border: 1px solid rgba(255,255,255,0.85);
+                          border-radius: 14px;
+                          padding: 6px;
+                          display: flex;
+                          flex-direction: column;
+                          gap: 3px;
+                          z-index: 50;
+                        "
+                      >
+                        <button
+                          type="button"
+                          role="menuitem"
+                          disabled={uploadingMap[item.id]}
+                          onclick={() => {
+                            openMenuId = null;
+                            void handleManualUpload(item);
+                          }}
+                          style="
+                            width: 100%;
+                            padding: 8px 10px;
+                            border-radius: 9px;
+                            border: none;
+                            background: transparent;
+                            cursor: {uploadingMap[item.id] ? 'not-allowed' : 'pointer'};
+                            display: flex;
+                            align-items: center;
+                            gap: 8px;
+                            font-size: 12px;
+                            font-weight: 600;
+                            color: #1e293b;
+                            text-align: left;
+                          "
+                          class="hover:bg-black/5"
+                        >
+                          <RefreshCw size={14} class={uploadingMap[item.id] ? 'animate-spin text-indigo-600' : ''} />
+                          <span>{uploadingMap[item.id] ? 'Mengupload...' : 'Upload Ulang'}</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          role="menuitem"
+                          disabled={printingMap[item.id] || !item.compositePath}
+                          onclick={() => {
+                            openMenuId = null;
+                            void handleManualPrint(item);
+                          }}
+                          style="
+                            width: 100%;
+                            padding: 8px 10px;
+                            border-radius: 9px;
+                            border: none;
+                            background: transparent;
+                            cursor: {printingMap[item.id] || !item.compositePath ? 'not-allowed' : 'pointer'};
+                            opacity: {!item.compositePath ? 0.5 : 1};
+                            display: flex;
+                            align-items: center;
+                            gap: 8px;
+                            font-size: 12px;
+                            font-weight: 600;
+                            color: #1e293b;
+                            text-align: left;
+                          "
+                          class="hover:bg-black/5"
+                        >
+                          <Printer size={14} />
+                          <span>{printingMap[item.id] ? 'Mencetak...' : 'Print Ulang'}</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          role="menuitem"
+                          onclick={() => {
+                            openMenuId = null;
+                            void handleOpenSessionsFolder(item.compositePath, item.sessionCode);
+                          }}
+                          style="
+                            width: 100%;
+                            padding: 8px 10px;
+                            border-radius: 9px;
+                            border: none;
+                            background: transparent;
+                            cursor: pointer;
+                            display: flex;
+                            align-items: center;
+                            gap: 8px;
+                            font-size: 12px;
+                            font-weight: 600;
+                            color: {NEU_PRIMARY};
+                            text-align: left;
+                          "
+                          class="hover:bg-black/5"
+                        >
+                          <FolderOpen size={14} />
+                          <span>Buka Lokasi Aset</span>
+                        </button>
+
+                        {#if item.status !== 'done'}
+                          <button
+                            type="button"
+                            role="menuitem"
+                            onclick={() => {
+                              openMenuId = null;
+                              void handleMarkSent(item);
+                            }}
+                            style="
+                              width: 100%;
+                              padding: 8px 10px;
+                              border-radius: 9px;
+                              border: none;
+                              background: transparent;
+                              cursor: pointer;
+                              display: flex;
+                              align-items: center;
+                              gap: 8px;
+                              font-size: 12px;
+                              font-weight: 600;
+                              color: #047857;
+                              text-align: left;
+                            "
+                            class="hover:bg-emerald-500/10"
+                          >
+                            <CheckCircle2 size={14} />
+                            <span>Tandai Sudah Dikirim</span>
+                          </button>
+                        {/if}
+
+                        {#if item.printStatus !== 'printed'}
+                          <button
+                            type="button"
+                            role="menuitem"
+                            onclick={() => {
+                              openMenuId = null;
+                              void handleMarkPrinted(item);
+                            }}
+                            style="
+                              width: 100%;
+                              padding: 8px 10px;
+                              border-radius: 9px;
+                              border: none;
+                              background: transparent;
+                              cursor: pointer;
+                              display: flex;
+                              align-items: center;
+                              gap: 8px;
+                              font-size: 12px;
+                              font-weight: 600;
+                              color: #4338ca;
+                              text-align: left;
+                            "
+                            class="hover:bg-indigo-500/10"
+                          >
+                            <Printer size={14} />
+                            <span>Tandai Sudah Print</span>
+                          </button>
+                        {/if}
+
+                        <button
+                          type="button"
+                          role="menuitem"
+                          disabled={!canCancelQueue}
+                          onclick={() => void handleCancelSessionQueue(item)}
+                          style="
+                            width: 100%;
+                            padding: 8px 10px;
+                            border-radius: 9px;
+                            border: none;
+                            background: transparent;
+                            cursor: {canCancelQueue ? 'pointer' : 'not-allowed'};
+                            opacity: {canCancelQueue ? 1 : 0.45};
+                            display: flex;
+                            align-items: center;
+                            gap: 8px;
+                            font-size: 12px;
+                            font-weight: 600;
+                            color: #d97706;
+                            text-align: left;
+                          "
+                          title={canCancelQueue ? 'Batalkan antrian upload / cetak untuk sesi ini' : 'Tidak ada antrian aktif pada sesi ini'}
+                          class="hover:bg-amber-500/10"
+                        >
+                          <Ban size={14} />
+                          <span>Batalkan Antrian</span>
+                        </button>
+
+                        <div style="height: 1px; background: rgba(148,163,184,0.3); margin: 2px 4px;"></div>
+
+                        <button
+                          type="button"
+                          role="menuitem"
+                          onclick={() => void handleDeleteSingleSession(item)}
+                          style="
+                            width: 100%;
+                            padding: 8px 10px;
+                            border-radius: 9px;
+                            border: none;
+                            background: transparent;
+                            cursor: pointer;
+                            display: flex;
+                            align-items: center;
+                            gap: 8px;
+                            font-size: 12px;
+                            font-weight: 700;
+                            color: #dc2626;
+                            text-align: left;
+                          "
+                          class="hover:bg-red-500/10"
+                        >
+                          <Trash2 size={14} />
+                          <span>Hapus Sesi Lokal</span>
+                        </button>
+                      </div>
+                    {/if}
+                  </div>
+                </div>
+
+                <!-- Thumbnail Preview Frame -->
                 <div
                   style="
                     width: 100%;
-                    height: 260px;
+                    height: 220px;
                     background: #1e293b;
                     box-shadow: {neuCfg.inset};
                     border-radius: 12px;
@@ -728,375 +1055,133 @@
                       <span style="font-size: 10px; font-weight: 500;">Memuat gambar...</span>
                     </div>
                   {/if}
+                </div>
 
-                  <!-- Status Overlay Badges (Cloud Upload & Cetak Fisik) -->
+                <!-- Status Badges (Upload & Print) di bawah Preview Template Frame -->
+                <div
+                  style="
+                    display: flex;
+                    align-items: center;
+                    gap: 6px;
+                    flex-wrap: wrap;
+                  "
+                >
                   <div
                     style="
-                      position: absolute;
-                      top: 8px;
-                      right: 8px;
-                      display: flex;
-                      flex-direction: column;
-                      gap: 4px;
-                      align-items: flex-end;
-                    "
-                  >
-                    <!-- Badge Cloud Upload -->
-                    <div
-                      style="
-                        padding: 3px 8px;
-                        border-radius: 9999px;
-                        font-size: 9px;
-                        font-weight: 700;
-                        display: flex;
-                        align-items: center;
-                        gap: 4px;
-                        backdrop-filter: blur(4px);
-                        box-shadow: 0 2px 6px rgba(0,0,0,0.3);
-                        background: {item.status === 'done'
-                          ? 'rgba(34, 197, 94, 0.9)'
-                          : item.status === 'dead_letter'
-                            ? 'rgba(239, 68, 68, 0.9)'
-                            : 'rgba(245, 158, 11, 0.9)'};
-                        color: white;
-                      "
-                      title={item.lastError || ''}
-                    >
-                      {#if item.status === 'done'}
-                        <CheckCircle2 size={10} />
-                        <span>Cloud: Terkirim</span>
-                      {:else if item.status === 'dead_letter'}
-                        <AlertCircle size={10} />
-                        <span>Cloud: Gagal ({item.attempts}x)</span>
-                      {:else}
-                        <Clock size={10} />
-                        <span>Cloud: Pending</span>
-                      {/if}
-                    </div>
-
-                    <!-- Badge Print Status -->
-                    <div
-                      style="
-                        padding: 3px 8px;
-                        border-radius: 9999px;
-                        font-size: 9px;
-                        font-weight: 700;
-                        display: flex;
-                        align-items: center;
-                        gap: 4px;
-                        backdrop-filter: blur(4px);
-                        box-shadow: 0 2px 6px rgba(0,0,0,0.3);
-                        background: {item.printStatus === 'printed'
-                          ? 'rgba(34, 197, 94, 0.9)'
-                          : item.printStatus === 'failed'
-                            ? 'rgba(239, 68, 68, 0.9)'
-                            : 'rgba(100, 116, 139, 0.85)'};
-                        color: white;
-                      "
-                      title={item.printError || ''}
-                    >
-                      <Printer size={10} />
-                      {#if item.printStatus === 'printed'}
-                        <span>Print: OK</span>
-                      {:else if item.printStatus === 'failed'}
-                        <span>Print: Gagal</span>
-                      {:else}
-                        <span>Print: Belum</span>
-                      {/if}
-                    </div>
-                  </div>
-                </div>
-
-                <!-- Session Meta Info -->
-                <div style="display: flex; flex-direction: column; gap: 4px; padding: 0 2px;">
-                  <div style="display: flex; align-items: center; justify-content: space-between;">
-                    <span style="font-size: 10px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em;">
-                      {item.sessionCode}
-                    </span>
-                    <span style="font-size: 9px; color: #94a3b8;">
-                      {formatDate(item.createdAt)}
-                    </span>
-                  </div>
-
-                  <!-- Target Softfile (Email / Phone) -->
-                  {#if item.softfileTarget}
-                    <div
-                      style="
-                        display: flex;
-                        align-items: center;
-                        gap: 6px;
-                        font-size: 10px;
-                        font-weight: 600;
-                        color: #334155;
-                        overflow: hidden;
-                        text-overflow: ellipsis;
-                        white-space: nowrap;
-                      "
-                      title={item.softfileTarget}
-                    >
-                      {#if item.softfileTarget.includes('@')}
-                        <Mail size={11} color="#6366f1" />
-                      {:else}
-                        <Phone size={11} color="#10b981" />
-                      {/if}
-                      <span style="overflow: hidden; text-overflow: ellipsis;">{item.softfileTarget}</span>
-                    </div>
-                  {:else}
-                    <div
-                      style="
-                        display: flex;
-                        align-items: center;
-                        gap: 5px;
-                        font-size: 10px;
-                        font-weight: 500;
-                        color: #64748b;
-                        overflow: hidden;
-                        text-overflow: ellipsis;
-                        white-space: nowrap;
-                      "
-                      title="Pelanggan mengunduh softfile langsung via QR Code di layar (tanpa Email/WA)"
-                    >
-                      <QrCode size={11} color="#64748b" />
-                      <span>Download via QR Code (Tanpa Email/WA)</span>
-                    </div>
-                  {/if}
-
-                  <!-- Klik Lokasi Aset Sesi -->
-                  <button
-                    type="button"
-                    onclick={() => handleOpenSessionsFolder(item.compositePath, item.sessionCode)}
-                    style="
-                      display: flex;
-                      align-items: center;
-                      gap: 5px;
-                      padding: 4px 8px;
-                      border-radius: 8px;
-                      border: none;
-                      background: rgba(42,40,115,0.06);
-                      color: {NEU_PRIMARY};
+                      padding: 4px 10px;
+                      border-radius: 9999px;
                       font-size: 10px;
-                      font-weight: 600;
-                      cursor: pointer;
-                      text-align: left;
-                      overflow: hidden;
-                      width: 100%;
-                    "
-                    title="Klik untuk membuka folder lokasi aset sesi ini di Windows Explorer"
-                  >
-                    <FolderOpen size={11} style="flex-shrink: 0;" />
-                    <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-                      {item.assetLocationLabel || item.sessionCode}
-                    </span>
-                  </button>
-
-                  <!-- Feedback Notice on action -->
-                  {#if feedbackMap[item.id]}
-                    <div
-                      style="
-                        padding: 3px 8px;
-                        border-radius: 6px;
-                        font-size: 9px;
-                        font-weight: 600;
-                        margin-top: 2px;
-                        background: {feedbackMap[item.id].type === 'success' ? '#dcfce7' : '#fee2e2'};
-                        color: {feedbackMap[item.id].type === 'success' ? '#15803d' : '#b91c1c'};
-                      "
-                    >
-                      {feedbackMap[item.id].text}
-                    </div>
-                  {/if}
-                </div>
-
-                <!-- Bottom Action Buttons (Upload, Print, & Folder) -->
-                <div style="display: flex; gap: 6px; margin-top: auto; padding-top: 4px;">
-                  <!-- Tombol Upload (Icon ⟳ / Refresh) -->
-                  <button
-                    type="button"
-                    onclick={() => handleManualUpload(item)}
-                    disabled={uploadingMap[item.id]}
-                    style="
-                      flex: 1;
-                      height: 38px;
-                      border-radius: 10px;
-                      background: {NEU_BG};
-                      box-shadow: {neuCfg.btnSm};
-                      border: none;
-                      cursor: {uploadingMap[item.id] ? 'not-allowed' : 'pointer'};
-                      display: flex;
-                      align-items: center;
-                      justify-content: center;
-                      gap: 4px;
-                      color: #1e293b;
                       font-weight: 700;
-                      font-size: 11px;
-                      transition: transform 0.1s ease, box-shadow 0.1s ease;
-                    "
-                    title="Upload / Sinkronkan Sesi Ini ke Cloud"
-                    onmousedown={(e) => {
-                      if (!uploadingMap[item.id]) e.currentTarget.style.boxShadow = neuCfg.inset;
-                    }}
-                    onmouseup={(e) => {
-                      if (!uploadingMap[item.id]) e.currentTarget.style.boxShadow = neuCfg.btnSm;
-                    }}
-                  >
-                    <RefreshCw
-                      size={14}
-                      class={uploadingMap[item.id] ? 'animate-spin text-indigo-600' : ''}
-                    />
-                    <span>{uploadingMap[item.id] ? '...' : 'Upload'}</span>
-                  </button>
-
-                  <!-- Tombol Cetak (Icon 🖨️ / Printer) -->
-                  <button
-                    type="button"
-                    onclick={() => handleManualPrint(item)}
-                    disabled={printingMap[item.id] || !item.compositePath}
-                    style="
-                      flex: 1;
-                      height: 38px;
-                      border-radius: 10px;
-                      background: {NEU_BG};
-                      box-shadow: {neuCfg.btnSm};
-                      border: none;
-                      cursor: {printingMap[item.id] || !item.compositePath ? 'not-allowed' : 'pointer'};
-                      display: flex;
+                      display: inline-flex;
                       align-items: center;
-                      justify-content: center;
                       gap: 4px;
-                      color: #1e293b;
-                      font-weight: 700;
-                      font-size: 11px;
-                      transition: transform 0.1s ease, box-shadow 0.1s ease;
-                      opacity: {!item.compositePath ? 0.5 : 1};
+                      background: {item.status === 'done'
+                        ? 'rgba(34, 197, 94, 0.14)'
+                        : item.status === 'dead_letter'
+                          ? 'rgba(239, 68, 68, 0.14)'
+                          : 'rgba(245, 158, 11, 0.16)'};
+                      color: {item.status === 'done'
+                        ? '#15803d'
+                        : item.status === 'dead_letter'
+                          ? '#b91c1c'
+                          : '#b45309'};
                     "
-                    title="Cetak Ulang Strip Foto ke Printer"
-                    onmousedown={(e) => {
-                      if (!printingMap[item.id] && item.compositePath) e.currentTarget.style.boxShadow = neuCfg.inset;
-                    }}
-                    onmouseup={(e) => {
-                      if (!printingMap[item.id] && item.compositePath) e.currentTarget.style.boxShadow = neuCfg.btnSm;
-                    }}
+                    title={item.lastError || ''}
                   >
-                    <Printer
-                      size={14}
-                      class={printingMap[item.id] ? 'animate-bounce text-emerald-600' : ''}
-                    />
-                    <span>{printingMap[item.id] ? '...' : 'Print'}</span>
-                  </button>
-
-                  <!-- Tombol Batalkan Cetak Khusus Sesi Ini (Hanya jika status print pending) -->
-                  {#if item.printStatus === 'pending'}
-                    <button
-                      type="button"
-                      onclick={() => handleCancelSessionPrint(item)}
-                      style="
-                        width: 38px;
-                        height: 38px;
-                        border-radius: 10px;
-                        background: {NEU_BG};
-                        box-shadow: {neuCfg.btnSm};
-                        border: none;
-                        cursor: pointer;
-                        display: flex;
-                        align-items: center;
-                        justify-content: center;
-                        color: #dc2626;
-                        transition: transform 0.1s ease, box-shadow 0.1s ease;
-                      "
-                      title="Batalkan antrean cetak untuk sesi ini saja"
-                      onmousedown={(e) => (e.currentTarget.style.boxShadow = neuCfg.inset)}
-                      onmouseup={(e) => (e.currentTarget.style.boxShadow = neuCfg.btnSm)}
-                    >
-                      <Trash2 size={15} />
-                    </button>
-                  {/if}
-
-                  <!-- Tombol Buka Folder Sesi Lokal di Windows Explorer (Icon Folder) -->
-                  <button
-                    type="button"
-                    onclick={() => handleOpenSessionsFolder(item.compositePath, item.sessionCode)}
-                    style="
-                      width: 38px;
-                      height: 38px;
-                      border-radius: 10px;
-                      background: {NEU_BG};
-                      box-shadow: {neuCfg.btnSm};
-                      border: none;
-                      cursor: pointer;
-                      display: flex;
-                      align-items: center;
-                      justify-content: center;
-                      color: #475569;
-                      transition: transform 0.1s ease, box-shadow 0.1s ease;
-                    "
-                    title="Buka Folder File Foto Sesi Ini di Windows Explorer"
-                    onmousedown={(e) => (e.currentTarget.style.boxShadow = neuCfg.inset)}
-                    onmouseup={(e) => (e.currentTarget.style.boxShadow = neuCfg.btnSm)}
-                  >
-                    <FolderOpen size={16} />
-                  </button>
-                </div>
-
-                <!-- Tombol Tandai Sudah Dikirim / Tandai Sudah Print -->
-                {#if item.status !== 'done' || item.printStatus !== 'printed'}
-                  <div style="display: flex; flex-direction: column; gap: 6px; margin-top: -2px;">
-                    {#if item.status !== 'done'}
-                      <button
-                        type="button"
-                        onclick={() => handleMarkSent(item)}
-                        style="
-                          width: 100%;
-                          height: 32px;
-                          border-radius: 10px;
-                          background: {NEU_BG};
-                          box-shadow: {neuCfg.btnSm};
-                          border: 1px solid rgba(16,185,129,0.3);
-                          cursor: pointer;
-                          display: flex;
-                          align-items: center;
-                          justify-content: center;
-                          gap: 6px;
-                          color: #047857;
-                          font-weight: 700;
-                          font-size: 11px;
-                          transition: transform 0.1s ease, box-shadow 0.1s ease;
-                        "
-                        title="Hapus warning gagal kirim tanpa menghapus sesi di lokal"
-                        onmousedown={(e) => (e.currentTarget.style.boxShadow = neuCfg.inset)}
-                        onmouseup={(e) => (e.currentTarget.style.boxShadow = neuCfg.btnSm)}
-                      >
-                        <CheckCircle2 size={13} class="text-emerald-600" />
-                        <span>Tandai Sudah Dikirim</span>
-                      </button>
+                    {#if item.status === 'done'}
+                      <CheckCircle2 size={11} />
+                      <span>Cloud: Terkirim</span>
+                    {:else if item.status === 'dead_letter'}
+                      <AlertCircle size={11} />
+                      <span>Cloud: Gagal ({item.attempts}x)</span>
+                    {:else}
+                      <Clock size={11} />
+                      <span>Cloud: Pending</span>
                     {/if}
-                    {#if item.printStatus !== 'printed'}
-                      <button
-                        type="button"
-                        onclick={() => handleMarkPrinted(item)}
+                  </div>
+
+                  <div
+                    style="
+                      padding: 4px 10px;
+                      border-radius: 9999px;
+                      font-size: 10px;
+                      font-weight: 700;
+                      display: inline-flex;
+                      align-items: center;
+                      gap: 4px;
+                      background: {item.printStatus === 'printed'
+                        ? 'rgba(34, 197, 94, 0.14)'
+                        : item.printStatus === 'failed'
+                          ? 'rgba(239, 68, 68, 0.14)'
+                          : 'rgba(100, 116, 139, 0.14)'};
+                      color: {item.printStatus === 'printed'
+                        ? '#15803d'
+                        : item.printStatus === 'failed'
+                          ? '#b91c1c'
+                          : '#475569'};
+                    "
+                    title={item.printError || ''}
+                  >
+                    <Printer size={11} />
+                    {#if item.printStatus === 'printed'}
+                      <span>Print: OK</span>
+                    {:else if item.printStatus === 'failed'}
+                      <span>Print: Gagal</span>
+                    {:else}
+                      <span>Print: Belum</span>
+                    {/if}
+                  </div>
+                </div>
+
+                <!-- Target Softfile (Email / Phone jika ada) & Feedback -->
+                {#if item.softfileTarget || (item.lastError && item.status !== 'done') || feedbackMap[item.id]}
+                  <div style="display: flex; flex-direction: column; gap: 4px; padding: 0 2px;">
+                    {#if item.softfileTarget}
+                      <div
                         style="
-                          width: 100%;
-                          height: 32px;
-                          border-radius: 10px;
-                          background: {NEU_BG};
-                          box-shadow: {neuCfg.btnSm};
-                          border: 1px solid rgba(99,102,241,0.3);
-                          cursor: pointer;
                           display: flex;
                           align-items: center;
-                          justify-content: center;
                           gap: 6px;
-                          color: #4338ca;
-                          font-weight: 700;
-                          font-size: 11px;
-                          transition: transform 0.1s ease, box-shadow 0.1s ease;
+                          font-size: 10px;
+                          font-weight: 600;
+                          color: #334155;
+                          overflow: hidden;
+                          text-overflow: ellipsis;
+                          white-space: nowrap;
                         "
-                        title="Tandai sesi ini sudah tercetak"
-                        onmousedown={(e) => (e.currentTarget.style.boxShadow = neuCfg.inset)}
-                        onmouseup={(e) => (e.currentTarget.style.boxShadow = neuCfg.btnSm)}
+                        title={item.softfileTarget}
                       >
-                        <Printer size={13} />
-                        <span>Tandai Sudah Print</span>
-                      </button>
+                        {#if item.softfileTarget.includes('@')}
+                          <Mail size={11} color="#6366f1" style="flex-shrink: 0;" />
+                        {:else}
+                          <Phone size={11} color="#10b981" style="flex-shrink: 0;" />
+                        {/if}
+                        <span style="overflow: hidden; text-overflow: ellipsis;">{item.softfileTarget}</span>
+                      </div>
+                    {/if}
+
+                    {#if item.lastError && item.status !== 'done'}
+                      <p
+                        style="margin: 0; font-size: 10px; color: #b91c1c; background: rgba(239,68,68,0.08); padding: 4px 8px; border-radius: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"
+                        title={item.lastError}
+                      >
+                        {item.lastError}
+                      </p>
+                    {/if}
+
+                    {#if feedbackMap[item.id]}
+                      <div
+                        style="
+                          padding: 3px 8px;
+                          border-radius: 6px;
+                          font-size: 9px;
+                          font-weight: 600;
+                          background: {feedbackMap[item.id].type === 'success' ? '#dcfce7' : '#fee2e2'};
+                          color: {feedbackMap[item.id].type === 'success' ? '#15803d' : '#b91c1c'};
+                        "
+                      >
+                        {feedbackMap[item.id].text}
+                      </div>
                     {/if}
                   </div>
                 {/if}

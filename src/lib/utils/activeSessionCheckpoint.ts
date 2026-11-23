@@ -14,7 +14,8 @@ export interface ActiveSessionCheckpoint {
   selectedFilterId: string;
   printQty: number;
   totalSlots: number;
-  status: 'capturing' | 'customizing' | 'downloading';
+  status: 'selecting_frame' | 'capturing' | 'customizing' | 'downloading';
+  isPaid?: boolean;
   createdAt: number;
   updatedAt: number;
   capturedSlots: CapturedSlotInfo[];
@@ -69,6 +70,8 @@ export async function initActiveCheckpoint(options: {
   selectedFrameId?: string | null;
   totalSlots: number;
   printQty?: number;
+  status?: 'selecting_frame' | 'capturing';
+  isPaid?: boolean;
 }): Promise<ActiveSessionCheckpoint> {
   const now = Date.now();
   const checkpoint: ActiveSessionCheckpoint = {
@@ -79,7 +82,8 @@ export async function initActiveCheckpoint(options: {
     selectedFilterId: 'none',
     printQty: options.printQty ?? 1,
     totalSlots: options.totalSlots,
-    status: 'capturing',
+    status: options.status ?? 'capturing',
+    isPaid: options.isPaid ?? false,
     createdAt: now,
     updatedAt: now,
     capturedSlots: [],
@@ -169,7 +173,7 @@ export async function recordCapturedClipToCheckpoint(
  * Memperbarui status sesi (misal menjadi 'customizing' atau 'downloading').
  */
 export async function updateCheckpointStatus(
-  status: 'capturing' | 'customizing' | 'downloading'
+  status: 'selecting_frame' | 'capturing' | 'customizing' | 'downloading'
 ): Promise<void> {
   try {
     const cp = await getActiveCheckpoint();
@@ -180,6 +184,50 @@ export async function updateCheckpointStatus(
     }
   } catch (err) {
     console.warn('[ActiveCheckpoint] Gagal update status checkpoint:', err);
+  }
+}
+
+export async function updateCheckpointSelection(options: {
+  selectedFrameId?: string | null;
+  printQty?: number;
+  status?: 'selecting_frame' | 'capturing';
+}): Promise<void> {
+  try {
+    const cp = await getActiveCheckpoint();
+    if (cp) {
+      if (options.selectedFrameId !== undefined) cp.selectedFrameId = options.selectedFrameId;
+      if (options.printQty !== undefined) cp.printQty = options.printQty;
+      if (options.status !== undefined) cp.status = options.status;
+      cp.updatedAt = Date.now();
+      await saveActiveCheckpoint(cp);
+    }
+  } catch (err) {
+    console.warn('[ActiveCheckpoint] Gagal update pilihan frame/cetak checkpoint:', err);
+  }
+}
+
+export async function clearActiveCheckpointIfMatches(sessionCodes: string | string[]): Promise<void> {
+  const targets = new Set((Array.isArray(sessionCodes) ? sessionCodes : [sessionCodes]).filter(Boolean));
+  if (targets.size === 0) return;
+  try {
+    const cp = await getActiveCheckpoint();
+    if (cp && targets.has(cp.sessionCode)) {
+      await clearActiveCheckpoint();
+    }
+  } catch {}
+}
+
+export async function updateCheckpointTotalSlots(totalSlots: number): Promise<void> {
+  if (!Number.isFinite(totalSlots) || totalSlots <= 0) return;
+  try {
+    const cp = await getActiveCheckpoint();
+    if (cp && cp.totalSlots !== totalSlots) {
+      cp.totalSlots = totalSlots;
+      cp.updatedAt = Date.now();
+      await saveActiveCheckpoint(cp);
+    }
+  } catch (err) {
+    console.warn('[ActiveCheckpoint] Gagal update totalSlots checkpoint:', err);
   }
 }
 
@@ -197,13 +245,20 @@ export async function clearActiveCheckpoint(): Promise<void> {
 }
 
 /**
- * Memeriksa apakah checkpoint masih berlaku (dalam rentang TTL toleransi, default 15 menit).
+ * Memeriksa apakah checkpoint masih berlaku untuk dilanjutkan (bukan sesi yang sudah selesai,
+ * berlaku jika sesi sudah dibayar ATAU sudah memiliki foto tersimpan, dalam rentang TTL 15 menit).
  */
 export function isCheckpointValid(
   checkpoint: ActiveSessionCheckpoint,
   maxAgeMinutes = DEFAULT_TTL_MINUTES
 ): boolean {
   if (!checkpoint || !checkpoint.updatedAt) return false;
+  if (checkpoint.status === 'downloading') return false;
+  const hasCapturedPhotos =
+    Array.isArray(checkpoint.capturedSlots) && checkpoint.capturedSlots.length > 0;
+  if (!checkpoint.isPaid && !hasCapturedPhotos) {
+    return false;
+  }
   const elapsedMs = Date.now() - checkpoint.updatedAt;
   const maxMs = maxAgeMinutes * 60 * 1000;
   return elapsedMs >= 0 && elapsedMs <= maxMs;

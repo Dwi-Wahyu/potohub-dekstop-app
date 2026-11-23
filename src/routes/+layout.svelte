@@ -6,6 +6,7 @@
   import { syncBoothSettings } from '$lib/api/boothClient';
   import { updaterStore } from '$lib/utils/updater.svelte';
   import { startIdleQueueWatcher } from '$lib/utils/idleCoordinator';
+  import GlobalOperatorModal from '$lib/components/shared/GlobalOperatorModal.svelte';
 
   let { children } = $props();
 
@@ -35,3 +36,4 @@
 </script>
 
 {@render children()}
+<GlobalOperatorModal />

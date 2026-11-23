@@ -22,7 +22,8 @@
     Square,
     MinusSquare,
     MoreVertical,
-    Trash2
+    Trash2,
+    Ban
   } from '@lucide/svelte';
   import { invoke } from '@tauri-apps/api/core';
   import {
@@ -34,6 +35,7 @@
     deleteLocalSessionsBulk,
     resetOutboxJobForRetry,
     updateSessionPrintStatus,
+    cancelPendingPrintJobsBySessionCode,
     countPendingPrintJobs,
     type SessionHistoryItem,
     type SessionHistoryFilter,
@@ -43,6 +45,7 @@
   import { processSingleJobById, type JobProcessOutcome } from '$lib/utils/offlineOutbox';
   import { reprintSessionDirectly } from '$lib/utils/printQueue';
   import { setWindowDecorations } from '$lib/utils/windowControl';
+  import { clearActiveCheckpointIfMatches } from '$lib/utils/activeSessionCheckpoint';
 
   const NEU_BG = '#ebf0f7';
   const NEU_PRIMARY = '#2a2873';
@@ -288,6 +291,32 @@
     }
   }
 
+  async function handleCancelSessionQueue(item: SessionHistoryItem) {
+    openMenuId = null;
+    const hasPendingUpload = item.status !== 'done';
+    const hasPendingPrint = item.printStatus === 'pending';
+    if (!hasPendingUpload && !hasPendingPrint) return;
+
+    const ok = confirm(
+      `Batalkan antrian untuk sesi "${item.sessionCode}"?\n${hasPendingUpload ? '- Antrian upload cloud akan dibatalkan\n' : ''}${hasPendingPrint ? '- Antrian cetak foto akan dibatalkan\n' : ''}(File foto lokal tetap tersimpan.)`
+    );
+    if (!ok) return;
+
+    try {
+      if (hasPendingUpload) {
+        await markOutboxJobDone(item.id);
+      }
+      if (hasPendingPrint) {
+        await cancelPendingPrintJobsBySessionCode(item.sessionCode);
+      }
+      await clearActiveCheckpointIfMatches(item.sessionCode);
+      setItemFeedback(item.id, 'success', 'Antrian sesi dibatalkan');
+      await loadSessions({ keepSelection: true });
+    } catch (err) {
+      setItemFeedback(item.id, 'error', `Gagal membatalkan antrian: ${String(err)}`);
+    }
+  }
+
   async function handleManualUpload(item: SessionHistoryItem) {
     if (uploadingMap[item.id]) return;
     uploadingMap[item.id] = true;
@@ -372,6 +401,7 @@
       await deleteLocalSessionsBulk([
         { id: item.id, sessionCode: item.sessionCode, compositePath: item.compositePath },
       ]);
+      await clearActiveCheckpointIfMatches(item.sessionCode);
       if (previewUrls[item.id]) {
         try {
           URL.revokeObjectURL(previewUrls[item.id]);
@@ -405,6 +435,7 @@
           compositePath: t.compositePath,
         }))
       );
+      await clearActiveCheckpointIfMatches(targets.map((t) => t.sessionCode));
       for (const t of targets) {
         if (previewUrls[t.id]) {
           try {
@@ -875,6 +906,7 @@
           {#each sessions as item (item.id)}
             {@const isChecked = Boolean(selectedMap[item.id])}
             {@const isMenuOpen = openMenuId === item.id}
+            {@const canCancelQueue = item.status !== 'done' || item.printStatus === 'pending'}
             <div
               style="
                 position: relative;
@@ -890,7 +922,7 @@
                 transition: border-color 0.15s ease;
               "
             >
-              <!-- Card Top Row: Checklist + Session Code + Timestamp + Ellipsis Menu -->
+              <!-- Card Top Row: Checklist + Timestamp + Ellipsis Menu -->
               <div style="display: flex; align-items: center; justify-content: space-between; gap: 6px; position: relative;">
                 <button
                   type="button"
@@ -917,16 +949,12 @@
                   {:else}
                     <Square size={17} color="#64748b" style="flex-shrink: 0;" />
                   {/if}
-                  <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-transform: uppercase;">
-                    {item.sessionCode}
+                  <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                    {formatDate(item.createdAt)}
                   </span>
                 </button>
 
                 <div style="display: flex; align-items: center; gap: 4px; flex-shrink: 0;">
-                  <span style="font-size: 10px; color: #64748b; white-space: nowrap;">
-                    {formatDate(item.createdAt)}
-                  </span>
-
                   <div style="position: relative;">
                     <button
                       type="button"
@@ -1063,6 +1091,34 @@
                           <span>Buka Lokasi Aset</span>
                         </button>
 
+                        <button
+                          type="button"
+                          role="menuitem"
+                          disabled={!canCancelQueue}
+                          onclick={() => void handleCancelSessionQueue(item)}
+                          style="
+                            width: 100%;
+                            padding: 8px 10px;
+                            border-radius: 9px;
+                            border: none;
+                            background: transparent;
+                            cursor: {canCancelQueue ? 'pointer' : 'not-allowed'};
+                            opacity: {canCancelQueue ? 1 : 0.45};
+                            display: flex;
+                            align-items: center;
+                            gap: 8px;
+                            font-size: 12px;
+                            font-weight: 600;
+                            color: #d97706;
+                            text-align: left;
+                          "
+                          title={canCancelQueue ? 'Batalkan antrian upload / cetak untuk sesi ini' : 'Tidak ada antrian aktif pada sesi ini'}
+                          class="hover:bg-amber-500/10"
+                        >
+                          <Ban size={14} />
+                          <span>Batalkan Antrian</span>
+                        </button>
+
                         <div style="height: 1px; background: rgba(148,163,184,0.3); margin: 2px 4px;"></div>
 
                         <button
@@ -1129,77 +1185,81 @@
                     <span style="font-size: 10px; font-weight: 500;">Preview tidak tersedia</span>
                   </div>
                 {/if}
+              </div>
 
-                <!-- Status Badges -->
+              <!-- Status Badges (Upload & Print) di bawah Preview Template Frame -->
+              <div
+                style="
+                  display: flex;
+                  align-items: center;
+                  gap: 6px;
+                  flex-wrap: wrap;
+                "
+              >
                 <div
                   style="
-                    position: absolute;
-                    top: 8px;
-                    right: 8px;
-                    display: flex;
-                    flex-direction: column;
+                    padding: 4px 10px;
+                    border-radius: 9999px;
+                    font-size: 10px;
+                    font-weight: 700;
+                    display: inline-flex;
+                    align-items: center;
                     gap: 4px;
-                    align-items: flex-end;
-                    pointer-events: none;
+                    background: {item.status === 'done'
+                      ? 'rgba(34, 197, 94, 0.14)'
+                      : item.status === 'dead_letter'
+                        ? 'rgba(239, 68, 68, 0.14)'
+                        : 'rgba(245, 158, 11, 0.16)'};
+                    color: {item.status === 'done'
+                      ? '#15803d'
+                      : item.status === 'dead_letter'
+                        ? '#b91c1c'
+                        : '#b45309'};
                   "
+                  title={item.lastError || ''}
                 >
-                  <div
-                    style="
-                      padding: 3px 8px;
-                      border-radius: 9999px;
-                      font-size: 9px;
-                      font-weight: 700;
-                      display: flex;
-                      align-items: center;
-                      gap: 4px;
-                      background: {item.status === 'done'
-                        ? 'rgba(34, 197, 94, 0.92)'
-                        : item.status === 'dead_letter'
-                          ? 'rgba(239, 68, 68, 0.92)'
-                          : 'rgba(245, 158, 11, 0.92)'};
-                      color: white;
-                    "
-                    title={item.lastError || ''}
-                  >
-                    {#if item.status === 'done'}
-                      <CheckCircle2 size={10} />
-                      <span>Cloud: Terkirim</span>
-                    {:else if item.status === 'dead_letter'}
-                      <AlertCircle size={10} />
-                      <span>Cloud: Gagal ({item.attempts}x)</span>
-                    {:else}
-                      <Clock size={10} />
-                      <span>Cloud: Pending</span>
-                    {/if}
-                  </div>
+                  {#if item.status === 'done'}
+                    <CheckCircle2 size={11} />
+                    <span>Cloud: Terkirim</span>
+                  {:else if item.status === 'dead_letter'}
+                    <AlertCircle size={11} />
+                    <span>Cloud: Gagal ({item.attempts}x)</span>
+                  {:else}
+                    <Clock size={11} />
+                    <span>Cloud: Pending</span>
+                  {/if}
+                </div>
 
-                  <div
-                    style="
-                      padding: 3px 8px;
-                      border-radius: 9999px;
-                      font-size: 9px;
-                      font-weight: 700;
-                      display: flex;
-                      align-items: center;
-                      gap: 4px;
-                      background: {item.printStatus === 'printed'
-                        ? 'rgba(34, 197, 94, 0.92)'
-                        : item.printStatus === 'failed'
-                          ? 'rgba(239, 68, 68, 0.92)'
-                          : 'rgba(100, 116, 139, 0.88)'};
-                      color: white;
-                    "
-                    title={item.printError || ''}
-                  >
-                    <Printer size={10} />
-                    {#if item.printStatus === 'printed'}
-                      <span>Print: OK</span>
-                    {:else if item.printStatus === 'failed'}
-                      <span>Print: Gagal</span>
-                    {:else}
-                      <span>Print: Belum</span>
-                    {/if}
-                  </div>
+                <div
+                  style="
+                    padding: 4px 10px;
+                    border-radius: 9999px;
+                    font-size: 10px;
+                    font-weight: 700;
+                    display: inline-flex;
+                    align-items: center;
+                    gap: 4px;
+                    background: {item.printStatus === 'printed'
+                      ? 'rgba(34, 197, 94, 0.14)'
+                      : item.printStatus === 'failed'
+                        ? 'rgba(239, 68, 68, 0.14)'
+                        : 'rgba(100, 116, 139, 0.14)'};
+                    color: {item.printStatus === 'printed'
+                      ? '#15803d'
+                      : item.printStatus === 'failed'
+                        ? '#b91c1c'
+                        : '#475569'};
+                  "
+                  title={item.printError || ''}
+                >
+                  <Printer size={11} />
+                  {#if item.printStatus === 'printed'}
+                    <span>Print: OK</span>
+                  {:else if item.printStatus === 'failed'}
+                    <span>Print: Gagal</span>
+                  {:else}
+                    <span>Print: Belum</span>
+                  {/if}
                 </div>
               </div>
 

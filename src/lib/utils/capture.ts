@@ -85,8 +85,10 @@ export async function runCaptureSequence(
   }
 
   const clipPromises: Promise<void>[] = [];
+  const startGen = boothFlow.sessionGeneration;
 
   for (let i = startSlot; i < slotCount; i++) {
+    if (boothFlow.sessionGeneration !== startGen) return;
     const cSecs =
       i === 0
         ? typeof boothConfig.config.firstCountdownSecs === 'number' && boothConfig.config.firstCountdownSecs > 0
@@ -95,15 +97,30 @@ export async function runCaptureSequence(
         : countdownSecs;
 
     for (let c = cSecs; c > 0; c--) {
+      if (boothFlow.sessionGeneration !== startGen) {
+        boothFlow.countdown = null;
+        cameraStore.setPreparingCapture(false);
+        return;
+      }
       boothFlow.countdown = c;
       if (c === 1 && cameraStore.cameraMode === 'usb') {
         await new Promise((r) => setTimeout(r, 800));
+        if (boothFlow.sessionGeneration !== startGen) {
+          boothFlow.countdown = null;
+          cameraStore.setPreparingCapture(false);
+          return;
+        }
         // Hentikan request EVF baru 200ms sebelum angka 0 agar bus USB kosong & shutter berbunyi tepat bersamaan dengan flash putih
         cameraStore.setPreparingCapture(true);
         await new Promise((r) => setTimeout(r, 200));
       } else {
         await new Promise((r) => setTimeout(r, 1000));
       }
+    }
+    if (boothFlow.sessionGeneration !== startGen) {
+      boothFlow.countdown = null;
+      cameraStore.setPreparingCapture(false);
+      return;
     }
     boothFlow.countdown = null;
     const captureTs = Date.now(); // t=0 untuk window klip — SEBELUM shutter, seakurat mungkin

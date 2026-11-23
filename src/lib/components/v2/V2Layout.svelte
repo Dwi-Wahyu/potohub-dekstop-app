@@ -10,6 +10,7 @@
     restoreActiveSession,
     clearActiveCheckpoint,
     initActiveCheckpoint,
+    updateCheckpointSelection,
     updateCheckpointStatus,
   } from '$lib/utils/activeSessionCheckpoint';
   import V2Landing from './V2Landing.svelte';
@@ -54,19 +55,31 @@
 
   let step = $state<V2Step>('landing');
   let selectedFrameId = $state('strip-2x4');
+  let seenForceReset = boothFlow.forceResetCounter;
+
+  $effect(() => {
+    if (boothFlow.forceResetCounter !== seenForceReset) {
+      seenForceReset = boothFlow.forceResetCounter;
+      step = 'landing';
+    }
+  });
 
   onMount(async () => {
     try {
       const cp = await getActiveCheckpoint();
       if (cp && isCheckpointValid(cp)) {
-        const { restoredSlotsCount, allSlotsRestored } = await restoreActiveSession(cp);
-        if (allSlotsRestored) {
+        const { allSlotsRestored } = await restoreActiveSession(cp);
+        if (cp.status === 'selecting_frame') {
+          selectedFrameId = cp.selectedFrameId || '';
+          step = 'frame';
+        } else if (allSlotsRestored || cp.status === 'customizing') {
+          selectedFrameId = cp.selectedFrameId || 'strip-2x4';
           step = 'filter';
         } else {
           selectedFrameId = cp.selectedFrameId || 'strip-2x4';
           step = 'session';
         }
-      } else if (cp && !isCheckpointValid(cp)) {
+      } else if (cp) {
         await clearActiveCheckpoint();
       }
     } catch (err) {
@@ -109,36 +122,42 @@
 
   function handleTicketConfirm() {
     boothFlow.paymentMethod = 'Ticket';
-    if (boothConfig.config.earlyPaymentPage) {
+    const isEarly = boothConfig.config.earlyPaymentPage;
+    if (isEarly) {
       step = 'frame';
     } else {
       step = 'session';
-      void initActiveCheckpoint({
-        sessionCode: boothFlow.sessionCode || `LOCAL-${Date.now()}`,
-        sessionId: boothFlow.sessionId,
-        paymentMethod: 'Ticket',
-        selectedFrameId,
-        totalSlots: 4,
-        printQty: boothFlow.printQty,
-      });
     }
+    void initActiveCheckpoint({
+      sessionCode: boothFlow.sessionCode || `LOCAL-${Date.now()}`,
+      sessionId: boothFlow.sessionId,
+      paymentMethod: 'Ticket',
+      selectedFrameId: isEarly ? null : selectedFrameId,
+      totalSlots: 4,
+      printQty: boothFlow.printQty,
+      status: isEarly ? 'selecting_frame' : 'capturing',
+      isPaid: true,
+    });
   }
 
   function handleQrisSuccess() {
     boothFlow.paymentMethod = 'Cashless';
-    if (boothConfig.config.earlyPaymentPage) {
+    const isEarly = boothConfig.config.earlyPaymentPage;
+    if (isEarly) {
       step = 'frame';
     } else {
       step = 'session';
-      void initActiveCheckpoint({
-        sessionCode: boothFlow.sessionCode || `TRX-${Date.now()}`,
-        sessionId: boothFlow.sessionId,
-        paymentMethod: 'Cashless',
-        selectedFrameId,
-        totalSlots: 4,
-        printQty: boothFlow.printQty,
-      });
     }
+    void initActiveCheckpoint({
+      sessionCode: boothFlow.sessionCode || `TRX-${Date.now()}`,
+      sessionId: boothFlow.sessionId,
+      paymentMethod: 'Cashless',
+      selectedFrameId: isEarly ? null : selectedFrameId,
+      totalSlots: 4,
+      printQty: boothFlow.printQty,
+      status: isEarly ? 'selecting_frame' : 'capturing',
+      isPaid: true,
+    });
   }
 
   function handleSelectFrame(frameId: string) {
@@ -154,16 +173,14 @@
         selectedFrameId: frameId,
         totalSlots: 4,
         printQty: boothFlow.printQty,
+        status: 'capturing',
+        isPaid: false,
       });
     } else if (boothConfig.config.earlyPaymentPage) {
       step = 'session';
-      void initActiveCheckpoint({
-        sessionCode: boothFlow.sessionCode || `LOCAL-${Date.now()}`,
-        sessionId: boothFlow.sessionId,
-        paymentMethod: boothFlow.paymentMethod,
+      void updateCheckpointSelection({
         selectedFrameId: frameId,
-        totalSlots: 4,
-        printQty: boothFlow.printQty,
+        status: 'capturing',
       });
     } else {
       step = 'payment';

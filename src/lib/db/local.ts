@@ -941,6 +941,32 @@ export async function countPendingSessionSoftfileJobs(boothId?: string | null): 
   return Number(rows[0]?.c ?? 0);
 }
 
+/**
+ * Batalkan seluruh antrean upload sesi yang masih pending/dead_letter pada offline_outbox
+ * dengan menandainya sebagai selesai agar tidak diupload otomatis (file foto lokal tetap ada).
+ */
+export async function clearAllPendingSessionSoftfileJobs(boothId?: string | null): Promise<number> {
+  const conn = await db();
+  const now = Date.now();
+  if (boothId && boothId !== 'default') {
+    const res = await conn.execute(
+      `UPDATE offline_outbox
+       SET status = 'done', last_error = NULL, updated_at = $1
+       WHERE job_type = 'session_softfile' AND status IN ('pending', 'dead_letter')
+       AND payload LIKE $2`,
+      [now, `%"boothId":"${boothId}"%`],
+    );
+    return Number(res.rowsAffected ?? 0);
+  }
+  const res = await conn.execute(
+    `UPDATE offline_outbox
+     SET status = 'done', last_error = NULL, updated_at = $1
+     WHERE job_type = 'session_softfile' AND status IN ('pending', 'dead_letter')`,
+    [now],
+  );
+  return Number(res.rowsAffected ?? 0);
+}
+
 export async function getOutboxJobById(id: number): Promise<OutboxJob | null> {
   const conn = await db();
   const rows = await conn.select<any[]>("SELECT * FROM offline_outbox WHERE id = $1", [id]);

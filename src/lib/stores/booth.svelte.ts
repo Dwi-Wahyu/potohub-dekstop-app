@@ -53,6 +53,8 @@ class BoothFlowStore {
   isGeneratingVideo = $state<boolean>(false);
   // Dikunci per URL foto (bukan index slot) supaya retake otomatis membuang crop lama
   photoTransforms = $state<Record<string, PhotoTransform>>({});
+  forceResetCounter = $state(0);
+  sessionGeneration = 0;
   private pendingClipPromises = new Set<Promise<void>>();
 
   trackClipPromise(promise: Promise<void>): Promise<void> {
@@ -82,6 +84,7 @@ class BoothFlowStore {
   }
 
   reset() {
+    this.sessionGeneration++;
     if (this.sessionGifUrl && this.sessionGifUrl.startsWith('blob:')) {
       try { URL.revokeObjectURL(this.sessionGifUrl); } catch {}
     }
@@ -126,6 +129,14 @@ class BoothFlowStore {
         });
       }, 500);
     }
+  }
+
+  /**
+   * Batalkan sesi aktif secara paksa (dari shortcut / panel operator) dan kembalikan layout ke layar awal.
+   */
+  forceCancelToWelcome() {
+    this.reset();
+    this.forceResetCounter++;
   }
 }
 

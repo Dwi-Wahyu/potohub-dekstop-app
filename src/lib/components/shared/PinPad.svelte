@@ -46,7 +46,22 @@
     pinInput = pinInput.slice(0, -1);
     pinError = false;
   }
+
+  function handleKeydown(e: KeyboardEvent) {
+    if (e.key >= '0' && e.key <= '9') {
+      e.preventDefault();
+      handlePinDigit(e.key);
+    } else if (e.key === 'Backspace') {
+      e.preventDefault();
+      handleBackspace();
+    } else if (e.key === 'Escape' && onCancel) {
+      e.preventDefault();
+      onCancel();
+    }
+  }
 </script>
+
+<svelte:window onkeydown={handleKeydown} />
 
 <div
   onclick={(e) => e.stopPropagation()}

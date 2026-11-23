@@ -21,6 +21,7 @@
   import { printerStore, deductPaperCount } from '$lib/printer.svelte';
   import OfflineBanner from '$lib/components/shared/OfflineBanner.svelte';
   import { buildAssetRelativePaths } from '$lib/utils/localSessionStorage';
+  import { clearActiveCheckpoint } from '$lib/utils/activeSessionCheckpoint';
   import { generateSessionCode } from '$lib/utils/shared';
 
   interface Props {
@@ -212,6 +213,8 @@
 
     // Segera catat sesi ke database outbox lokal agar operator bisa melihatnya di dialog sesi
     await upsertSessionOutboxJob(localSessionCode, sessionPayload, { status: 'pending' }).catch(console.warn);
+    // Sesi sudah masuk halaman Complete & tersimpan ke outbox lokal — hapus checkpoint agar tidak dilanjutkan ulang
+    void clearActiveCheckpoint();
 
     if (copies > 0 && compositeUrl) {
       void (async () => {

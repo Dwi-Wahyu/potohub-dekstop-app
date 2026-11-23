@@ -153,6 +153,10 @@
 
   // Smooth ease-out animation ke target slide index
   function animateToOffset(target: number, durationMs = 320) {
+    if (scrollTimeout) {
+      clearTimeout(scrollTimeout);
+      scrollTimeout = null;
+    }
     if (animFrameId) cancelAnimationFrame(animFrameId);
     const list = visibleTemplatesForCategory;
     if (list.length === 0) return;
@@ -197,6 +201,11 @@
     if (list.length === 0) return;
     const currentIdx = Math.round(scrollOffset);
     const nextIdx = Math.max(0, Math.min(list.length - 1, currentIdx + direction));
+    const targetCard = list[nextIdx];
+    if (targetCard) {
+      activeCardId = targetCard.id;
+      frameId = targetCard.id;
+    }
     animateToOffset(nextIdx, 320);
   }
 
@@ -205,6 +214,9 @@
       hasMoved = false;
       return;
     }
+    // Komit segera agar klik cepat pada tombol Lanjut tidak memakai frame sebelumnya/pertama
+    activeCardId = targetId;
+    frameId = targetId;
     animateToOffset(index, 320);
   }
 
@@ -222,17 +234,21 @@
     startOffset = scrollOffset;
     lastTime = performance.now();
     velocityX = 0;
-    try {
-      sliderContainerEl.setPointerCapture(e.pointerId);
-    } catch (_) {}
+    // Jangan setPointerCapture sebelum benar-benar drag agar tap pada tombol/kartu anak tetap memicu onclick
   }
 
   function onPointerMove(e: PointerEvent) {
     if (!isDragging) return;
     const dx = e.clientX - startX;
-    if (Math.abs(dx) > 4) {
+    if (!hasMoved && Math.abs(dx) > 12) {
       hasMoved = true;
+      if (sliderContainerEl) {
+        try {
+          sliderContainerEl.setPointerCapture(e.pointerId);
+        } catch (_) {}
+      }
     }
+    if (!hasMoved) return;
     const now = performance.now();
     const dt = now - lastTime;
     if (dt > 8) {
@@ -269,8 +285,14 @@
     isDragging = false;
     if (sliderContainerEl) {
       try {
-        sliderContainerEl.releasePointerCapture(e.pointerId);
+        if (sliderContainerEl.hasPointerCapture(e.pointerId)) {
+          sliderContainerEl.releasePointerCapture(e.pointerId);
+        }
       } catch (_) {}
+    }
+
+    if (!hasMoved) {
+      return;
     }
 
     const list = visibleTemplatesForCategory;
@@ -287,6 +309,11 @@
       targetIdx = Math.round(scrollOffset + flickDirection * flickMagnitude);
     }
     targetIdx = Math.max(0, Math.min(n - 1, targetIdx));
+    const targetCard = list[targetIdx];
+    if (targetCard) {
+      activeCardId = targetCard.id;
+      frameId = targetCard.id;
+    }
     animateToOffset(targetIdx, 340);
   }
 
@@ -468,11 +495,14 @@
           }
         }
       );
-      if (categoriesData[0]) {
+      if (!categoryId && categoriesData[0]) {
         categoryId = categoriesData[0].id;
+      }
+      if (categoryId && !frameId) {
         const visible = templatesData.filter((t) => t.category_id === categoryId);
         if (visible[0]) {
           frameId = visible[0].id;
+          activeCardId = visible[0].id;
         }
       }
     } catch (err) {
@@ -863,7 +893,12 @@
                 {@const isDotActive = i === currentActiveIdx}
                 <button
                   type="button"
-                  onclick={(e) => { e.stopPropagation(); animateToOffset(i); }}
+                  onclick={(e) => {
+                    e.stopPropagation();
+                    activeCardId = t.id;
+                    frameId = t.id;
+                    animateToOffset(i);
+                  }}
                   aria-label={t.name}
                   class="h-1.5 rounded-full border-none cursor-pointer p-0 transition-all duration-300"
                   style="width: {isDotActive ? 24 : 6}px; background-color: {isDotActive ? uiConfig.config.primaryColor : 'rgba(255,255,255,0.25)'};"

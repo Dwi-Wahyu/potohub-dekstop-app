@@ -18,7 +18,9 @@
     UploadCloud,
     FolderOpen,
     Trash2,
-    Flag
+    Flag,
+    AlertTriangle,
+    RotateCcw
   } from '@lucide/svelte';
   import UpdateModal from '$lib/components/shared/UpdateModal.svelte';
   import ReuploadSessionsModal from '$lib/components/shared/ReuploadSessionsModal.svelte';
@@ -31,9 +33,16 @@
   import { networkStatus } from '$lib/stores/networkStatus.svelte';
   import {
     countPendingSessionSoftfileJobs,
+    clearAllPendingSessionSoftfileJobs,
     countPendingPrintJobs,
     clearAllPendingPrintJobs,
   } from '$lib/db/local';
+  import {
+    getActiveCheckpoint,
+    clearActiveCheckpoint,
+    type ActiveSessionCheckpoint,
+  } from '$lib/utils/activeSessionCheckpoint';
+  import { boothFlow } from '$lib/stores/booth.svelte';
   import { invoke } from '@tauri-apps/api/core';
   import { flushOutbox } from '$lib/utils/offlineOutbox';
   import { flushPrintQueue } from '$lib/utils/printQueue';
@@ -59,6 +68,9 @@
   let pendingPrintJobs = $state(0);
   let isReuploadModalOpen = $state(false);
   let isUploadingPending = $state(false);
+  let isClearingPendingSessions = $state(false);
+  let activeCheckpoint = $state<ActiveSessionCheckpoint | null>(null);
+  let isCancellingActiveCheckpoint = $state(false);
   let isPrintingQueue = $state(false);
   let isClearingPrintQueue = $state(false);
   let isReportOpen = $state(false);
@@ -132,6 +144,46 @@
     activeBoothId = bId;
     pendingSoftfileSessions = await countPendingSessionSoftfileJobs(bId).catch(() => 0);
     pendingPrintJobs = await countPendingPrintJobs().catch(() => 0);
+    activeCheckpoint = await getActiveCheckpoint().catch(() => null);
+  }
+
+  async function handleClearPendingSoftfileQueue() {
+    if (isClearingPendingSessions || pendingSoftfileSessions === 0) return;
+    const ok = confirm(
+      `Batalkan seluruh ${pendingSoftfileSessions} antrean upload sesi yang tertunda?\n(File foto lokal tetap tersimpan di disk, namun tidak akan diupload otomatis lagi.)`
+    );
+    if (!ok) return;
+
+    isClearingPendingSessions = true;
+    try {
+      const cleared = await clearAllPendingSessionSoftfileJobs(activeBoothId);
+      await refreshPendingCount();
+      showNotice(`Berhasil membatalkan ${cleared} antrean upload sesi!`);
+    } catch (err) {
+      showNotice(`Gagal membatalkan antrean sesi: ${String(err)}`);
+    } finally {
+      isClearingPendingSessions = false;
+    }
+  }
+
+  async function handleCancelActiveCheckpoint() {
+    if (isCancellingActiveCheckpoint || !activeCheckpoint) return;
+    const ok = confirm(
+      `Batalkan sesi aktif "${activeCheckpoint.sessionCode}" (${activeCheckpoint.capturedSlots.length} foto tersimpan) agar booth kembali ke layar awal?`
+    );
+    if (!ok) return;
+
+    isCancellingActiveCheckpoint = true;
+    try {
+      await clearActiveCheckpoint();
+      boothFlow.forceCancelToWelcome();
+      activeCheckpoint = null;
+      showNotice('Sesi aktif dibatalkan. Booth akan mulai dari layar awal.');
+    } catch (err) {
+      showNotice(`Gagal membatalkan sesi aktif: ${String(err)}`);
+    } finally {
+      isCancellingActiveCheckpoint = false;
+    }
   }
 
   async function handleFlushPrintQueue() {
@@ -562,6 +614,61 @@
           </button>
         </div>
 
+        {#if activeCheckpoint}
+          <div
+            style="
+              {cardStyle}
+              max-width: 1400px;
+              margin: 0 auto 20px;
+              padding: 14px 20px;
+              display: flex;
+              align-items: center;
+              justify-content: space-between;
+              gap: 16px;
+              flex-wrap: wrap;
+              border: 1px solid rgba(245, 158, 11, 0.45);
+              background: linear-gradient(135deg, #fffbeb, #fef3c7);
+            "
+          >
+            <div style="display: flex; align-items: center; gap: 12px;">
+              <div style="width: 38px; height: 38px; border-radius: 12px; background: rgba(245, 158, 11, 0.2); color: #b45309; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                <AlertTriangle size={18} />
+              </div>
+              <div>
+                <p style="margin: 0; font-size: 13px; font-weight: 700; color: #92400e;">
+                  Ada sesi foto aktif tersimpan ({activeCheckpoint.sessionCode})
+                </p>
+                <p style="margin: 0; font-size: 11px; color: #b45309;">
+                  Status: {activeCheckpoint.status} · {activeCheckpoint.capturedSlots.length} foto tersimpan. Batalkan jika sesi ini nyangkut atau sudah selesai.
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onclick={handleCancelActiveCheckpoint}
+              disabled={isCancellingActiveCheckpoint}
+              style="
+                padding: 9px 16px;
+                border-radius: 12px;
+                border: none;
+                background: linear-gradient(135deg, #ef4444, #dc2626);
+                color: white;
+                font-family: 'Poppins', sans-serif;
+                font-size: 12px;
+                font-weight: 700;
+                cursor: {isCancellingActiveCheckpoint ? 'not-allowed' : 'pointer'};
+                display: flex;
+                align-items: center;
+                gap: 6px;
+                box-shadow: 0 4px 12px rgba(220,38,38,0.28);
+              "
+            >
+              <RotateCcw size={14} />
+              <span>{isCancellingActiveCheckpoint ? 'Membatalkan...' : 'Batalkan Sesi Aktif'}</span>
+            </button>
+          </div>
+        {/if}
+
         <div style="display: grid; grid-template-columns: 260px minmax(0,1fr) minmax(0,1fr); gap: 20px; align-items: start; max-width: 1400px; margin: 0 auto;">
           <!-- Fitur aktif -->
           <div style={cardStyle}>
@@ -872,6 +979,41 @@
                 >
                   <UploadCloud size={15} class={isUploadingPending ? 'animate-bounce text-indigo-600' : ''} />
                   <span>{isUploadingPending ? 'Uploading...' : 'Upload'}</span>
+                </button>
+
+                <!-- Tombol Batalkan Antrean Upload Sesi -->
+                <button
+                  type="button"
+                  onclick={handleClearPendingSoftfileQueue}
+                  disabled={isClearingPendingSessions || pendingSoftfileSessions === 0}
+                  style="
+                    padding: 9px 14px;
+                    border-radius: 12px;
+                    background: {NEU_BG};
+                    box-shadow: {neuCfg.btnSm};
+                    border: none;
+                    cursor: {isClearingPendingSessions || pendingSoftfileSessions === 0 ? 'not-allowed' : 'pointer'};
+                    opacity: {isClearingPendingSessions || pendingSoftfileSessions === 0 ? 0.6 : 1};
+                    font-family: 'Poppins', sans-serif;
+                    font-weight: 700;
+                    font-size: 12px;
+                    color: #dc2626;
+                    display: flex;
+                    align-items: center;
+                    gap: 6px;
+                    white-space: nowrap;
+                    transition: all 0.15s ease;
+                  "
+                  title="Batalkan antrean upload sesi yang tertunda agar tidak dikirim otomatis"
+                  onmousedown={(e) => {
+                    if (!isClearingPendingSessions && pendingSoftfileSessions > 0) e.currentTarget.style.boxShadow = neuCfg.inset;
+                  }}
+                  onmouseup={(e) => {
+                    if (!isClearingPendingSessions && pendingSoftfileSessions > 0) e.currentTarget.style.boxShadow = neuCfg.btnSm;
+                  }}
+                >
+                  <Trash2 size={15} />
+                  <span>Batalkan Antrean</span>
                 </button>
 
                 <!-- Tombol Dialog Reupload Sesi Foto (Icon Refresh/List sesuai arrow referensi) -->

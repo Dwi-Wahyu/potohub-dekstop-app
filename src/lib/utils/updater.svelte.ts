@@ -28,8 +28,8 @@ class UpdaterStore {
   isChecking = $state(false);
   hasUpdate = $state(false);
   modalOpen = $state(false);
-  currentVersion = $state('0.1.5');
-  latestVersion = $state('0.1.5');
+  currentVersion = $state('0.1.6');
+  latestVersion = $state('0.1.6');
   versionName = $state('PotoHub Booth');
   changelog = $state<string[]>([]);
   downloadProgress = $state(0);

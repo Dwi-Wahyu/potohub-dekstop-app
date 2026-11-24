@@ -1,6 +1,6 @@
 [package]
 name = "potohub-booth-client"
-version = "0.1.5"
+version = "0.1.6"
 description = "Modern PhotoBooth Client"
 authors = ["you"]
 edition = "2021"

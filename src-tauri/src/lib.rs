@@ -1,3 +1,4 @@
+pub mod camera_bridge;
 pub mod canon_edsdk;
 pub mod kiosk;
 mod cache;
@@ -15,25 +16,58 @@ use std::sync::{Arc, Mutex as StdMutex};
 use tauri::{Manager, State};
 use tokio::sync::Mutex;
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum ActiveWindowsBackend {
+    None,
+    CanonEdsdk,
+    CameraBridge,
+}
+
 pub struct AppState {
     pub camera: Mutex<Option<Camera>>,
     pub liveview_buffer: Arc<StdMutex<gphoto::LiveviewBuffer>>,
+    #[cfg(target_os = "windows")]
+    pub active_backend: Mutex<ActiveWindowsBackend>,
 }
 
 #[tauri::command]
 async fn connect_camera(state: State<'_, AppState>) -> Result<DeviceInfo, GphotoError> {
     #[cfg(target_os = "windows")]
     {
+        // 1. Prioritas Canon EDSDK jika kamera Canon terdeteksi
         if canon_edsdk::platform::is_available() {
-            match canon_edsdk::platform::connect().await {
-                Ok((model, port)) => {
+            let canon_cams = canon_edsdk::platform::detect_cameras().await.unwrap_or_default();
+            if !canon_cams.is_empty() {
+                match canon_edsdk::platform::connect().await {
+                    Ok((model, port)) => {
+                        *state.active_backend.lock().await = ActiveWindowsBackend::CanonEdsdk;
+                        return Ok(DeviceInfo {
+                            manufacturer: Some("Canon (EDSDK Native)".into()),
+                            productname: Some(format!("{} [{}]", model, port)),
+                        });
+                    }
+                    Err(e) => {
+                        log::warn!("[connect_camera] EDSDK connect info: {}", e);
+                        return Err(GphotoError::Connection(e));
+                    }
+                }
+            }
+        }
+
+        // 2. Multi-brand Camera Bridge (Sony CRSDK / USB / WPD / WIA & Nikon)
+        if camera_bridge::platform::is_available() {
+            let bridge_cams = camera_bridge::platform::detect_cameras().await.unwrap_or_default();
+            let preferred_port = bridge_cams.first().map(|c| c.port.clone());
+            match camera_bridge::platform::connect(preferred_port).await {
+                Ok((brand_label, model, port)) => {
+                    *state.active_backend.lock().await = ActiveWindowsBackend::CameraBridge;
                     return Ok(DeviceInfo {
-                        manufacturer: Some("Canon (EDSDK Native)".into()),
+                        manufacturer: Some(brand_label),
                         productname: Some(format!("{} [{}]", model, port)),
                     });
                 }
                 Err(e) => {
-                    log::warn!("[connect_camera] EDSDK connect info: {}", e);
+                    log::warn!("[connect_camera] CameraBridge connect info: {}", e);
                     return Err(GphotoError::Connection(e));
                 }
             }
@@ -49,22 +83,24 @@ async fn connect_camera(state: State<'_, AppState>) -> Result<DeviceInfo, Gphoto
 async fn detect_camera() -> Result<Vec<gphoto::DetectedCamera>, GphotoError> {
     #[cfg(target_os = "windows")]
     {
+        let mut all_cams = Vec::new();
         if canon_edsdk::platform::is_available() {
-            match canon_edsdk::platform::detect_cameras().await {
-                Ok(canon_cams) => {
-                    return Ok(canon_cams
-                        .into_iter()
-                        .map(|c| gphoto::DetectedCamera {
-                            model: c.model,
-                            port: c.port,
-                        })
-                        .collect());
-                }
-                Err(e) => {
-                    log::warn!("[detect_camera] EDSDK detect info: {}", e);
-                    return Ok(Vec::new());
+            if let Ok(canon_cams) = canon_edsdk::platform::detect_cameras().await {
+                for c in canon_cams {
+                    all_cams.push(gphoto::DetectedCamera {
+                        model: c.model,
+                        port: c.port,
+                    });
                 }
             }
+        }
+        if camera_bridge::platform::is_available() {
+            if let Ok(bridge_cams) = camera_bridge::platform::detect_cameras().await {
+                all_cams.extend(bridge_cams);
+            }
+        }
+        if !all_cams.is_empty() {
+            return Ok(all_cams);
         }
     }
 
@@ -76,6 +112,8 @@ async fn disconnect_camera(state: State<'_, AppState>) -> Result<(), GphotoError
     #[cfg(target_os = "windows")]
     {
         let _ = canon_edsdk::platform::disconnect().await;
+        let _ = camera_bridge::platform::disconnect().await;
+        *state.active_backend.lock().await = ActiveWindowsBackend::None;
     }
     *state.camera.lock().await = None;
     Ok(())
@@ -85,8 +123,15 @@ async fn disconnect_camera(state: State<'_, AppState>) -> Result<(), GphotoError
 async fn is_camera_connected(state: State<'_, AppState>) -> Result<bool, GphotoError> {
     #[cfg(target_os = "windows")]
     {
-        if canon_edsdk::platform::is_connected().await {
-            return Ok(true);
+        let backend = *state.active_backend.lock().await;
+        match backend {
+            ActiveWindowsBackend::CanonEdsdk => return Ok(canon_edsdk::platform::is_connected().await),
+            ActiveWindowsBackend::CameraBridge => return Ok(camera_bridge::platform::is_connected().await),
+            ActiveWindowsBackend::None => {
+                if canon_edsdk::platform::is_connected().await || camera_bridge::platform::is_connected().await {
+                    return Ok(true);
+                }
+            }
         }
     }
     Ok(state.camera.lock().await.is_some())
@@ -198,7 +243,8 @@ async fn get_camera_setting(
 ) -> Result<serde_json::Value, GphotoError> {
     #[cfg(target_os = "windows")]
     {
-        if canon_edsdk::platform::is_available() {
+        let backend = *state.active_backend.lock().await;
+        if backend != ActiveWindowsBackend::None || canon_edsdk::platform::is_available() {
             return Ok(serde_json::json!({
                 "value": "auto",
                 "ability": ["auto"]
@@ -218,8 +264,19 @@ async fn set_camera_setting(
 ) -> Result<(), GphotoError> {
     #[cfg(target_os = "windows")]
     {
-        if canon_edsdk::platform::is_available() {
-            return Ok(());
+        match *state.active_backend.lock().await {
+            ActiveWindowsBackend::CanonEdsdk => return Ok(()),
+            ActiveWindowsBackend::CameraBridge => {
+                camera_bridge::platform::set_setting(&key, &value)
+                    .await
+                    .map_err(GphotoError::Operation)?;
+                return Ok(());
+            }
+            ActiveWindowsBackend::None => {
+                if canon_edsdk::platform::is_available() {
+                    return Ok(());
+                }
+            }
         }
     }
     let guard = state.camera.lock().await;
@@ -234,10 +291,35 @@ async fn capture_photo(
 ) -> Result<Vec<u8>, GphotoError> {
     #[cfg(target_os = "windows")]
     {
-        if canon_edsdk::platform::is_available() {
-            let bytes = canon_edsdk::platform::capture_photo().await
-                .map_err(|e| GphotoError::Operation(e))?;
-            return Ok(bytes);
+        match *state.active_backend.lock().await {
+            ActiveWindowsBackend::CanonEdsdk => {
+                let bytes = canon_edsdk::platform::capture_photo().await
+                    .map_err(GphotoError::Operation)?;
+                return Ok(bytes);
+            }
+            ActiveWindowsBackend::CameraBridge => {
+                let bytes = camera_bridge::platform::capture_photo().await
+                    .map_err(GphotoError::Operation)?;
+                return Ok(bytes);
+            }
+            ActiveWindowsBackend::None => {
+                if canon_edsdk::platform::is_available() {
+                    if let Ok(cams) = canon_edsdk::platform::detect_cameras().await {
+                        if !cams.is_empty() {
+                            let bytes = canon_edsdk::platform::capture_photo().await
+                                .map_err(GphotoError::Operation)?;
+                            *state.active_backend.lock().await = ActiveWindowsBackend::CanonEdsdk;
+                            return Ok(bytes);
+                        }
+                    }
+                }
+                if camera_bridge::platform::is_available() {
+                    let bytes = camera_bridge::platform::capture_photo().await
+                        .map_err(GphotoError::Operation)?;
+                    *state.active_backend.lock().await = ActiveWindowsBackend::CameraBridge;
+                    return Ok(bytes);
+                }
+            }
         }
     }
     let guard = state.camera.lock().await;
@@ -253,10 +335,35 @@ async fn capture_photo(
 async fn start_liveview(state: State<'_, AppState>) -> Result<(), GphotoError> {
     #[cfg(target_os = "windows")]
     {
-        if canon_edsdk::platform::is_available() {
-            canon_edsdk::platform::start_liveview().await
-                .map_err(|e| GphotoError::Operation(e))?;
-            return Ok(());
+        match *state.active_backend.lock().await {
+            ActiveWindowsBackend::CanonEdsdk => {
+                canon_edsdk::platform::start_liveview().await
+                    .map_err(GphotoError::Operation)?;
+                return Ok(());
+            }
+            ActiveWindowsBackend::CameraBridge => {
+                camera_bridge::platform::start_liveview().await
+                    .map_err(GphotoError::Operation)?;
+                return Ok(());
+            }
+            ActiveWindowsBackend::None => {
+                if canon_edsdk::platform::is_available() {
+                    if let Ok(cams) = canon_edsdk::platform::detect_cameras().await {
+                        if !cams.is_empty() {
+                            canon_edsdk::platform::start_liveview().await
+                                .map_err(GphotoError::Operation)?;
+                            *state.active_backend.lock().await = ActiveWindowsBackend::CanonEdsdk;
+                            return Ok(());
+                        }
+                    }
+                }
+                if camera_bridge::platform::is_available() {
+                    camera_bridge::platform::start_liveview().await
+                        .map_err(GphotoError::Operation)?;
+                    *state.active_backend.lock().await = ActiveWindowsBackend::CameraBridge;
+                    return Ok(());
+                }
+            }
         }
     }
     let guard = state.camera.lock().await;
@@ -268,9 +375,20 @@ async fn start_liveview(state: State<'_, AppState>) -> Result<(), GphotoError> {
 async fn stop_liveview(state: State<'_, AppState>) -> Result<(), GphotoError> {
     #[cfg(target_os = "windows")]
     {
-        if canon_edsdk::platform::is_available() {
-            let _ = canon_edsdk::platform::stop_liveview().await;
-            return Ok(());
+        match *state.active_backend.lock().await {
+            ActiveWindowsBackend::CanonEdsdk => {
+                let _ = canon_edsdk::platform::stop_liveview().await;
+                return Ok(());
+            }
+            ActiveWindowsBackend::CameraBridge => {
+                let _ = camera_bridge::platform::stop_liveview().await;
+                return Ok(());
+            }
+            ActiveWindowsBackend::None => {
+                let _ = canon_edsdk::platform::stop_liveview().await;
+                let _ = camera_bridge::platform::stop_liveview().await;
+                return Ok(());
+            }
         }
     }
     let guard = state.camera.lock().await;
@@ -281,6 +399,7 @@ async fn stop_liveview(state: State<'_, AppState>) -> Result<(), GphotoError> {
 #[tauri::command]
 async fn set_liveview_capture_preparing(preparing: bool) -> Result<(), GphotoError> {
     canon_edsdk::platform::set_capture_preparing(preparing);
+    camera_bridge::platform::set_capture_preparing(preparing);
     Ok(())
 }
 
@@ -288,10 +407,35 @@ async fn set_liveview_capture_preparing(preparing: bool) -> Result<(), GphotoErr
 async fn get_liveview_frame(state: State<'_, AppState>) -> Result<tauri::ipc::Response, GphotoError> {
     #[cfg(target_os = "windows")]
     {
-        if canon_edsdk::platform::is_available() {
-            let bytes = canon_edsdk::platform::get_liveview_frame().await
-                .map_err(|e| GphotoError::Operation(e))?;
-            return Ok(tauri::ipc::Response::new(bytes));
+        match *state.active_backend.lock().await {
+            ActiveWindowsBackend::CanonEdsdk => {
+                let bytes = canon_edsdk::platform::get_liveview_frame().await
+                    .map_err(GphotoError::Operation)?;
+                return Ok(tauri::ipc::Response::new(bytes));
+            }
+            ActiveWindowsBackend::CameraBridge => {
+                let bytes = camera_bridge::platform::get_liveview_frame().await
+                    .map_err(GphotoError::Operation)?;
+                return Ok(tauri::ipc::Response::new(bytes));
+            }
+            ActiveWindowsBackend::None => {
+                if canon_edsdk::platform::is_available() {
+                    if let Ok(cams) = canon_edsdk::platform::detect_cameras().await {
+                        if !cams.is_empty() {
+                            let bytes = canon_edsdk::platform::get_liveview_frame().await
+                                .map_err(GphotoError::Operation)?;
+                            *state.active_backend.lock().await = ActiveWindowsBackend::CanonEdsdk;
+                            return Ok(tauri::ipc::Response::new(bytes));
+                        }
+                    }
+                }
+                if camera_bridge::platform::is_available() {
+                    let bytes = camera_bridge::platform::get_liveview_frame().await
+                        .map_err(GphotoError::Operation)?;
+                    *state.active_backend.lock().await = ActiveWindowsBackend::CameraBridge;
+                    return Ok(tauri::ipc::Response::new(bytes));
+                }
+            }
         }
     }
     let guard = state.camera.lock().await;
@@ -738,6 +882,7 @@ pub fn run() {
 
     let liveview_buffer = Arc::new(StdMutex::new(gphoto::LiveviewBuffer::new(45000)));
     canon_edsdk::platform::init_liveview_buffer(liveview_buffer.clone());
+    camera_bridge::platform::init_liveview_buffer(liveview_buffer.clone());
 
     tauri::Builder::default()
         .plugin(
@@ -778,6 +923,8 @@ pub fn run() {
         .manage(AppState {
             camera: Mutex::new(None),
             liveview_buffer,
+            #[cfg(target_os = "windows")]
+            active_backend: Mutex::new(ActiveWindowsBackend::None),
         })
         .setup(|_app| {
             #[cfg(target_os = "linux")]

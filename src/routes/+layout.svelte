@@ -13,14 +13,11 @@
   onMount(() => {
     networkStatus.init();
     void printerStore.loadPrinters();
-    void updaterStore.checkForUpdates(true);
     startIdleQueueWatcher();
 
-    if (networkStatus.isOnline) {
-      void syncBoothSettings().catch((e) =>
-        console.warn('[InitialSync] Gagal sync awal:', e)
-      );
-    }
+    const updateTimer = setTimeout(() => {
+      void updaterStore.checkForUpdates(true);
+    }, 2500);
 
     // Background sync periodik (tiap 10 menit) bila online
     const interval = setInterval(() => {
@@ -31,7 +28,10 @@
       }
     }, 10 * 60 * 1000);
 
-    return () => clearInterval(interval);
+    return () => {
+      clearTimeout(updateTimer);
+      clearInterval(interval);
+    };
   });
 </script>
 

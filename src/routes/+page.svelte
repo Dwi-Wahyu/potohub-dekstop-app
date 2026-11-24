@@ -6,7 +6,6 @@
   import { boothConfig } from '$lib/stores/boothConfig.svelte';
   import { cameraStore } from '$lib/camera.svelte';
   import { fetchAndCacheUiConfig, syncBoothSettings } from '$lib/api/boothClient';
-  import { prefetchBoothAssets } from '$lib/api/prefetch';
   import V1Layout from '$lib/components/v1/V1Layout.svelte';
   import V2Layout from '$lib/components/v2/V2Layout.svelte';
   import V3Layout from '$lib/components/v3/V3Layout.svelte';
@@ -21,26 +20,22 @@
       return;
     }
 
-    // Booth sudah aktif dan teraktivasi: langsung muat interface booth operasional
+    // Muat cache UI & pengaturan lokal langsung agar layar awal tampil instan tanpa menunggu jaringan/kamera
     boothConfig.init(activation.boothId);
     uiConfig.init(activation.boothId);
-
-    // Sinkronkan pengaturan booth terbaru (termasuk timer sesi & countdown) dari server
-    void syncBoothSettings().catch((e) =>
-      console.warn('Sync pengaturan booth awal gagal:', e)
-    );
-
-    await fetchAndCacheUiConfig();
-
-    // Prefetch aset booth di background agar siap offline
-    void prefetchBoothAssets(activation.boothId).catch((e) =>
-      console.warn('Prefetch aset booth gagal:', e)
-    );
-    await cameraStore.checkDevMode();
-    if (boothConfig.config.cameraMode) {
-      await cameraStore.connect(boothConfig.config.cameraMode);
-    }
     ready = true;
+
+    // Segarkan UI terbaru dari server di background + siapkan kamera tanpa memblokir render awal
+    void fetchAndCacheUiConfig(true).catch(() => {});
+    void syncBoothSettings().catch((e) =>
+      console.warn('Sync pengaturan booth awal gagal:', e),
+    );
+    void (async () => {
+      await cameraStore.checkDevMode();
+      if (boothConfig.config.cameraMode) {
+        await cameraStore.connect(boothConfig.config.cameraMode);
+      }
+    })().catch((e) => console.warn('Inisialisasi kamera background gagal:', e));
   });
 </script>
 

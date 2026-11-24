@@ -430,30 +430,48 @@ export async function activateBooth(activationCode: string) {
   return data;
 }
 
-export async function fetchAndCacheUiConfig() {
-  const boothId = await getActiveBoothId();
-  if (!boothId || !isValidUUID(boothId)) {
-    uiConfig.init("default");
-    return;
-  }
-  try {
-    await cachedFetch(
-      `uiConfig:${boothId}`,
-      async () => {
-        const res = await fetch(
-          `${API_BASE}/booths/${boothId}/ui-customize/public`,
-        );
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const json = await res.json();
-        const data: PublicUIConfigResponse = json.data ?? json;
-        return mapPublicConfigToBoothUIConfig(data);
-      },
-      (partial) => uiConfig.save(partial),
-    );
-  } catch {
-    // offline & tanpa cache → fallback ke local cache / default v1
-    uiConfig.init(boothId);
-  }
+let uiConfigFetchPromise: Promise<void> | null = null;
+let syncSettingsPromise: Promise<any> | null = null;
+
+export async function fetchAndCacheUiConfig(forceRefresh = false) {
+  if (uiConfigFetchPromise) return uiConfigFetchPromise;
+  uiConfigFetchPromise = (async () => {
+    const boothId = await getActiveBoothId();
+    if (!boothId || !isValidUUID(boothId)) {
+      uiConfig.init("default");
+      return;
+    }
+    const fetchFresh = async () => {
+      const res = await fetch(
+        `${API_BASE}/booths/${boothId}/ui-customize/public?_t=${Date.now()}`,
+        { cache: "no-store" },
+      );
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const json = await res.json();
+      const data: PublicUIConfigResponse = json.data ?? json;
+      return mapPublicConfigToBoothUIConfig(data);
+    };
+
+    try {
+      if (forceRefresh) {
+        const fresh = await fetchFresh();
+        uiConfig.save(fresh);
+        void writeApiCache(`uiConfig:${boothId}`, fresh).catch(() => {});
+        return;
+      }
+      await cachedFetch(
+        `uiConfig:${boothId}`,
+        fetchFresh,
+        (partial) => uiConfig.save(partial),
+      );
+    } catch {
+      // offline & tanpa cache → fallback ke local cache / default v1
+      uiConfig.init(boothId);
+    }
+  })().finally(() => {
+    uiConfigFetchPromise = null;
+  });
+  return uiConfigFetchPromise;
 }
 
 export interface BoothCategory {
@@ -670,48 +688,55 @@ function applyRemoteSettings(settings: Record<string, any>) {
 }
 
 export async function syncBoothSettings() {
-  const boothId = await getActiveBoothId();
-  if (!boothId) throw new Error("Booth belum teraktivasi.");
-  try {
-    const detectedTz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Jakarta';
-    const res = await fetch(`${API_BASE}/booths/${boothId}/settings/sync?timezone=${encodeURIComponent(detectedTz)}`, {
-      method: "POST",
-      headers: await getAuthHeaders(),
-    });
-    if (!res.ok) throw new Error("Sync gagal");
-    const data = await res.json();
-    applyRemoteSettings(data.settings ?? {});
-    await writeApiCache(`settings:${boothId}`, data.settings).catch(() => {});
-    await fetchAndCacheUiConfig();
-    // Fetch & cache banners untuk booth
+  if (syncSettingsPromise) return syncSettingsPromise;
+  syncSettingsPromise = (async () => {
+    const boothId = await getActiveBoothId();
+    if (!boothId) throw new Error("Booth belum teraktivasi.");
     try {
-      const banners = await fetchBanners(boothId);
-      await writeApiCache(`banners:${boothId}`, banners);
+      const detectedTz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Jakarta';
+      const res = await fetch(`${API_BASE}/booths/${boothId}/settings/sync?timezone=${encodeURIComponent(detectedTz)}`, {
+        method: "POST",
+        headers: await getAuthHeaders(),
+        cache: "no-store",
+      });
+      if (!res.ok) throw new Error("Sync gagal");
+      const data = await res.json();
+      applyRemoteSettings(data.settings ?? {});
+      await writeApiCache(`settings:${boothId}`, data.settings).catch(() => {});
+      await fetchAndCacheUiConfig(true);
+      // Fetch banners, emots, dan ticket cache secara paralel agar tidak memblokir berurutan
+      const [bannersRes, emotsRes, ticketsRes] = await Promise.allSettled([
+        fetchBanners(boothId),
+        fetchEmots(boothId),
+        fetchActiveQrTicketsForCache(boothId),
+      ]);
+      if (bannersRes.status === 'fulfilled') {
+        void writeApiCache(`banners:${boothId}`, bannersRes.value).catch(() => {});
+      } else {
+        console.warn("Sync banners gagal:", bannersRes.reason);
+      }
+      if (emotsRes.status === 'fulfilled') {
+        void writeApiCache(`emots:${boothId}`, emotsRes.value).catch(() => {});
+      } else {
+        console.warn("Sync emots gagal:", emotsRes.reason);
+      }
+      if (ticketsRes.status === 'fulfilled') {
+        console.log(`[syncBoothSettings] ${ticketsRes.value} tiket aktif dicache utk offline`);
+      } else {
+        console.warn("Sync qr_ticket_cache gagal:", ticketsRes.reason);
+      }
+      // Prefetch aset booth di background (tidak memblokir sync)
+      void prefetchBoothAssets(boothId).catch((e) =>
+        console.warn("Prefetch aset booth gagal:", e),
+      );
+      return data;
     } catch (e) {
-      console.warn("Sync banners gagal:", e);
+      throw e instanceof Error ? e : new Error("Sync gagal");
     }
-    // Fetch & cache emots untuk booth
-    try {
-      const emots = await fetchEmots(boothId);
-      await writeApiCache(`emots:${boothId}`, emots);
-    } catch (e) {
-      console.warn("Sync emots gagal:", e);
-    }
-    // Refresh cache tiket aktif utk verifikasi offline.
-    try {
-      const count = await fetchActiveQrTicketsForCache(boothId);
-      console.log(`[syncBoothSettings] ${count} tiket aktif dicache utk offline`);
-    } catch (e) {
-      console.warn("Sync qr_ticket_cache gagal:", e);
-    }
-    // Prefetch aset booth di background (tidak memblokir sync)
-    void prefetchBoothAssets(boothId).catch((e) =>
-      console.warn("Prefetch aset booth gagal:", e),
-    );
-    return data;
-  } catch (e) {
-    throw e instanceof Error ? e : new Error("Sync gagal");
-  }
+  })().finally(() => {
+    syncSettingsPromise = null;
+  });
+  return syncSettingsPromise;
 }
 
 export async function pushPaperSettingsToServer(currentStock: number, threshold?: number): Promise<boolean> {

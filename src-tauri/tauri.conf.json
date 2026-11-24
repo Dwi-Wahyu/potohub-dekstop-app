@@ -61,7 +61,8 @@
       "gphoto-libs/camlibs/*": "camlibs",
       "gphoto-libs/iolibs/*": "iolibs",
       "drivers/EDSDK.dll": "drivers/EDSDK.dll",
-      "drivers/EdsImage.dll": "drivers/EdsImage.dll"
+      "drivers/EdsImage.dll": "drivers/EdsImage.dll",
+      "tools/**/*": "tools"
     },
     "externalBin": ["binaries/ffmpeg"],
     "icon": [

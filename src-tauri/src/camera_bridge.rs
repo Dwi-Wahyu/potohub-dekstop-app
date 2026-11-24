@@ -427,6 +427,65 @@ if (-not $foundNikonWia) {
         }
     }
 
+    /// Cari posisi akhir frame JPEG (setelah EOI `0xFF 0xD9` terluar) dengan melewati
+    /// segmen header berpanjang eksplisit (seperti APP1/EXIF yang dapat memuat embedded thumbnail `FF D8..FF D9`).
+    fn find_jpeg_frame_end(buf: &[u8]) -> Option<usize> {
+        if buf.len() < 4 || buf[0] != 0xFF || buf[1] != 0xD8 {
+            return None;
+        }
+        let mut i = 2;
+        let mut in_scan = false;
+        while i + 1 < buf.len() {
+            if buf[i] != 0xFF {
+                i += 1;
+                continue;
+            }
+            let marker = buf[i + 1];
+            // Padding 0xFF berturut-turut
+            if marker == 0xFF {
+                i += 1;
+                continue;
+            }
+            // Byte stuffing di dalam entropy-coded scan data (0xFF 0x00) dan RST0..RST7 (0xD0..0xD7)
+            if marker == 0x00 || (0xD0..=0xD7).contains(&marker) {
+                i += 2;
+                continue;
+            }
+            // EOI (End of Image)
+            if marker == 0xD9 {
+                return Some(i + 2);
+            }
+            if !in_scan {
+                // Standalone markers tanpa payload panjang
+                if marker == 0xD8 || marker == 0x01 {
+                    i += 2;
+                    continue;
+                }
+                // Segmen header (APPn, DQT, DHT, SOFn, SOS, dll.) memiliki 2-byte big-endian length
+                if i + 3 >= buf.len() {
+                    return None; // Tunggu byte berikutnya
+                }
+                let seg_len = u16::from_be_bytes([buf[i + 2], buf[i + 3]]) as usize;
+                if seg_len < 2 {
+                    i += 2;
+                    continue;
+                }
+                let next_pos = i + 2 + seg_len;
+                if next_pos > buf.len() {
+                    return None; // Segmen belum lengkap di buffer
+                }
+                if marker == 0xDA {
+                    // SOS (Start of Scan): setelah header SOS adalah data kompresi hingga EOI (0xFF 0xD9)
+                    in_scan = true;
+                }
+                i = next_pos;
+            } else {
+                i += 2;
+            }
+        }
+        None
+    }
+
     fn process_stream_buffer(buf: &mut Vec<u8>) {
         loop {
             let soi_pos = buf.windows(2).position(|w| w[0] == 0xFF && w[1] == 0xD8);
@@ -445,8 +504,7 @@ if (-not $foundNikonWia) {
             }
 
             if let Some(0) = buf.windows(2).position(|w| w[0] == 0xFF && w[1] == 0xD8) {
-                if let Some(eoi_rel) = buf[2..].windows(2).position(|w| w[0] == 0xFF && w[1] == 0xD9) {
-                    let frame_end = 2 + eoi_rel + 2;
+                if let Some(frame_end) = find_jpeg_frame_end(buf) {
                     let frame: Vec<u8> = buf.drain(..frame_end).collect();
                     on_jpeg_frame(frame);
                     continue;

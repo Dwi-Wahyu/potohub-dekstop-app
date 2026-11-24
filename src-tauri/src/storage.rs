@@ -177,6 +177,7 @@ pub async fn open_sessions_dir(
 
     #[cfg(target_os = "windows")]
     {
+        crate::kiosk::cancel_explorer_window_cleanup();
         let path_str = target.to_string_lossy().replace('/', "\\");
         let path_clean = path_str.trim_start_matches(r"\\?\").to_string();
         std::process::Command::new("explorer.exe")

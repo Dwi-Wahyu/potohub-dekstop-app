@@ -143,6 +143,7 @@ async fn open_log_dir(app: tauri::AppHandle) -> Result<String, String> {
     let log_file = log_dir.join("potohub.log");
     #[cfg(target_os = "windows")]
     {
+        kiosk::cancel_explorer_window_cleanup();
         let _ = std::process::Command::new("explorer.exe")
             .arg(log_dir.to_string_lossy().as_ref())
             .spawn();

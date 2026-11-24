@@ -54,6 +54,10 @@ winapi = { version = "0.3", features = [
     "guiddef",
     "wtypes",
     "libloaderapi",
+    "tlhelp32",
+    "handleapi",
+    "processthreadsapi",
+    "sysinfoapi",
 ] }
 
 [profile.release]

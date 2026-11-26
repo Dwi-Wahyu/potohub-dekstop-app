@@ -1,5 +1,6 @@
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { invoke } from '@tauri-apps/api/core';
+import { appState } from '$lib/appState.svelte';
 
 let windowOpQueue: Promise<void> = Promise.resolve();
 
@@ -20,6 +21,7 @@ function enqueueWindowOp(fn: () => Promise<void>): Promise<void> {
  *   2. Melepas status Always On Top & Fullscreen agar operator leluasa mengakses taskbar/desktop/Windows+L.
  */
 export function setKioskLockedMode(locked: boolean): Promise<void> {
+  appState.isLocked = locked;
   return enqueueWindowOp(async () => {
     try {
       if (typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window) {
@@ -65,6 +67,7 @@ export function setKioskLockedMode(locked: boolean): Promise<void> {
  * @param enable true untuk menampilkan tombol/titlebar & taskbar (mode halaman admin/onboarding), false untuk mode kiosk fullscreen
  */
 export function setWindowDecorations(enable: boolean): Promise<void> {
+  appState.isLocked = !enable;
   return enqueueWindowOp(async () => {
     try {
       if (typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window) {
@@ -124,6 +127,7 @@ export async function setWindowMinimizable(enable: boolean): Promise<void> {
  * Minimize jendela aplikasi Tauri ke taskbar Windows
  */
 export function minimizeWindow(): Promise<void> {
+  appState.isLocked = false;
   return enqueueWindowOp(async () => {
     try {
       if (typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window) {
@@ -150,6 +154,7 @@ export function minimizeWindow(): Promise<void> {
  * Menutup jendela aplikasi Tauri (Close application)
  */
 export function closeWindow(): Promise<void> {
+  appState.isLocked = false;
   return enqueueWindowOp(async () => {
     try {
       if (typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window) {

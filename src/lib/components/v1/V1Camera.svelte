@@ -1,12 +1,12 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
-  import { Search, RotateCw, FlipHorizontal2, Camera, RefreshCw } from '@lucide/svelte';
+  import { Search, RotateCw, FlipHorizontal2, Camera, RefreshCw, ArrowRight, Loader2 } from '@lucide/svelte';
   import { invoke } from '@tauri-apps/api/core';
   import { cameraStore } from '$lib/camera.svelte';
   import { boothFlow } from '$lib/stores/booth.svelte';
   import { uiConfig } from '$lib/stores/uiConfig.svelte';
   import { boothConfig } from '$lib/stores/boothConfig.svelte';
-  import { runCaptureSequence, extractAndPersistSlotClip } from '$lib/utils/capture';
+  import { runCaptureSequence, extractAndPersistSlotClip, type PauseDecisionAction } from '$lib/utils/capture';
   import { formatTime, getLiveviewTransformStyle } from '$lib/utils/shared';
   import { fetchTemplates, requireActiveBoothId, type BoothTemplate } from '$lib/api/boothClient';
   import { cachedFetch } from '$lib/utils/offlineCache';
@@ -45,11 +45,107 @@
 
   let sessionSecs = $state(boothConfig.config.photoSessionTimeSecs || 60);
   let isRunning = $state(false);
+  let isPausedBetweenCaptures = $state(false);
+  let pausedSlotIndex = $state<number | null>(null);
+  let pauseResolver = $state<((decision: PauseDecisionAction) => void) | null>(null);
   let selectedRetakeIndex = $state<number | null>(null);
   let timer: any = null;
   let liveviewInterval: any = null;
   let frameSrc = $state('');
   let videoEl = $state<HTMLVideoElement | null>(null);
+
+  // Read granular session customization from uiConfig.resolvedDesignBlocks.screens.session
+  let sessionBlocks = $derived(uiConfig.resolvedDesignBlocks?.screens?.session?.blocks ?? []);
+  let cameraBlock = $derived(sessionBlocks.find((b) => b.type === 'camera_preview'));
+  let retakeBtnBlock = $derived(sessionBlocks.find((b) => b.type === 'session_retake_button'));
+  let nextPhotoBtnBlock = $derived(sessionBlocks.find((b) => b.type === 'session_next_photo_button'));
+  let shutterBtnBlock = $derived(sessionBlocks.find((b) => b.type === 'shutter_button'));
+  let framePreviewBlock = $derived(sessionBlocks.find((b) => b.type === 'session_frame_preview'));
+
+  let pauseAfterCaptureEnabled = $derived(Boolean(cameraBlock?.props?.pauseAfterCapture));
+  let customFrameOverlayUrl = $derived(
+    cameraBlock?.props?.frameOverlayUrl
+      ? uiConfig.resolveAssetUrl(String(cameraBlock.props.frameOverlayUrl))
+      : '',
+  );
+  let counterBgColor = $derived(
+    String(cameraBlock?.props?.counterBgColor ?? 'rgba(0, 0, 0, 0.65)'),
+  );
+  let counterTextColor = $derived(String(cameraBlock?.props?.counterTextColor ?? '#ffffff'));
+  let counterBorderColor = $derived(String(cameraBlock?.props?.counterBorderColor ?? '#ffffff'));
+
+  let customLoaderMediaUrl = $derived(
+    cameraBlock?.props?.loaderMediaUrl
+      ? uiConfig.resolveAssetUrl(String(cameraBlock.props.loaderMediaUrl))
+      : '',
+  );
+  let customLoaderMediaType = $derived(
+    String(cameraBlock?.props?.loaderMediaType ?? '') ||
+      (customLoaderMediaUrl.toLowerCase().includes('.mp4') ? 'video' : 'gif'),
+  );
+  let customLoaderTitle = $derived(
+    String(cameraBlock?.props?.loaderTitle ?? 'Sedang capture kamera...'),
+  );
+  let customLoaderSubtitle = $derived(
+    String(
+      cameraBlock?.props?.loaderSubtitle ??
+        'Tahan pose, foto sedang diproses dan live preview sedang disiapkan...',
+    ),
+  );
+  let customLoaderBgColor = $derived(
+    String(cameraBlock?.props?.loaderBgColor ?? 'rgba(0, 0, 0, 0.78)'),
+  );
+  let customLoaderAccentColor = $derived(
+    String(cameraBlock?.props?.loaderAccentColor ?? uiConfig.config.primaryColor),
+  );
+
+  let retakeButtonLabel = $derived(String(retakeBtnBlock?.props?.label ?? 'RETAKE PHOTO'));
+  let nextPhotoButtonLabel = $derived(String(nextPhotoBtnBlock?.props?.label ?? 'NEXT PHOTO'));
+  let finishSessionButtonLabel = $derived(
+    String(nextPhotoBtnBlock?.props?.finishLabel ?? 'Lanjut'),
+  );
+  let showStripFrameBlock = $derived(framePreviewBlock ? framePreviewBlock.visible !== false : true);
+
+  // Intra-Capture Cue Overlay settings ("Lihat ke kamera" + multi-chevron / flash / custom media)
+  let intraCaptureScope = $derived(
+    String(cameraBlock?.props?.intraCaptureScope ?? 'viewfinder') === 'fullscreen'
+      ? 'fullscreen'
+      : 'viewfinder',
+  );
+  let intraCaptureMode = $derived(String(cameraBlock?.props?.intraCaptureMode ?? 'chevron_up'));
+  let intraCaptureText = $derived(String(cameraBlock?.props?.intraCaptureText ?? 'Lihat ke kamera'));
+  let intraCaptureSubtext = $derived(String(cameraBlock?.props?.intraCaptureSubtext ?? ''));
+  let intraCaptureShowChevrons = $derived(cameraBlock?.props?.intraCaptureShowChevrons !== false);
+  let customIntraCaptureMediaUrl = $derived(
+    cameraBlock?.props?.intraCaptureMediaUrl
+      ? uiConfig.resolveAssetUrl(String(cameraBlock.props.intraCaptureMediaUrl))
+      : '',
+  );
+  let customIntraCaptureMediaType = $derived(
+    String(cameraBlock?.props?.intraCaptureMediaType ?? '') ||
+      (customIntraCaptureMediaUrl.toLowerCase().includes('.mp4') ? 'video' : 'image'),
+  );
+  let intraCaptureBgColor = $derived(
+    String(cameraBlock?.props?.intraCaptureBgColor ?? 'transparent'),
+  );
+  let intraCaptureTextColor = $derived(
+    String(cameraBlock?.props?.intraCaptureTextColor ?? '#ffffff'),
+  );
+  let intraCaptureAccentColor = $derived(
+    String(cameraBlock?.props?.intraCaptureAccentColor ?? '#ffffff'),
+  );
+  let intraCaptureDuration = $derived(
+    Math.min(5, Math.max(0.5, Number(cameraBlock?.props?.intraCaptureDuration ?? 1.5))),
+  );
+  let intraCueThresholdSecs = $derived(Math.max(1, Math.round(intraCaptureDuration)));
+  let isIntraCaptureCueActive = $derived(
+    intraCaptureMode !== 'flash_only' &&
+      !boothFlow.isCapturingCamera &&
+      (boothFlow.isFlashActive ||
+        (boothFlow.countdown !== null &&
+          boothFlow.countdown > 0 &&
+          boothFlow.countdown <= intraCueThresholdSecs)),
+  );
 
   // Modal kamera terputus
   let cameraDisconnectModal = $state(false);
@@ -182,10 +278,33 @@
     cameraStore.stopLiveview();
   });
 
+  async function handlePauseAfterSlot(slotIdx: number): Promise<PauseDecisionAction> {
+    isPausedBetweenCaptures = true;
+    pausedSlotIndex = slotIdx;
+    selectedRetakeIndex = slotIdx;
+    return new Promise<PauseDecisionAction>((resolve) => {
+      pauseResolver = resolve;
+    });
+  }
+
+  function resolvePauseDecision(decision: PauseDecisionAction) {
+    if (!pauseResolver) return;
+    const fn = pauseResolver;
+    pauseResolver = null;
+    isPausedBetweenCaptures = false;
+    if (decision === 'next') {
+      pausedSlotIndex = null;
+      selectedRetakeIndex = null;
+    }
+    fn(decision);
+  }
+
   async function handleStartSession() {
     if (isRunning) return;
     isRunning = true;
     selectedRetakeIndex = null;
+    isPausedBetweenCaptures = false;
+    pausedSlotIndex = null;
 
     // Jika sudah ada foto tersimpan dari checkpoint pemulihan, lanjutkan dari slot berikutnya
     const currentValidPhotos = boothFlow.photosTaken.filter(Boolean);
@@ -199,9 +318,13 @@
       slotCount: totalPhotos,
       countdownSecs: boothConfig.config.countdownSecs,
       startSlot,
+      pauseAfterCapture: pauseAfterCaptureEnabled,
+      onPauseAfterSlot: (slotIdx) => handlePauseAfterSlot(slotIdx),
       onCameraDisconnect: handleCameraDisconnect,
     });
 
+    isPausedBetweenCaptures = false;
+    pausedSlotIndex = null;
     isRunning = false;
   }
 
@@ -324,7 +447,18 @@
 
   let allDone = $derived(boothFlow.photosTaken.filter(Boolean).length >= totalPhotos);
   let activeRetakeIdx = $derived(
-    selectedRetakeIndex !== null ? selectedRetakeIndex : (allDone ? 0 : null)
+    selectedRetakeIndex !== null
+      ? selectedRetakeIndex
+      : isPausedBetweenCaptures && pausedSlotIndex !== null
+        ? pausedSlotIndex
+        : allDone
+          ? 0
+          : null,
+  );
+  let showCapturedReviewOverlay = $derived(
+    ((allDone && !isRunning) || isPausedBetweenCaptures) &&
+      activeRetakeIdx !== null &&
+      Boolean(boothFlow.photosTaken[activeRetakeIdx]),
   );
 
   const DEFAULT_BG = 'linear-gradient(135deg, #1e1b4b 0%, #2a2873 50%, #312e81 100%)';
@@ -381,14 +515,58 @@
         </div>
       {/if}
 
-      <!-- Captured Photo Overlay Layer - Shown when allDone and not running retake -->
-      {#if allDone && !isRunning && activeRetakeIdx !== null && boothFlow.photosTaken[activeRetakeIdx]}
+      <!-- Captured Photo Overlay Layer - Shown when allDone or paused after capture -->
+      {#if showCapturedReviewOverlay && activeRetakeIdx !== null}
         <img
           src={boothFlow.photosTaken[activeRetakeIdx]}
           alt={`Photo slot ${activeRetakeIdx + 1}`}
           class="absolute inset-0 w-full h-full object-cover z-20 block"
           style="transform: {getLiveviewTransformStyle(boothConfig.config, cameraStore.cameraMode)};"
         />
+      {/if}
+
+      <!-- Custom Viewfinder Frame Overlay from UI Customize -->
+      {#if customFrameOverlayUrl}
+        <img
+          src={customFrameOverlayUrl}
+          alt="Viewfinder Frame Overlay"
+          class="absolute inset-0 w-full h-full object-fill pointer-events-none select-none z-25"
+        />
+      {/if}
+
+      <!-- Pause After Each Capture Action Bar (Retake Photo / Next Photo) -->
+      {#if isPausedBetweenCaptures && pausedSlotIndex !== null}
+        <div class="absolute bottom-7 left-0 right-0 z-35 flex items-center justify-center gap-4 px-8">
+          <button
+            type="button"
+            onclick={() => resolvePauseDecision('retake')}
+            class="px-7 py-3.5 rounded-xl font-extrabold text-base uppercase tracking-wider flex items-center gap-2.5 shadow-2xl border-2 cursor-pointer transition-transform active:scale-95"
+            style="
+              background: {retakeBtnBlock?.style?.bgColor ?? '#eef6f6'};
+              color: {retakeBtnBlock?.style?.textColor ?? '#4a5568'};
+              border-color: {retakeBtnBlock?.style?.borderColor ?? '#1a1a1e'};
+            "
+          >
+            <span>{retakeButtonLabel} #{pausedSlotIndex + 1}</span>
+            <RotateCw size={18} />
+          </button>
+
+          <button
+            type="button"
+            onclick={() => resolvePauseDecision('next')}
+            class="px-7 py-3.5 rounded-xl font-extrabold text-base uppercase tracking-wider flex items-center gap-2.5 shadow-2xl border-2 cursor-pointer transition-transform active:scale-95"
+            style="
+              background: {nextPhotoBtnBlock?.style?.bgColor ?? '#eef6f6'};
+              color: {nextPhotoBtnBlock?.style?.textColor ?? '#4a5568'};
+              border-color: {nextPhotoBtnBlock?.style?.borderColor ?? '#1a1a1e'};
+            "
+          >
+            <span>
+              {pausedSlotIndex + 1 >= totalPhotos ? finishSessionButtonLabel : nextPhotoButtonLabel}
+            </span>
+            <ArrowRight size={18} />
+          </button>
+        </div>
       {/if}
 
       <!-- Top-left Retake button when allDone and not running capture -->
@@ -399,7 +577,7 @@
             class="flex items-center gap-2 bg-black/80 hover:bg-black text-white border border-white/30 px-5 py-2.5 rounded-full font-bold text-xs shadow-xl backdrop-blur-md cursor-pointer transition-transform active:scale-95"
           >
             <RotateCw size={15} />
-            <span>Ulang Foto {activeRetakeIdx + 1}</span>
+            <span>{retakeButtonLabel} #{activeRetakeIdx + 1}</span>
           </button>
         </div>
       {/if}
@@ -423,29 +601,135 @@
         </div>
       {/if}
 
-      <!-- Countdown Overlay -->
-      {#if boothFlow.countdown !== null && boothFlow.countdown > 0}
+      <!-- Customizable Countdown Overlay -->
+      {#if boothFlow.countdown !== null && boothFlow.countdown > 0 && !isIntraCaptureCueActive}
         <div class="absolute inset-0 flex items-center justify-center pointer-events-none z-30">
-          <div class="w-36 h-36 rounded-full bg-black/60 border-4 border-white flex items-center justify-center text-6xl font-extrabold text-white">
+          <div
+            class="w-36 h-36 rounded-full border-4 flex items-center justify-center text-6xl font-extrabold shadow-2xl"
+            style="
+              background: {counterBgColor};
+              color: {counterTextColor};
+              border-color: {counterBorderColor};
+            "
+          >
             {boothFlow.countdown}
           </div>
         </div>
       {/if}
 
-      <!-- Overlay status saat sedang capture & menstabilkan liveview kamera -->
-      {#if boothFlow.isCapturingCamera}
-        <div class="absolute inset-0 bg-black/75 backdrop-blur-sm z-40 flex flex-col items-center justify-center p-6 text-center select-none pointer-events-auto">
-          <div
-            class="w-20 h-20 rounded-full flex items-center justify-center mb-4 text-white shadow-2xl"
-            style="background: {uiConfig.config.primaryColor}30; border: 2px solid {uiConfig.config.primaryColor};"
-          >
-            <Camera size={38} class="animate-pulse" style="color: {uiConfig.config.primaryColor};" />
+      <!-- Intra-Capture Cue Overlay inside Viewfinder (when intraCaptureScope === 'viewfinder') -->
+      {#if isIntraCaptureCueActive && intraCaptureScope === 'viewfinder'}
+        <div
+          class="absolute inset-0 z-35 backdrop-blur-[2px] flex flex-col items-center justify-between py-10 px-6 text-center pointer-events-none select-none"
+          style="background: {intraCaptureBgColor};"
+        >
+          {#if intraCaptureMode === 'chevron_up' || intraCaptureShowChevrons}
+            <div class="flex flex-col items-center -space-y-2.5 animate-bounce" style="color: {intraCaptureAccentColor};">
+              <svg width="48" height="26" viewBox="0 0 44 24" fill="none" stroke="currentColor" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" class="opacity-55">
+                <path d="M6 19L22 5L38 19" />
+              </svg>
+              <svg width="48" height="26" viewBox="0 0 44 24" fill="none" stroke="currentColor" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" class="opacity-80">
+                <path d="M6 19L22 5L38 19" />
+              </svg>
+              <svg width="48" height="26" viewBox="0 0 44 24" fill="none" stroke="currentColor" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M6 19L22 5L38 19" />
+              </svg>
+            </div>
+          {:else}
+            <div></div>
+          {/if}
+
+          <div class="flex flex-col items-center justify-center gap-3 my-auto">
+            {#if (intraCaptureMode === 'custom' || intraCaptureMode === 'custom_media' || (!intraCaptureMode.includes('flash') && customIntraCaptureMediaUrl)) && customIntraCaptureMediaUrl}
+              <div class="max-w-[280px] max-h-[220px] flex items-center justify-center pointer-events-none bg-transparent">
+                {#if customIntraCaptureMediaType === 'video'}
+                  <video
+                    src={customIntraCaptureMediaUrl}
+                    autoplay
+                    loop
+                    muted
+                    playsinline
+                    class="max-w-full max-h-full object-contain block bg-transparent"
+                  ></video>
+                {:else}
+                  <img
+                    src={customIntraCaptureMediaUrl}
+                    alt="Intra capture cue"
+                    class="max-w-full max-h-full object-contain block bg-transparent"
+                  />
+                {/if}
+              </div>
+            {/if}
+
+            {#if intraCaptureText}
+              <div
+                class="text-4xl font-extrabold tracking-tight drop-shadow-[0_4px_24px_rgba(0,0,0,0.75)]"
+                style="color: {intraCaptureTextColor};"
+              >
+                {intraCaptureText}
+              </div>
+            {/if}
+            {#if intraCaptureSubtext}
+              <div class="text-sm font-semibold opacity-85" style="color: {intraCaptureTextColor};">
+                {intraCaptureSubtext}
+              </div>
+            {/if}
+            {#if Array.isArray(cameraBlock?.props?.intraCaptureExtraTexts)}
+              {#each cameraBlock.props.intraCaptureExtraTexts as extraTxt}
+                {#if extraTxt}
+                  <div class="text-sm font-semibold opacity-90 drop-shadow-[0_2px_12px_rgba(0,0,0,0.85)] text-white">
+                    {extraTxt}
+                  </div>
+                {/if}
+              {/each}
+            {/if}
           </div>
+
+          <div class="h-6"></div>
+        </div>
+      {/if}
+
+      <!-- Overlay status saat sedang capture & menstabilkan liveview kamera (Supports Custom Video MP4 / GIF Loader) -->
+      {#if boothFlow.isCapturingCamera}
+        <div
+          class="absolute inset-0 backdrop-blur-sm z-40 flex flex-col items-center justify-center p-6 text-center select-none pointer-events-auto"
+          style="background: {customLoaderBgColor};"
+        >
+          {#if customLoaderMediaUrl}
+            <div
+              class="rounded-2xl overflow-hidden shadow-2xl border-2 mb-4 flex items-center justify-center bg-black/30"
+              style="border-color: {customLoaderAccentColor}; max-width: 220px; max-height: 220px;"
+            >
+              {#if customLoaderMediaType === 'video'}
+                <video
+                  src={customLoaderMediaUrl}
+                  autoplay
+                  loop
+                  muted
+                  playsinline
+                  class="max-w-[220px] max-h-[220px] w-auto h-auto object-contain block"
+                ></video>
+              {:else}
+                <img
+                  src={customLoaderMediaUrl}
+                  alt="Loading"
+                  class="max-w-[220px] max-h-[220px] w-auto h-auto object-contain block"
+                />
+              {/if}
+            </div>
+          {:else}
+            <div
+              class="w-20 h-20 rounded-full flex items-center justify-center mb-4 text-white shadow-2xl"
+              style="background: {customLoaderAccentColor}30; border: 2px solid {customLoaderAccentColor};"
+            >
+              <Camera size={38} class="animate-pulse" style="color: {customLoaderAccentColor};" />
+            </div>
+          {/if}
           <h2 class="text-2xl font-black text-white uppercase tracking-wider mb-2 drop-shadow">
-            {boothFlow.captureMessage || "Sedang capture kamera..."}
+            {boothFlow.captureMessage || customLoaderTitle}
           </h2>
           <p class="text-white/80 text-sm max-w-sm font-medium">
-            Tahan pose, foto sedang diproses dan live preview sedang disiapkan...
+            {customLoaderSubtitle}
           </p>
         </div>
       {/if}
@@ -544,7 +828,7 @@
                       <div class="w-full h-full bg-black/40 relative">
                         {#if capturedPhoto}
                           <img src={capturedPhoto} alt={`Photo ${targetIdx + 1}`} class="w-full h-full object-cover block" style="transform: {getLiveviewTransformStyle(boothConfig.config, cameraStore.cameraMode)};" />
-                          {#if allDone}
+                          {#if allDone || isPausedBetweenCaptures}
                             <button
                               type="button"
                               onclick={(e) => {
@@ -604,7 +888,7 @@
               title="Ambil ulang foto pada slot yang dipilih"
             >
               <RotateCw size={15} />
-              <span>Retake {activeRetakeIdx !== null ? `Foto ${activeRetakeIdx + 1}` : 'Foto'}</span>
+              <span>{retakeButtonLabel} {activeRetakeIdx !== null ? `#${activeRetakeIdx + 1}` : ''}</span>
             </button>
             <button
               type="button"
@@ -612,10 +896,29 @@
               disabled={isRunning}
               class="flex-1 flex items-center justify-center gap-2 bg-[#111117] hover:bg-[#2a2838] text-white border-none rounded-full px-4 py-3.5 font-bold text-sm cursor-pointer transition-all active:scale-95 shadow-sm"
             >
-              Lanjut
+              {finishSessionButtonLabel}
               <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
                 <path d="M8.25 4.5l7.5 7.5-7.5 7.5" stroke-linecap="round" stroke-linejoin="round" />
               </svg>
+            </button>
+          </div>
+        {:else if isPausedBetweenCaptures && pausedSlotIndex !== null}
+          <div class="shrink-0 flex items-center gap-2 w-full">
+            <button
+              type="button"
+              onclick={() => resolvePauseDecision('retake')}
+              class="flex-1 flex items-center justify-center gap-2 bg-[#f4ece3] hover:bg-[#e8ded3] text-[#111117] border-none rounded-full px-4 py-3.5 font-bold text-sm cursor-pointer transition-all active:scale-95 shadow-sm"
+            >
+              <RotateCw size={15} />
+              <span>{retakeButtonLabel} #{pausedSlotIndex + 1}</span>
+            </button>
+            <button
+              type="button"
+              onclick={() => resolvePauseDecision('next')}
+              class="flex-1 flex items-center justify-center gap-2 bg-[#111117] hover:bg-[#2a2838] text-white border-none rounded-full px-4 py-3.5 font-bold text-sm cursor-pointer transition-all active:scale-95 shadow-sm"
+            >
+              <span>{pausedSlotIndex + 1 >= totalPhotos ? finishSessionButtonLabel : nextPhotoButtonLabel}</span>
+              <ArrowRight size={15} />
             </button>
           </div>
         {:else}
@@ -633,6 +936,78 @@
       </div>
     </div>
   </div>
+
+  <!-- Full-Screen Intra-Capture Cue Overlay (when intraCaptureScope === 'fullscreen') -->
+  {#if isIntraCaptureCueActive && intraCaptureScope === 'fullscreen'}
+    <div
+      class="fixed inset-0 z-45 backdrop-blur-[3px] flex flex-col items-center justify-between py-12 px-8 text-center pointer-events-none select-none"
+      style="background: {intraCaptureBgColor};"
+    >
+      {#if intraCaptureMode === 'chevron_up' || intraCaptureShowChevrons}
+        <div class="flex flex-col items-center -space-y-3 animate-bounce" style="color: {intraCaptureAccentColor};">
+          <svg width="68" height="36" viewBox="0 0 44 24" fill="none" stroke="currentColor" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" class="opacity-55">
+            <path d="M6 19L22 5L38 19" />
+          </svg>
+          <svg width="68" height="36" viewBox="0 0 44 24" fill="none" stroke="currentColor" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" class="opacity-80">
+            <path d="M6 19L22 5L38 19" />
+          </svg>
+          <svg width="68" height="36" viewBox="0 0 44 24" fill="none" stroke="currentColor" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M6 19L22 5L38 19" />
+          </svg>
+        </div>
+      {:else}
+        <div></div>
+      {/if}
+
+      <div class="flex flex-col items-center justify-center gap-4 my-auto">
+        {#if (intraCaptureMode === 'custom' || intraCaptureMode === 'custom_media' || (!intraCaptureMode.includes('flash') && customIntraCaptureMediaUrl)) && customIntraCaptureMediaUrl}
+          <div class="max-w-[420px] max-h-[340px] flex items-center justify-center pointer-events-none bg-transparent">
+            {#if customIntraCaptureMediaType === 'video'}
+              <video
+                src={customIntraCaptureMediaUrl}
+                autoplay
+                loop
+                muted
+                playsinline
+                class="max-w-full max-h-full object-contain block bg-transparent"
+              ></video>
+            {:else}
+              <img
+                src={customIntraCaptureMediaUrl}
+                alt="Intra capture cue"
+                class="max-w-full max-h-full object-contain block bg-transparent"
+              />
+            {/if}
+          </div>
+        {/if}
+
+        {#if intraCaptureText}
+          <div
+            class="text-5xl font-black tracking-tight drop-shadow-[0_6px_30px_rgba(0,0,0,0.85)]"
+            style="color: {intraCaptureTextColor};"
+          >
+            {intraCaptureText}
+          </div>
+        {/if}
+        {#if intraCaptureSubtext}
+          <div class="text-lg font-semibold opacity-90" style="color: {intraCaptureTextColor};">
+            {intraCaptureSubtext}
+          </div>
+        {/if}
+        {#if Array.isArray(cameraBlock?.props?.intraCaptureExtraTexts)}
+          {#each cameraBlock.props.intraCaptureExtraTexts as extraTxt}
+            {#if extraTxt}
+              <div class="text-lg font-semibold opacity-95 drop-shadow-[0_3px_16px_rgba(0,0,0,0.9)] text-white">
+                {extraTxt}
+              </div>
+            {/if}
+          {/each}
+        {/if}
+      </div>
+
+      <div class="h-8"></div>
+    </div>
+  {/if}
 
   <!-- Modal Kamera Terputus Saat Sesi Berlangsung -->
   {#if cameraDisconnectModal}

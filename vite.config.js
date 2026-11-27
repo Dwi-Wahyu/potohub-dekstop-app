@@ -1,6 +1,10 @@
-import { defineConfig } from "vite";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { defineConfig, loadEnv } from "vite";
 import { sveltekit } from "@sveltejs/kit/vite";
 import tailwindcss from "@tailwindcss/vite";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 /** @returns {import('vite').Plugin} */
 function svelteEmptyStyleFallbackPlugin() {
@@ -21,9 +25,17 @@ const host = process.env.TAURI_DEV_HOST;
 const isDevArg = process.argv.some(
   (arg) => arg === '--development' || arg === '-d' || arg === '--dev'
 );
+/** @type {Record<string, string>} */
+let fileEnv = {};
+try {
+  // @ts-ignore process is a nodejs global
+  fileEnv = loadEnv('development', process.cwd(), '');
+} catch {}
 const isEnvDev =
   process.env.DEVELOPMENT === 'true' ||
-  process.env.VITE_ENABLE_DEV_WEBCAM === 'true';
+  process.env.VITE_ENABLE_DEV_WEBCAM === 'true' ||
+  fileEnv['DEVELOPMENT'] === 'true' ||
+  fileEnv['VITE_ENABLE_DEV_WEBCAM'] === 'true';
 const isDevWebcam = isDevArg || isEnvDev;
 if (isDevWebcam) {
   process.env.VITE_ENABLE_DEV_WEBCAM = 'true';
@@ -31,11 +43,14 @@ if (isDevWebcam) {
 
 // https://vite.dev/config/
 export default defineConfig(async () => ({
-  envPrefix: ['VITE_', 'PUBLIC_', 'ADMIN_', 'R2_'],
+  envPrefix: ['VITE_', 'PUBLIC_', 'ADMIN_', 'R2_', 'SOFTFILE_'],
   define: {
     __DEV_WEBCAM__: JSON.stringify(isDevWebcam),
   },
   plugins: [tailwindcss(), sveltekit(), svelteEmptyStyleFallbackPlugin()],
+  resolve: {
+    dedupe: ['svelte', '@lucide/svelte'],
+  },
   optimizeDeps: {
     exclude: ['@potohub/booth-ui'],
   },

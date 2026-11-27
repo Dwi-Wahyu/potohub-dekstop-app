@@ -123,7 +123,9 @@ class BoothConfigStore {
           paymentPage: !!early,
           basePrice: baseVal,
           skipPayment: parsed.skipPayment ?? false,
-          cameraMode: parsed.cameraMode ?? (isDevWebcamEnabled() ? 'webcam' : DEFAULT_CFG.cameraMode),
+          cameraMode: isDevWebcamEnabled()
+            ? 'webcam'
+            : (parsed.cameraMode ?? DEFAULT_CFG.cameraMode),
         };
       } else {
         this.config = { ...DEFAULT_CFG };

@@ -17,8 +17,8 @@
   import { createDesktopUiAdapter } from '$lib/adapters/boothUiAdapter.svelte';
   import KioskStartShell from '$lib/components/shared/KioskStartShell.svelte';
   import KioskFrameWrapper from '$lib/components/shared/KioskFrameWrapper.svelte';
-  import V2Payment from './V2Payment.svelte';
-  import V2Qris from './V2Qris.svelte';
+  import KioskPaymentWrapper from '$lib/components/shared/KioskPaymentWrapper.svelte';
+  import KioskQrisWrapper from '$lib/components/shared/KioskQrisWrapper.svelte';
   import V2Ticket from './V2Ticket.svelte';
   import V2Session from './V2Session.svelte';
   import V2Filter from './V2Filter.svelte';
@@ -46,7 +46,7 @@
     landing: 'start',
     tutorial: 'tutorial',
     payment: 'payment',
-    qris: 'payment',
+    qris: 'qris',
     ticket: 'ticket',
     frame: 'frame',
     session: 'session',
@@ -204,6 +204,12 @@
     step = 'landing';
   }
 
+  let v2BasePrice = $derived(
+    boothConfig.config.earlyPaymentPage && boothConfig.config.basePrice > 0
+      ? boothConfig.config.basePrice
+      : (uiConfig.config.categories[0]?.basePrice ?? 35000),
+  );
+
   const V2_DEFAULT_BG = '#fafafa';
   const getV2Bg = (stepKey: string) => uiConfig.getStepStyle(stepKey).background ?? V2_DEFAULT_BG;
 
@@ -234,8 +240,10 @@
   {:else if step === 'tutorial'}
     <TutorialScreen doc={uiConfig.resolvedDesignBlocks} adapter={designBlockAdapter} />
   {:else if step === 'payment'}
-    <V2Payment
-      background={getV2Bg('payment')}
+    <KioskPaymentWrapper
+      doc={uiConfig.resolvedDesignBlocks}
+      basePrice={v2BasePrice}
+      enableQtyModal={true}
       onSelect={handlePaymentSelect}
       onBack={() => {
         if (boothConfig.config.earlyPaymentPage) {
@@ -246,7 +254,12 @@
       }}
     />
   {:else if step === 'qris'}
-    <V2Qris background={getV2Bg('payment')} onSuccess={handleQrisSuccess} onBack={() => (step = 'payment')} />
+    <KioskQrisWrapper
+      doc={uiConfig.resolvedDesignBlocks}
+      totalPrice={v2BasePrice * (boothFlow.printQty || 1)}
+      onSuccess={handleQrisSuccess}
+      onBack={() => (step = 'payment')}
+    />
   {:else if step === 'ticket'}
     <V2Ticket background={getV2Bg('ticket')} onConfirm={handleTicketConfirm} onBack={() => (step = 'payment')} />
   {:else if step === 'frame'}

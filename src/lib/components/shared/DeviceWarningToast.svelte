@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { AlertTriangle, Camera, Printer, RotateCw, Settings, Info, RefreshCw } from '@lucide/svelte';
-  import { cameraStore } from '$lib/camera.svelte';
+  import { cameraStore, isDevWebcamEnabled } from '$lib/camera.svelte';
   import { printerStore } from '$lib/printer.svelte';
   import { boothConfig } from '$lib/stores/boothConfig.svelte';
 
@@ -149,8 +149,16 @@
     }
   }
 
+  // Cek apakah mode dev webcam aktif (VITE_ENABLE_DEV_WEBCAM=true) — tidak perlu warning kamera pada start screen
+  let isDevWebcam = $derived(
+    isDevWebcamEnabled() ||
+    cameraStore.isDevMode ||
+    cameraStore.cameraMode === 'webcam'
+  );
+
   // Cek apakah kamera sudah siap / online
   let isCameraOffline = $derived(
+    !isDevWebcam &&
     cameraStore.status !== 'connected' &&
     cameraStore.status !== 'connecting' &&
     !cameraStore.isDetecting &&

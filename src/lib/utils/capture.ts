@@ -51,11 +51,15 @@ export function extractAndPersistSlotClip(slotIndex: number, captureTs: number):
   return boothFlow.trackClipPromise(promise);
 }
 
+export type PauseDecisionAction = 'next' | 'retake';
+
 export interface CaptureSequenceOptions {
   slotCount: number;
   countdownSecs: number;
   startSlot?: number;
+  pauseAfterCapture?: boolean;
   onCapturePhoto?: (photoUrl: string, slotIndex: number) => void;
+  onPauseAfterSlot?: (slotIndex: number, photoUrl: string) => Promise<PauseDecisionAction>;
   onCameraDisconnect?: () => Promise<boolean>; // return true jika berhasil reconnect & lanjut, false jika batalkan
 }
 
@@ -67,14 +71,18 @@ export async function runCaptureSequence(
   let slotCount: number;
   let countdownSecs: number;
   let startSlot = 0;
+  let pauseAfterCapture = false;
   let onCapturePhoto: ((photoUrl: string, slotIndex: number) => void) | undefined;
+  let onPauseAfterSlot: ((slotIndex: number, photoUrl: string) => Promise<PauseDecisionAction>) | undefined;
   let onCameraDisconnect: (() => Promise<boolean>) | undefined;
 
   if (typeof slotCountOrOptions === 'object') {
     slotCount = slotCountOrOptions.slotCount;
     countdownSecs = slotCountOrOptions.countdownSecs;
     startSlot = slotCountOrOptions.startSlot ?? 0;
+    pauseAfterCapture = Boolean(slotCountOrOptions.pauseAfterCapture);
     onCapturePhoto = slotCountOrOptions.onCapturePhoto;
+    onPauseAfterSlot = slotCountOrOptions.onPauseAfterSlot;
     onCameraDisconnect = slotCountOrOptions.onCameraDisconnect;
   } else {
     slotCount = slotCountOrOptions;
@@ -226,9 +234,24 @@ export async function runCaptureSequence(
       }
 
       // Jeda aman stabilisasi kamera sebelum slot berikutnya (mencegah DEVICE_BUSY pada EOS R / DSLR)
-      if (i < slotCount - 1) {
+      if (i < slotCount - 1 && !pauseAfterCapture) {
         boothFlow.captureMessage = 'Menstabilkan kamera...';
         await new Promise((r) => setTimeout(r, 600));
+      }
+
+      // Pause after each capture between slots (slots 1..N-1). On the final slot, allDone becomes true so the user can review/retake any slot or tap Lanjut once.
+      if (pauseAfterCapture && onPauseAfterSlot && i < slotCount - 1) {
+        cameraStore.setPreparingCapture(false);
+        boothFlow.isFlashActive = false;
+        boothFlow.isCapturingCamera = false;
+        boothFlow.captureMessage = null;
+
+        const decision = await onPauseAfterSlot(slotIndex, photoUrl);
+        if (boothFlow.sessionGeneration !== startGen) return;
+        if (decision === 'retake') {
+          i--;
+          continue;
+        }
       }
     } catch (err) {
       console.error('Capture error:', err);

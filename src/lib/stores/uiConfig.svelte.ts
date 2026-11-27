@@ -2,7 +2,9 @@ import { invoke, convertFileSrc } from '@tauri-apps/api/core';
 import { getAssetCacheMeta } from '$lib/db/local';
 import {
   collectDesignBlockAssetUrls,
+  loadCustomFonts,
   migrateLegacyConfigToDesignBlocks,
+  normalizeSessionScreenBlocks,
   type DesignBlocksDocument,
 } from '@potohub/booth-ui';
 
@@ -117,8 +119,7 @@ class UIConfigStore {
   }
 
   get resolvedDesignBlocks(): DesignBlocksDocument {
-    if (this.config.designBlocks) return this.config.designBlocks;
-    return migrateLegacyConfigToDesignBlocks({
+    const fallback = migrateLegacyConfigToDesignBlocks({
       template_variant: this.config.templateVariant,
       booth_name: this.config.boothName,
       tagline: this.config.tagline,
@@ -166,6 +167,18 @@ class UIConfigStore {
         bg_value: s.bgValue,
         bg_blur: s.bgBlur,
       })),
+    });
+
+    const rawDoc = this.config.designBlocks;
+    if (!rawDoc || !rawDoc.screens) return normalizeSessionScreenBlocks(fallback);
+
+    return normalizeSessionScreenBlocks({
+      ...fallback,
+      ...rawDoc,
+      screens: {
+        ...fallback.screens,
+        ...rawDoc.screens,
+      },
     });
   }
 
@@ -229,6 +242,11 @@ class UIConfigStore {
       } catch (e) {
         console.warn('[uiConfig] Gagal resolve asset cache:', e);
       }
+    }
+
+    const customFonts = this.resolvedDesignBlocks.theme?.custom_fonts;
+    if (customFonts && customFonts.length > 0) {
+      await loadCustomFonts(customFonts, (u) => this.resolveAssetUrl(u));
     }
   }
 

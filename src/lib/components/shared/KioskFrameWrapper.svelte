@@ -20,6 +20,13 @@
   let frameSrc = $state('');
   let liveviewInterval: ReturnType<typeof setInterval> | null = null;
 
+  let shouldRunLiveview = $derived(
+    doc.screens.frame.blocks.some(
+      (b) => b.type === 'frame_live_preview' && b.visible !== false && b.props?.showLiveCamera !== false,
+    ),
+  );
+  let liveviewStarted = false;
+
   onMount(async () => {
     const catalogPromise = (async () => {
       try {
@@ -45,21 +52,28 @@
       }
     })();
 
-    await cameraStore.startLiveview(null);
-    if (cameraStore.cameraMode === 'usb' || cameraStore.cameraMode === 'demo') {
-      const firstFrame = await cameraStore.getLiveviewFrame();
-      if (firstFrame) frameSrc = firstFrame;
-      let fetching = false;
-      liveviewInterval = setInterval(async () => {
-        if (fetching) return;
-        fetching = true;
-        try {
-          const url = await cameraStore.getLiveviewFrame();
-          if (url) frameSrc = url;
-        } finally {
-          fetching = false;
-        }
-      }, 150);
+    if (shouldRunLiveview) {
+      liveviewStarted = true;
+      await cameraStore.checkDevMode();
+      if ((cameraStore.isDevMode || cameraStore.cameraMode === 'webcam') && cameraStore.cameraMode !== 'demo') {
+        cameraStore.cameraMode = 'webcam';
+      }
+      await cameraStore.startLiveview(null);
+      if (cameraStore.cameraMode === 'usb' || cameraStore.cameraMode === 'demo') {
+        const firstFrame = await cameraStore.getLiveviewFrame();
+        if (firstFrame) frameSrc = firstFrame;
+        let fetching = false;
+        liveviewInterval = setInterval(async () => {
+          if (fetching) return;
+          fetching = true;
+          try {
+            const url = await cameraStore.getLiveviewFrame();
+            if (url) frameSrc = url;
+          } finally {
+            fetching = false;
+          }
+        }, 150);
+      }
     }
 
     await catalogPromise;
@@ -67,7 +81,9 @@
 
   onDestroy(() => {
     if (liveviewInterval) clearInterval(liveviewInterval);
-    cameraStore.stopLiveview();
+    if (liveviewStarted) {
+      cameraStore.stopLiveview();
+    }
   });
 
   let adapter = $derived(

@@ -18,8 +18,8 @@
   import { createDesktopUiAdapter } from '$lib/adapters/boothUiAdapter.svelte';
   import KioskStartShell from '$lib/components/shared/KioskStartShell.svelte';
   import KioskFrameWrapper from '$lib/components/shared/KioskFrameWrapper.svelte';
-  import V3Package from './V3Package.svelte';
-  import V3Payment from './V3Payment.svelte';
+  import KioskPaymentWrapper from '$lib/components/shared/KioskPaymentWrapper.svelte';
+  import KioskQrisWrapper from '$lib/components/shared/KioskQrisWrapper.svelte';
   import V3Ticket from './V3Ticket.svelte';
   import V3Session from './V3Session.svelte';
   import V3Filter from './V3Filter.svelte';
@@ -246,6 +246,25 @@
   };
   const getV3Bg = (stepKey: string) => uiConfig.getStepStyle(stepKey).background ?? V3_DEFAULT_BG_MAP[stepKey] ?? '#fdfdfd';
 
+  let v3BasePrice = $derived(
+    boothConfig.config.earlyPaymentPage && boothConfig.config.basePrice > 0
+      ? boothConfig.config.basePrice
+      : (selectedPackage?.basePrice ?? uiConfig.config.categories[0]?.basePrice ?? 35000),
+  );
+
+  const V3_STEP_TO_UI_STEP: Record<V3Step, string> = {
+    start: 'start',
+    tutorial: 'tutorial',
+    package: 'payment',
+    payment: 'qris',
+    ticket: 'ticket',
+    frame: 'frame',
+    session: 'session',
+    filter: 'filter',
+    loading: 'loading',
+    download: 'download',
+  };
+
   let designBlockAdapter = $derived(
     createDesktopUiAdapter({
       categories: [],
@@ -261,10 +280,10 @@
 </script>
 
 <ProgressiveBackground
-  src={uiConfig.getStepImageSrc(step)}
-  blurSrc={uiConfig.getStepBlur(step)}
+  src={uiConfig.getStepImageSrc(V3_STEP_TO_UI_STEP[step])}
+  blurSrc={uiConfig.getStepBlur(V3_STEP_TO_UI_STEP[step])}
   class="w-screen h-screen overflow-hidden"
-  style="background: {getV3Bg(step)};"
+  style="background: {getV3Bg(V3_STEP_TO_UI_STEP[step])};"
 >
   {#if step === 'start'}
     <KioskStartShell variant="v3" onOpenConfig={handleOpenConfig}>
@@ -273,10 +292,16 @@
   {:else if step === 'tutorial'}
     <TutorialScreen doc={uiConfig.resolvedDesignBlocks} adapter={designBlockAdapter} />
   {:else if step === 'package'}
-    <V3Package
-      background={getV3Bg('package')}
-      onSelectPackage={handleSelectPackage}
-      onSelectMethod={handlePaymentSelectMethod}
+    <KioskPaymentWrapper
+      doc={uiConfig.resolvedDesignBlocks}
+      basePrice={v3BasePrice}
+      onSelect={(method) => {
+        if (method === 'ticket') {
+          handlePaymentSelectMethod('ticket');
+        } else {
+          step = 'payment';
+        }
+      }}
       onBack={() => {
         if (boothConfig.config.earlyPaymentPage) {
           step = 'tutorial';
@@ -286,7 +311,12 @@
       }}
     />
   {:else if step === 'payment'}
-    <V3Payment background={getV3Bg('payment')} selectedPackage={selectedPackage} onSelectMethod={handlePaymentSelectMethod} onBack={() => (step = 'package')} />
+    <KioskQrisWrapper
+      doc={uiConfig.resolvedDesignBlocks}
+      totalPrice={v3BasePrice * (boothFlow.printQty || 1)}
+      onSuccess={() => handlePaymentSelectMethod('cashless')}
+      onBack={() => (step = 'package')}
+    />
   {:else if step === 'ticket'}
     <V3Ticket background={getV3Bg('ticket')} onConfirm={handleTicketConfirm} onBack={() => (step = 'payment')} />
   {:else if step === 'frame'}

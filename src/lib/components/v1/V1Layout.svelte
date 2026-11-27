@@ -17,9 +17,10 @@
   import { createDesktopUiAdapter } from '$lib/adapters/boothUiAdapter.svelte';
   import KioskStartShell from '$lib/components/shared/KioskStartShell.svelte';
   import KioskFrameWrapper from '$lib/components/shared/KioskFrameWrapper.svelte';
-  import V1PaymentMethod from './V1PaymentMethod.svelte';
+  import KioskPaymentWrapper from '$lib/components/shared/KioskPaymentWrapper.svelte';
+  import KioskQrisWrapper from '$lib/components/shared/KioskQrisWrapper.svelte';
+  import KioskSessionWrapper from '$lib/components/shared/KioskSessionWrapper.svelte';
   import V1PrintQty from './V1PrintQty.svelte';
-  import V1QRISPayment from './V1QRISPayment.svelte';
   import V1Camera from './V1Camera.svelte';
   import V1Customize from './V1Customize.svelte';
   import V1Complete from './V1Complete.svelte';
@@ -43,7 +44,7 @@
     category_frame: 'frame',
     print_qty: 'frame',
     ticket: 'ticket',
-    payment: 'payment',
+    payment: 'qris',
     camera: 'session',
     customize: 'filter',
     complete: 'download'
@@ -244,8 +245,9 @@
       onBack={() => (currentSubStep = 'category_frame')}
     />
   {:else if currentSubStep === 'method_select'}
-    <V1PaymentMethod
-      background={getV1Bg('payment')}
+    <KioskPaymentWrapper
+      doc={uiConfig.resolvedDesignBlocks}
+      basePrice={effectiveBasePrice}
       onSelect={handleMethodSelect}
       onBack={() => {
         if (boothConfig.config.earlyPaymentPage) {
@@ -280,18 +282,27 @@
       onBack={() => (currentSubStep = 'method_select')}
     />
   {:else if currentSubStep === 'payment'}
-    <V1QRISPayment
-      background={getV1Bg('payment')}
+    <KioskQrisWrapper
+      doc={uiConfig.resolvedDesignBlocks}
       totalPrice={effectiveBasePrice * (boothFlow.printQty || 1)}
       onSuccess={handlePaymentSuccess}
       onBack={() => (currentSubStep = 'method_select')}
     />
   {:else if currentSubStep === 'camera'}
-    <V1Camera
-      background={getV1Bg('session')}
-      frameConfigId={selectedFrameConfigId}
-      onComplete={handleCameraComplete}
-    />
+    {#if uiConfig.config.designBlocks?.screens?.session}
+      <KioskSessionWrapper
+        doc={uiConfig.resolvedDesignBlocks}
+        frameConfigId={selectedFrameConfigId}
+        onComplete={handleCameraComplete}
+        onBack={() => (currentSubStep = 'category_frame')}
+      />
+    {:else}
+      <V1Camera
+        background={getV1Bg('session')}
+        frameConfigId={selectedFrameConfigId}
+        onComplete={handleCameraComplete}
+      />
+    {/if}
   {:else if currentSubStep === 'customize'}
     <V1Customize
       background={getV1Bg('filter')}

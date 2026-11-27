@@ -732,6 +732,97 @@ pub fn init_gphoto_environment() {
     }
 }
 
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AppUpdateMetadata {
+    rid: tauri::ResourceId,
+    current_version: String,
+    version: String,
+    date: Option<String>,
+    body: Option<String>,
+    raw_json: serde_json::Value,
+}
+
+fn resolve_env_api_base(explicit: Option<String>) -> String {
+    if let Some(val) = explicit {
+        let trimmed = val.trim().trim_end_matches('/').to_string();
+        if !trimmed.is_empty() {
+            return trimmed;
+        }
+    }
+    for key in ["PUBLIC_API_BASE_URL", "VITE_API_BASE_URL"] {
+        if let Ok(val) = std::env::var(key) {
+            let trimmed = val.trim().trim_matches('"').trim_matches('\'').trim_end_matches('/').to_string();
+            if !trimmed.is_empty() {
+                return trimmed;
+            }
+        }
+    }
+    for path in [".env", "../.env"] {
+        if let Ok(content) = std::fs::read_to_string(path) {
+            for line in content.lines() {
+                let line = line.trim();
+                if line.is_empty() || line.starts_with('#') {
+                    continue;
+                }
+                if let Some((k, v)) = line.split_once('=') {
+                    let k = k.trim();
+                    if k == "PUBLIC_API_BASE_URL" || k == "VITE_API_BASE_URL" {
+                        let cleaned = v.trim().trim_matches('"').trim_matches('\'').trim_end_matches('/').to_string();
+                        if !cleaned.is_empty() {
+                            return cleaned;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    if cfg!(debug_assertions) {
+        "http://localhost:8080/api".to_string()
+    } else {
+        "https://potohub.com/api".to_string()
+    }
+}
+
+#[tauri::command]
+async fn check_app_update<R: tauri::Runtime>(
+    webview: tauri::Webview<R>,
+    api_base: Option<String>,
+) -> Result<Option<AppUpdateMetadata>, String> {
+    use tauri_plugin_updater::UpdaterExt;
+
+    let base = resolve_env_api_base(api_base);
+    let endpoint_template = format!("{}/app/update/{{{{target}}}}/{{{{arch}}}}/{{{{current_version}}}}", base);
+    let endpoint_url = tauri::Url::parse(&endpoint_template)
+        .map_err(|e| format!("Invalid updater endpoint URL ({endpoint_template}): {e}"))?;
+
+    let builder = webview
+        .updater_builder()
+        .endpoints(vec![endpoint_url])
+        .map_err(|e| e.to_string())?;
+    let updater = builder.build().map_err(|e| e.to_string())?;
+    let update = updater.check().await.map_err(|e| e.to_string())?;
+
+    if let Some(update) = update {
+        let current_version = update.current_version.clone();
+        let version = update.version.clone();
+        let date = update.date.map(|d| d.to_string());
+        let body = update.body.clone();
+        let raw_json = update.raw_json.clone();
+        let rid = webview.resources_table().add(update);
+        Ok(Some(AppUpdateMetadata {
+            rid,
+            current_version,
+            version,
+            date,
+            body,
+            raw_json,
+        }))
+    } else {
+        Ok(None)
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     #[cfg(target_os = "windows")]
@@ -994,6 +1085,7 @@ pub fn run() {
             install_usbdk,
             open_log_dir,
             kiosk::set_kiosk_system_lock,
+            check_app_update,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

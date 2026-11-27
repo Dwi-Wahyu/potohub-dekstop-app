@@ -41,7 +41,7 @@ class NetworkStatusStore {
     if (!activation?.boothId) return;
     this.syncingUi = true;
     try {
-      await fetchAndCacheUiConfig();
+      await fetchAndCacheUiConfig(true);
       void prefetchBoothAssets(activation.boothId).catch(() => {});
       this.pendingUiSync = false;
     } catch (e) {
@@ -170,7 +170,7 @@ class NetworkStatusStore {
           const ack = (await res.json()) as { ui_layout_version?: number };
           if (
             typeof ack?.ui_layout_version === 'number' &&
-            ack.ui_layout_version > uiConfig.config.layoutVersion
+            ack.ui_layout_version !== uiConfig.config.layoutVersion
           ) {
             this.pendingUiSync = true;
             if (boothFlow.step === 'welcome') {
@@ -203,7 +203,7 @@ class NetworkStatusStore {
           const ack = (await res.json()) as { ui_layout_version?: number };
           if (
             typeof ack?.ui_layout_version === 'number' &&
-            ack.ui_layout_version > uiConfig.config.layoutVersion
+            ack.ui_layout_version !== uiConfig.config.layoutVersion
           ) {
             this.pendingUiSync = true;
             if (boothFlow.step === 'welcome') {

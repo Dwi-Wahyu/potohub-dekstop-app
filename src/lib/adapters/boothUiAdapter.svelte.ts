@@ -2,13 +2,21 @@ import { cameraStore } from '$lib/camera.svelte';
 import { boothConfig } from '$lib/stores/boothConfig.svelte';
 import { uiConfig } from '$lib/stores/uiConfig.svelte';
 import { getLiveviewTransformStyle } from '$lib/utils/shared';
-import type { AdapterCategory, AdapterTemplate, BoothRuntimeAdapter } from '@potohub/booth-ui';
+import type {
+  AdapterCategory,
+  AdapterTemplate,
+  BoothRuntimeAdapter,
+  PaymentRuntimeState,
+  SessionRuntimeState,
+} from '@potohub/booth-ui';
 
 export function createDesktopUiAdapter(params: {
   categories: AdapterCategory[];
   templates: AdapterTemplate[];
   frameSrc?: string;
   customTutorialImg?: string;
+  payment?: PaymentRuntimeState;
+  session?: SessionRuntimeState;
   callbacks?: BoothRuntimeAdapter['callbacks'];
 }): BoothRuntimeAdapter {
   return {
@@ -27,6 +35,8 @@ export function createDesktopUiAdapter(params: {
       showStepIndicator: uiConfig.config.showStepIndicator,
     },
     resolveAssetUrl: (url) => uiConfig.resolveAssetUrl(url),
+    payment: params.payment,
+    session: params.session,
     liveview: {
       isActive: cameraStore.isLiveviewActive,
       cameraMode: cameraStore.cameraMode,
@@ -34,19 +44,21 @@ export function createDesktopUiAdapter(params: {
       stream: cameraStore.stream,
       transformCss: getLiveviewTransformStyle(boothConfig.config, cameraStore.cameraMode),
       attachVideo: (node, stream) => {
+        const activeStream = stream ?? cameraStore.stream;
         cameraStore.setVideoElement(node);
-        if (stream && node.srcObject !== stream) {
-          node.srcObject = stream;
+        if (activeStream && node.srcObject !== activeStream) {
+          node.srcObject = activeStream;
           node.muted = true;
           node.playsInline = true;
           node.play().catch(() => {});
         }
         return {
           update(newStream: MediaStream | null) {
+            const targetStream = newStream ?? cameraStore.stream;
             cameraStore.setVideoElement(node);
-            if (newStream) {
-              if (node.srcObject !== newStream) {
-                node.srcObject = newStream;
+            if (targetStream) {
+              if (node.srcObject !== targetStream) {
+                node.srcObject = targetStream;
                 node.muted = true;
                 node.playsInline = true;
                 node.play().catch(() => {});
@@ -56,7 +68,6 @@ export function createDesktopUiAdapter(params: {
             }
           },
           destroy() {
-            cameraStore.setVideoElement(null);
             node.srcObject = null;
           },
         };

@@ -185,6 +185,10 @@ function mimeFromUrl(url: string): string {
     gif: 'image/gif',
     mp4: 'video/mp4',
     webm: 'video/webm',
+    woff2: 'font/woff2',
+    woff: 'font/woff',
+    ttf: 'font/ttf',
+    otf: 'font/otf',
   };
   return map[ext] ?? 'application/octet-stream';
 }

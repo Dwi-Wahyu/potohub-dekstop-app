@@ -1,6 +1,7 @@
 <script lang="ts">
   import { Minus, X, Settings, Lock, LockOpen } from '@lucide/svelte';
   import { minimizeWindow, closeWindow, setKioskLockedMode } from '$lib/utils/windowControl';
+  import { appState } from '$lib/appState.svelte';
 
   interface Props {
     showPinModal?: boolean;
@@ -16,9 +17,11 @@
     onOpenConfig
   }: Props = $props();
 
-  // Sinkronkan status terkunci (locked) dengan Fullscreen Kiosk Mode Windows (menutup/membuka bottom taskbar Windows)
+  // Sinkronkan status terkunci (locked) dengan Fullscreen Kiosk Mode Windows (menutup/membuka bottom taskbar Windows) & appState.isLocked
   $effect(() => {
-    void setKioskLockedMode(!isOperatorUnlocked);
+    const locked = !isOperatorUnlocked;
+    appState.isLocked = locked;
+    void setKioskLockedMode(locked);
   });
 
   function handleLockClick() {

@@ -4,9 +4,8 @@
   import { getActivation } from '$lib/db/local';
   import { uiConfig } from '$lib/stores/uiConfig.svelte';
   import { boothConfig } from '$lib/stores/boothConfig.svelte';
-  import { cameraStore } from '$lib/camera.svelte';
-  import { fetchAndCacheUiConfig, syncBoothSettings } from '$lib/api/boothClient';
-  import { prefetchBoothAssets } from '$lib/api/prefetch';
+  import { cameraStore, isDevWebcamEnabled } from '$lib/camera.svelte';
+  import { fetchAndCacheUiConfig } from '$lib/api/boothClient';
   import V1Layout from '$lib/components/v1/V1Layout.svelte';
   import V2Layout from '$lib/components/v2/V2Layout.svelte';
   import V3Layout from '$lib/components/v3/V3Layout.svelte';
@@ -21,26 +20,23 @@
       return;
     }
 
-    // Booth sudah aktif dan teraktivasi: langsung muat interface booth operasional
+    // Muat cache UI, aset lokal yang sudah ter-download, & pengaturan lokal langsung tanpa melakukan network sync/download aset saat startup
     boothConfig.init(activation.boothId);
     uiConfig.init(activation.boothId);
-
-    // Sinkronkan pengaturan booth terbaru (termasuk timer sesi & countdown) dari server
-    void syncBoothSettings().catch((e) =>
-      console.warn('Sync pengaturan booth awal gagal:', e)
-    );
-
-    await fetchAndCacheUiConfig();
-
-    // Prefetch aset booth di background agar siap offline
-    void prefetchBoothAssets(activation.boothId).catch((e) =>
-      console.warn('Prefetch aset booth gagal:', e)
-    );
-    await cameraStore.checkDevMode();
-    if (boothConfig.config.cameraMode) {
-      await cameraStore.connect(boothConfig.config.cameraMode);
-    }
     ready = true;
+
+    // Segarkan metadata JSON UI terbaru di background (tanpa mendownload ulang aset media saat startup)
+    void fetchAndCacheUiConfig(true).catch(() => {});
+
+    // Siapkan kamera di background tanpa memblokir render awal (download/sync aset hanya dijalankan saat tombol Sync ditekan)
+    void (async () => {
+      await cameraStore.checkDevMode();
+      const targetMode =
+        isDevWebcamEnabled() || cameraStore.isDevMode
+          ? 'webcam'
+          : (boothConfig.config.cameraMode || 'usb');
+      await cameraStore.connect(targetMode);
+    })().catch((e) => console.warn('Inisialisasi kamera background gagal:', e));
   });
 </script>
 

@@ -1,4 +1,5 @@
-import { check as tauriCheck, type Update } from '@tauri-apps/plugin-updater';
+import { Update } from '@tauri-apps/plugin-updater';
+import { invoke } from '@tauri-apps/api/core';
 import { getVersion } from '@tauri-apps/api/app';
 import { relaunch } from '@tauri-apps/plugin-process';
 
@@ -88,10 +89,21 @@ class UpdaterStore {
         console.warn('[Updater] Could not fetch latest release info from API:', err);
       }
 
-      // 2. Check update via official Tauri plugin updater
+      // 2. Check update via official Tauri plugin updater using API_BASE from .env
       let updateAvailable = false;
       try {
-        const update = await tauriCheck();
+        let update: Update | null = null;
+        if (this.isTauriRuntime()) {
+          const meta = await invoke<{
+            rid: number;
+            currentVersion: string;
+            version: string;
+            date?: string;
+            body?: string;
+            rawJson: Record<string, unknown>;
+          } | null>('check_app_update', { apiBase: API_BASE });
+          update = meta ? new Update(meta as any) : null;
+        }
         if (update) {
           this.tauriUpdateObj = update;
           updateAvailable = true;

@@ -27,8 +27,8 @@ export function isDevWebcamEnabled(): boolean {
   } catch {}
   try {
     if (
-      import.meta.env?.VITE_ENABLE_DEV_WEBCAM === "true" ||
-      import.meta.env?.VITE_DEV_WEBCAM === "true"
+      import.meta.env.VITE_ENABLE_DEV_WEBCAM === "true" ||
+      import.meta.env.VITE_DEV_WEBCAM === "true"
     ) {
       return true;
     }
@@ -130,6 +130,12 @@ class CameraStore {
    * Mengembalikan true jika kamera aktif terhubung, false jika terputus atau sleep.
    */
   async checkHealth(): Promise<boolean> {
+    if (isDevWebcamEnabled() || this.isDevMode) {
+      if (this.cameraMode === "usb") {
+        this.cameraMode = "webcam";
+      }
+      return true;
+    }
     if (this.cameraMode === "usb") {
       try {
         const isConnected = await invoke<boolean>("is_camera_connected").catch(() => false);
@@ -150,12 +156,7 @@ class CameraStore {
         return false;
       }
     } else if (this.cameraMode === "webcam") {
-      const ok = Boolean(this.stream && this.stream.active);
-      if (!ok && this.status === "connected") {
-        this.status = "error";
-        this.errorMessage = "Webcam stream tidak aktif";
-      }
-      return ok;
+      return true;
     }
     return true;
   }
@@ -439,19 +440,9 @@ class CameraStore {
         await invoke("stop_liveview");
       } catch {}
     } else {
-      if (this.stream) {
-        this.stream.getTracks().forEach((t) => t.stop());
-        this.stream = null;
-      }
-      if (this.offscreenVideo) {
-        this.offscreenVideo.srcObject = null;
-        if (this.offscreenVideo.parentNode) {
-          this.offscreenVideo.parentNode.removeChild(this.offscreenVideo);
-        }
-        this.offscreenVideo = null;
-      }
+      // Pada mode webcam, jangan matikan tracks MediaStream agar transisi dari Frame -> Session
+      // langsung aktif 0ms tanpa menutup/membuka ulang device kamera OS.
       if (this.videoElement) {
-        this.videoElement.srcObject = null;
         this.videoElement = null;
       }
     }

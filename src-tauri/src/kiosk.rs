@@ -330,7 +330,6 @@ mod platform {
 
 #[cfg(not(target_os = "windows"))]
 mod platform {
-    pub fn set_window_edge_gesture_disabled(_hwnd_raw: isize, _disable: bool) {}
     pub fn set_registry_gesture_policies(_allow: bool) {}
     pub fn set_taskbar_visible(_visible: bool) {}
     pub fn stop_explorer() {}

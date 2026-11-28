@@ -137,14 +137,10 @@
   let intraCaptureDuration = $derived(
     Math.min(5, Math.max(0.5, Number(cameraBlock?.props?.intraCaptureDuration ?? 1.5))),
   );
-  let intraCueThresholdSecs = $derived(Math.max(1, Math.round(intraCaptureDuration)));
   let isIntraCaptureCueActive = $derived(
     intraCaptureMode !== 'flash_only' &&
       !boothFlow.isCapturingCamera &&
-      (boothFlow.isFlashActive ||
-        (boothFlow.countdown !== null &&
-          boothFlow.countdown > 0 &&
-          boothFlow.countdown <= intraCueThresholdSecs)),
+      boothFlow.isIntraCaptureActive,
   );
 
   // Modal kamera terputus
@@ -319,6 +315,8 @@
       countdownSecs: boothConfig.config.countdownSecs,
       startSlot,
       pauseAfterCapture: pauseAfterCaptureEnabled,
+      intraCaptureMode,
+      intraCaptureDurationSecs: intraCaptureDuration,
       onPauseAfterSlot: (slotIdx) => handlePauseAfterSlot(slotIdx),
       onCameraDisconnect: handleCameraDisconnect,
     });
@@ -345,15 +343,27 @@
     boothFlow.countdown = null;
     const captureTs = Date.now();
 
-    // Munculkan sekilas flash putih pada kotak preview liveview untuk UX
-    boothFlow.isFlashActive = true;
+    // Setelah timer countdown selesai, jalankan Intra-Capture Screen tepat saat capture kamera
+    if (intraCaptureMode === 'flash_only') {
+      boothFlow.isFlashActive = true;
+      boothFlow.isIntraCaptureActive = false;
+    } else {
+      boothFlow.isFlashActive = false;
+      boothFlow.isIntraCaptureActive = true;
+    }
     boothFlow.captureMessage = 'Sedang capture kamera...';
 
     try {
       const capturePromise = cameraStore.capture();
 
-      await new Promise((r) => setTimeout(r, 220));
-      boothFlow.isFlashActive = false;
+      if (intraCaptureMode === 'flash_only') {
+        await new Promise((r) => setTimeout(r, 220));
+        boothFlow.isFlashActive = false;
+      } else {
+        const cueMs = Math.min(5000, Math.max(500, Math.round(intraCaptureDuration * 1000)));
+        await new Promise((r) => setTimeout(r, cueMs));
+        boothFlow.isIntraCaptureActive = false;
+      }
       boothFlow.isCapturingCamera = true;
 
       let bytes = await capturePromise;
@@ -439,6 +449,7 @@
     } finally {
       cameraStore.setPreparingCapture(false);
       boothFlow.isFlashActive = false;
+      boothFlow.isIntraCaptureActive = false;
       boothFlow.isCapturingCamera = false;
       boothFlow.captureMessage = null;
       isRunning = false;

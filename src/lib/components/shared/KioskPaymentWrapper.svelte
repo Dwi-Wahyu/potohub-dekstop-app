@@ -55,12 +55,18 @@
   );
   let effectiveQty = $derived(boothFlow.printQty || 1);
   let effectiveTotal = $derived(effectiveUnitPrice * effectiveQty);
+  let effectiveEnableQtyModal = $derived.by(() => {
+    const mode = doc.screens?.payment?.printQtyDialog?.mode;
+    if (mode === 'page') return false;
+    if (mode === 'dialog') return true;
+    return enableQtyModal;
+  });
 
   function handleSelectPaymentMethod(method: 'qris' | 'ticket') {
     selectedMethod = method;
     if (method === 'qris') {
       if (!networkStatus.isOnline) return;
-      if (enableQtyModal) {
+      if (effectiveEnableQtyModal) {
         qty = boothFlow.printQty || 1;
         showQtyModal = true;
         return;
@@ -71,7 +77,10 @@
     }
   }
 
-  function handleProceedQris() {
+  function handleProceedQris(nextQty?: number) {
+    if (typeof nextQty === 'number') {
+      qty = nextQty;
+    }
     boothFlow.printQty = qty;
     showQtyModal = false;
     onSelect('cashless');
@@ -90,14 +99,19 @@
       templates: [],
       payment: {
         basePriceFormatted: `Rp ${effectiveUnitPrice.toLocaleString('id-ID')}`,
-        totalPriceFormatted: `Rp ${effectiveTotal.toLocaleString('id-ID')}`,
-        printQty: effectiveQty,
+        totalPriceFormatted: `Rp ${(effectiveUnitPrice * (showQtyModal ? qty : effectiveQty)).toLocaleString('id-ID')}`,
+        unitPrice: effectiveUnitPrice,
+        printQty: showQtyModal ? qty : effectiveQty,
+        printQtyDialogOpen: showQtyModal,
         selectedMethod,
         isOffline: !networkStatus.isOnline,
       },
       callbacks: {
         onBack,
         onSelectPaymentMethod: handleSelectPaymentMethod,
+        onChangePrintQty: (q) => (qty = q),
+        onConfirmPrintQty: (q) => handleProceedQris(q),
+        onClosePrintQtyDialog: () => (showQtyModal = false),
       },
     }),
   );
@@ -111,54 +125,4 @@
   {/if}
 
   <GenericScreen {doc} screenKey="payment" {adapter} interactive={true} fitMode="screen" />
-
-  {#if showQtyModal}
-    <div class="absolute inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-      <div class="bg-white text-slate-900 border-[3px] border-black rounded-3xl p-10 flex flex-col items-center shadow-[16px_16px_0_0_#000] w-full max-w-[440px] relative">
-        <button
-          type="button"
-          onclick={() => (showQtyModal = false)}
-          class="absolute top-5 right-5 w-9 h-9 border-2 border-black rounded-full text-base font-black flex items-center justify-center hover:bg-black hover:text-white transition-colors cursor-pointer bg-white"
-        >
-          ✕
-        </button>
-
-        <h3 class="text-2xl font-bold mb-2">Jumlah Cetak</h3>
-        <div class="w-12 h-[2px] bg-black mb-7"></div>
-
-        <div class="flex items-center gap-9 mb-6">
-          <button
-            type="button"
-            onclick={() => (qty = Math.max(1, qty - 1))}
-            class="w-14 h-14 border-[2.5px] border-black rounded-full text-2xl font-black flex items-center justify-center hover:bg-black hover:text-white transition-colors cursor-pointer bg-white"
-          >
-            −
-          </button>
-          <span class="text-5xl font-black w-16 text-center tabular-nums">{qty}</span>
-          <button
-            type="button"
-            onclick={() => (qty = Math.min(10, qty + 1))}
-            class="w-14 h-14 border-[2.5px] border-black rounded-full text-2xl font-black flex items-center justify-center hover:bg-black hover:text-white transition-colors cursor-pointer bg-white"
-          >
-            +
-          </button>
-        </div>
-
-        <div class="text-3xl font-black mb-1">
-          Rp {(effectiveUnitPrice * qty).toLocaleString('id-ID')}
-        </div>
-        <p class="text-xs text-slate-500 mb-8">
-          {qty} × Rp {effectiveUnitPrice.toLocaleString('id-ID')}
-        </p>
-
-        <button
-          type="button"
-          onclick={handleProceedQris}
-          class="w-full py-4 bg-black text-white text-base font-bold tracking-[0.12em] uppercase rounded-full hover:bg-slate-800 transition-colors cursor-pointer border-none"
-        >
-          Lanjut ke Pembayaran
-        </button>
-      </div>
-    </div>
-  {/if}
 </div>

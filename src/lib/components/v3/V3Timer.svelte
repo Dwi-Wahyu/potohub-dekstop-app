@@ -7,6 +7,7 @@
     | 'start'
     | 'tutorial'
     | 'package'
+    | 'print_qty'
     | 'payment'
     | 'ticket'
     | 'frame'

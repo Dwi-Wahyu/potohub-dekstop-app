@@ -34,6 +34,7 @@ class BoothFlowStore {
   step = $state<BoothStep>("welcome");
   countdown = $state<number | null>(null);
   isFlashActive = $state(false);
+  isIntraCaptureActive = $state(false);
   isCapturingCamera = $state(false);
   captureMessage = $state<string | null>(null);
   photosTaken = $state<string[]>([]); // dataURL / blob URL tiap jepretan
@@ -83,6 +84,25 @@ class BoothFlowStore {
     this.photoTransforms = { ...this.photoTransforms, [photoSrc]: transform };
   }
 
+  swapPhotoSlots(indexA: number, indexB: number) {
+    if (indexA === indexB || indexA < 0 || indexB < 0) return;
+    if (indexA >= this.photosTaken.length || indexB >= this.photosTaken.length) return;
+    const nextPhotos = [...this.photosTaken];
+    const tmpPhoto = nextPhotos[indexA];
+    nextPhotos[indexA] = nextPhotos[indexB];
+    nextPhotos[indexB] = tmpPhoto;
+    this.photosTaken = nextPhotos;
+
+    if (this.liveviewClips.length > 0) {
+      const len = Math.max(this.liveviewClips.length, indexA + 1, indexB + 1);
+      const nextClips: (string | null)[] = Array.from({ length: len }, (_, i) => this.liveviewClips[i] ?? null);
+      const tmpClip = nextClips[indexA];
+      nextClips[indexA] = nextClips[indexB];
+      nextClips[indexB] = tmpClip;
+      this.liveviewClips = nextClips;
+    }
+  }
+
   reset() {
     this.sessionGeneration++;
     if (this.sessionGifUrl && this.sessionGifUrl.startsWith('blob:')) {
@@ -94,6 +114,7 @@ class BoothFlowStore {
     this.step = "welcome";
     this.countdown = null;
     this.isFlashActive = false;
+    this.isIntraCaptureActive = false;
     this.isCapturingCamera = false;
     this.captureMessage = null;
     this.photosTaken = [];

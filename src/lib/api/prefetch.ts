@@ -65,13 +65,14 @@ export async function prefetchBoothAssets(boothId: string): Promise<void> {
   await Promise.allSettled(
     [...urls].map(async (u) => {
       try {
-        const dataUrl = await ensureAsset(u);
-        if (dataUrl) {
-          uiConfig.setResolvedBackground(u, dataUrl);
+        const localUrl = await ensureAsset(u);
+        if (localUrl) {
+          uiConfig.setResolvedBackground(u, localUrl);
         }
       } catch (err) {
         console.warn('[prefetchBoothAssets] Gagal download aset ke cache lokal:', u, err);
       }
     })
   );
+  void uiConfig.resolveCachedAssets();
 }

@@ -19,10 +19,13 @@
   import KioskFrameWrapper from '$lib/components/shared/KioskFrameWrapper.svelte';
   import KioskPaymentWrapper from '$lib/components/shared/KioskPaymentWrapper.svelte';
   import KioskQrisWrapper from '$lib/components/shared/KioskQrisWrapper.svelte';
-  import V2Ticket from './V2Ticket.svelte';
+  import KioskSessionWrapper from '$lib/components/shared/KioskSessionWrapper.svelte';
+  import KioskTicketWrapper from '$lib/components/shared/KioskTicketWrapper.svelte';
+  import KioskSoftfileWrapper from '$lib/components/shared/KioskSoftfileWrapper.svelte';
   import V2Session from './V2Session.svelte';
   import V2Filter from './V2Filter.svelte';
   import V2Download from './V2Download.svelte';
+  import V1PrintQty from '../v1/V1PrintQty.svelte';
   import ProgressiveBackground from '$lib/components/shared/ProgressiveBackground.svelte';
 
   interface Props {
@@ -35,6 +38,7 @@
     | 'landing'
     | 'tutorial'
     | 'payment'
+    | 'print_qty'
     | 'qris'
     | 'ticket'
     | 'frame'
@@ -46,6 +50,7 @@
     landing: 'start',
     tutorial: 'tutorial',
     payment: 'payment',
+    print_qty: 'frame',
     qris: 'qris',
     ticket: 'ticket',
     frame: 'frame',
@@ -117,6 +122,10 @@
       step = 'ticket';
     } else {
       boothFlow.paymentMethod = 'Cashless';
+      if (uiConfig.resolvedDesignBlocks?.screens?.payment?.printQtyDialog?.mode === 'page') {
+        step = 'print_qty';
+        return;
+      }
       step = 'qris';
     }
   }
@@ -253,6 +262,16 @@
         }
       }}
     />
+  {:else if step === 'print_qty'}
+    <V1PrintQty
+      background={getV2Bg('frame')}
+      basePrice={v2BasePrice}
+      onNext={(qty) => {
+        boothFlow.printQty = qty;
+        step = 'qris';
+      }}
+      onBack={() => (step = 'payment')}
+    />
   {:else if step === 'qris'}
     <KioskQrisWrapper
       doc={uiConfig.resolvedDesignBlocks}
@@ -261,7 +280,11 @@
       onBack={() => (step = 'payment')}
     />
   {:else if step === 'ticket'}
-    <V2Ticket background={getV2Bg('ticket')} onConfirm={handleTicketConfirm} onBack={() => (step = 'payment')} />
+    <KioskTicketWrapper
+      doc={uiConfig.resolvedDesignBlocks}
+      onSuccess={handleTicketConfirm}
+      onBack={() => (step = 'payment')}
+    />
   {:else if step === 'frame'}
     <KioskFrameWrapper
       doc={uiConfig.resolvedDesignBlocks}
@@ -275,14 +298,32 @@
       }}
     />
   {:else if step === 'session'}
-    <V2Session
-      background={getV2Bg('session')}
-      selectedFrame={selectedFrameId}
-      onComplete={handleSessionComplete}
-    />
+    {#if uiConfig.config.designBlocks?.screens?.session}
+      <KioskSessionWrapper
+        doc={uiConfig.resolvedDesignBlocks}
+        frameConfigId={selectedFrameId}
+        onComplete={handleSessionComplete}
+        onBack={() => (step = 'frame')}
+      />
+    {:else}
+      <V2Session
+        background={getV2Bg('session')}
+        selectedFrame={selectedFrameId}
+        onComplete={handleSessionComplete}
+      />
+    {/if}
   {:else if step === 'filter'}
     <V2Filter background={getV2Bg('filter')} selectedFrame={selectedFrameId} onNext={handleFilterNext} />
   {:else if step === 'download'}
-    <V2Download background={getV2Bg('download')} selectedFrame={selectedFrameId} onDone={handleDone} />
+    {#if uiConfig.resolvedDesignBlocks?.screens?.softfile}
+      <KioskSoftfileWrapper
+        doc={uiConfig.resolvedDesignBlocks}
+        photos={boothFlow.photosTaken}
+        frameConfigId={selectedFrameId}
+        onDone={handleDone}
+      />
+    {:else}
+      <V2Download background={getV2Bg('download')} selectedFrame={selectedFrameId} onDone={handleDone} />
+    {/if}
   {/if}
 </ProgressiveBackground>

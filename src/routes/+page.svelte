@@ -12,18 +12,28 @@
   import CustomLayout from '$lib/components/custom/CustomLayout.svelte';
 
   let ready = $state(false);
+  let showStartupLoader = $state(false);
 
   onMount(async () => {
-    const activation = await getActivation();
-    if (!activation || !activation.boothId) {
-      await goto('/onboarding');
-      return;
-    }
+    const loaderTimer = setTimeout(() => {
+      if (!ready) showStartupLoader = true;
+    }, 150);
 
-    // Muat cache UI, aset lokal yang sudah ter-download, & pengaturan lokal langsung tanpa melakukan network sync/download aset saat startup
-    boothConfig.init(activation.boothId);
-    uiConfig.init(activation.boothId);
-    ready = true;
+    try {
+      const activation = await getActivation();
+      if (!activation || !activation.boothId) {
+        await goto('/onboarding');
+        return;
+      }
+
+      // Muat cache UI & resolve/pre-decode aset lokal sebelum render awal agar start screen
+      // dan seluruh perpindahan halaman customer journey tampil instan tanpa blur placeholder.
+      boothConfig.init(activation.boothId);
+      await uiConfig.initAsync(activation.boothId);
+      ready = true;
+    } finally {
+      clearTimeout(loaderTimer);
+    }
 
     // Segarkan metadata JSON UI terbaru di background (tanpa mendownload ulang aset media saat startup)
     void fetchAndCacheUiConfig(true).catch(() => {});
@@ -50,4 +60,9 @@
   {:else}
     <V1Layout />
   {/if}
+{:else if showStartupLoader}
+  <div class="w-screen h-screen bg-[#0f172a] flex flex-col items-center justify-center gap-3 text-white/80 font-['Poppins',sans-serif] select-none">
+    <div class="w-8 h-8 rounded-full border-2 border-white/25 border-t-white animate-spin"></div>
+    <p class="text-xs tracking-wider uppercase m-0">Menyiapkan Booth...</p>
+  </div>
 {/if}

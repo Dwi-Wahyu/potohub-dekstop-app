@@ -27,6 +27,12 @@ export async function setKioskLockedMode(locked: boolean): Promise<void> {
           await appWindow.setAlwaysOnTop(true);
         }
       } else {
+        // Pulihkan taskbar & work area Windows terlebih dahulu sebelum maximize agar dimensi viewport langsung akurat
+        try {
+          await invoke('set_kiosk_system_lock', { locked: false });
+        } catch (err) {
+          console.warn('[windowControl] Gagal invoke set_kiosk_system_lock:', err);
+        }
         if ('setAlwaysOnTop' in appWindow && typeof appWindow.setAlwaysOnTop === 'function') {
           await appWindow.setAlwaysOnTop(false);
         }
@@ -38,6 +44,7 @@ export async function setKioskLockedMode(locked: boolean): Promise<void> {
         if ('maximize' in appWindow && typeof appWindow.maximize === 'function') {
           await appWindow.maximize();
         }
+        return;
       }
 
       // Panggil penguncian native Win32 (DisableTouchWhenFullscreen, Keyboard Lock & Taskbar Shell_TrayWnd)

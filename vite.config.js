@@ -49,6 +49,12 @@ export default defineConfig(async () => ({
   },
   plugins: [tailwindcss(), sveltekit(), svelteEmptyStyleFallbackPlugin()],
   resolve: {
+    alias: {
+      '@potohub/booth-ui/fonts.css': path.resolve(__dirname, '../booth-ui/src/fonts.css'),
+      '@potohub/booth-ui/schema': path.resolve(__dirname, '../booth-ui/src/schema/index.ts'),
+      '@potohub/booth-ui/presets': path.resolve(__dirname, '../booth-ui/src/presets/index.ts'),
+      '@potohub/booth-ui': path.resolve(__dirname, '../booth-ui/src/index.ts'),
+    },
     dedupe: ['svelte', '@lucide/svelte'],
   },
   optimizeDeps: {

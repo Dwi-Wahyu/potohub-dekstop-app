@@ -72,6 +72,12 @@
   let pauseAfterCaptureEnabled = $derived(
     Boolean(cameraBlock?.props?.pauseAfterCapture),
   );
+  let intraCaptureMode = $derived(
+    String(cameraBlock?.props?.intraCaptureMode ?? 'custom'),
+  );
+  let intraCaptureDurationSecs = $derived(
+    Math.min(5, Math.max(0.5, Number(cameraBlock?.props?.intraCaptureDuration ?? 1.5))),
+  );
 
   async function handleCameraDisconnect(): Promise<boolean> {
     cameraDisconnectModal = true;
@@ -220,6 +226,8 @@
       countdownSecs: boothConfig.config.countdownSecs,
       startSlot,
       pauseAfterCapture: pauseAfterCaptureEnabled,
+      intraCaptureMode,
+      intraCaptureDurationSecs,
       onCapturePhoto: (_url, slotIdx) => {
         currentCapturingSlot = slotIdx;
       },
@@ -254,13 +262,25 @@
     boothFlow.countdown = null;
     const captureTs = Date.now();
 
-    boothFlow.isFlashActive = true;
+    if (intraCaptureMode === 'flash_only') {
+      boothFlow.isFlashActive = true;
+      boothFlow.isIntraCaptureActive = false;
+    } else {
+      boothFlow.isFlashActive = false;
+      boothFlow.isIntraCaptureActive = true;
+    }
     boothFlow.captureMessage = 'Sedang capture kamera...';
 
     try {
       const capturePromise = cameraStore.capture();
-      await new Promise((r) => setTimeout(r, 220));
-      boothFlow.isFlashActive = false;
+      if (intraCaptureMode === 'flash_only') {
+        await new Promise((r) => setTimeout(r, 220));
+        boothFlow.isFlashActive = false;
+      } else {
+        const cueMs = Math.min(5000, Math.max(500, Math.round(intraCaptureDurationSecs * 1000)));
+        await new Promise((r) => setTimeout(r, cueMs));
+        boothFlow.isIntraCaptureActive = false;
+      }
       boothFlow.isCapturingCamera = true;
 
       let bytes = await capturePromise;
@@ -327,6 +347,7 @@
     } finally {
       cameraStore.setPreparingCapture(false);
       boothFlow.isFlashActive = false;
+      boothFlow.isIntraCaptureActive = false;
       boothFlow.isCapturingCamera = false;
       boothFlow.captureMessage = null;
       isRunning = false;
@@ -388,6 +409,7 @@
         isRunning,
         isCapturing: boothFlow.isCapturingCamera,
         isFlashActive: boothFlow.isFlashActive,
+        isIntraCaptureActive: boothFlow.isIntraCaptureActive,
         captureMessage: boothFlow.captureMessage,
         isPausedAfterCapture: isPausedBetweenCaptures,
         allPhotosDone: allDone,

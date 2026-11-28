@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
+  import { uiConfig, isLocalAssetUrl } from '$lib/stores/uiConfig.svelte';
 
   interface Props {
     src?: string | null;
@@ -11,16 +12,25 @@
 
   let { src = null, blurSrc = null, class: className = '', style = '', children }: Props = $props();
 
-  let isLoaded = $state(false);
+  let resolvedSrc = $derived(src ? uiConfig.resolveAssetUrl(src) : null);
+  let isInstantSource = $derived(
+    !resolvedSrc || isLocalAssetUrl(resolvedSrc) || uiConfig.isAssetDecoded(resolvedSrc),
+  );
+  let isLoaded = $state(true);
 
   $effect(() => {
-    if (!src) {
-      isLoaded = false;
+    const target = resolvedSrc;
+    if (!target || isLocalAssetUrl(target) || uiConfig.isAssetDecoded(target) || !blurSrc) {
+      isLoaded = true;
+      return;
+    }
+    const img = new Image();
+    img.src = target;
+    if (img.complete) {
+      isLoaded = true;
       return;
     }
     isLoaded = false;
-    const img = new Image();
-    img.src = src;
     img.onload = () => {
       isLoaded = true;
     };
@@ -31,8 +41,8 @@
 </script>
 
 <div class="relative overflow-hidden {className}" {style}>
-  <!-- Layer 1: Blur Placeholder -->
-  {#if blurSrc && !isLoaded}
+  <!-- Layer 1: Blur Placeholder (hanya untuk aset remote yang belum tercache lokal) -->
+  {#if blurSrc && !isInstantSource && !isLoaded}
     <div
       class="absolute inset-0 bg-cover bg-center filter blur-md scale-105 transform pointer-events-none"
       style="background-image: url('{blurSrc}');"
@@ -40,10 +50,10 @@
   {/if}
 
   <!-- Layer 2: Full High-Res Background Image -->
-  {#if src}
+  {#if resolvedSrc}
     <div
-      class="absolute inset-0 bg-cover bg-center pointer-events-none {isLoaded || !blurSrc ? 'opacity-100' : 'opacity-0'}"
-      style="background-image: url('{src}');"
+      class="absolute inset-0 bg-cover bg-center pointer-events-none {isInstantSource || isLoaded || !blurSrc ? 'opacity-100' : 'opacity-0'}"
+      style="background-image: url('{resolvedSrc}');"
     ></div>
   {/if}
 

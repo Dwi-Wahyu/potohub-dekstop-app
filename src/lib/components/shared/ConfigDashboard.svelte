@@ -47,7 +47,7 @@
   import { flushOutbox } from '$lib/utils/offlineOutbox';
   import { flushPrintQueue } from '$lib/utils/printQueue';
   import { flushProblemReports } from '$lib/utils/problemReports';
-  import { cameraStore } from '$lib/camera.svelte';
+  import { cameraStore, isDevWebcamEnabled } from '$lib/camera.svelte';
   import { printerStore } from '$lib/printer.svelte';
   import { getLiveviewTransformStyle } from '$lib/utils/shared';
 
@@ -268,31 +268,90 @@
     }
   }
 
-  // Preview kamera di dalam kartu Kamera (desain Figma). Logika liveview sama dengan dialog lama.
+  // Preview kamera di dalam kartu Kamera (desain Figma). Otomatis terbuka saat masuk halaman,
+  // menyesuaikan mode kamera aktif (webcam vs kamera langsung USB/demo).
   let isPreviewOpen = $state(false);
+  let userCollapsedPreview = $state(false);
+  let activePreviewMode = $state<'usb' | 'webcam' | 'demo' | null>(null);
   let previewFrameSrc = $state<string | null>(null);
   let previewInterval: ReturnType<typeof setInterval> | null = null;
   let previewVideoEl = $state<HTMLVideoElement | null>(null);
+  let previewRunSeq = 0;
+  let isDestroyed = false;
+
+  function clearPreviewInterval() {
+    if (previewInterval) {
+      clearInterval(previewInterval);
+      previewInterval = null;
+    }
+  }
+
+  function bindWebcamPreview(node: HTMLVideoElement, stream: MediaStream | null) {
+    cameraStore.setVideoElement(node);
+    if (stream && node.srcObject !== stream) {
+      node.srcObject = stream;
+      node.muted = true;
+      node.playsInline = true;
+      void node.play().catch(() => {});
+    }
+    return {
+      update(nextStream: MediaStream | null) {
+        cameraStore.setVideoElement(node);
+        if (nextStream) {
+          if (node.srcObject !== nextStream) {
+            node.srcObject = nextStream;
+            node.muted = true;
+            node.playsInline = true;
+            void node.play().catch(() => {});
+          }
+        } else {
+          node.srcObject = null;
+        }
+      },
+      destroy() {
+        cameraStore.setVideoElement(null);
+        node.srcObject = null;
+      },
+    };
+  }
 
   async function openPreview() {
-    if (cameraStore.status !== 'connected' || isPreviewOpen) return;
+    if (isDestroyed || view !== 'main' || cameraStore.status !== 'connected') return;
+    const mode = cameraStore.cameraMode;
+    if (isPreviewOpen && activePreviewMode === mode) return;
+
+    clearPreviewInterval();
+    const seq = ++previewRunSeq;
     isPreviewOpen = true;
+    activePreviewMode = mode;
     previewFrameSrc = null;
 
     await tick();
+    if (isDestroyed || !isPreviewOpen || previewRunSeq !== seq) return;
 
     try {
       if (cameraStore.cameraMode === 'webcam') {
         await cameraStore.startLiveview(previewVideoEl);
       } else {
         await cameraStore.startLiveview();
+        if (isDestroyed || !isPreviewOpen || previewRunSeq !== seq) return;
+
         const firstFrame = await cameraStore.getLiveviewFrame();
+        if (isDestroyed || !isPreviewOpen || previewRunSeq !== seq) return;
         if (firstFrame) previewFrameSrc = firstFrame;
 
+        let isFetching = false;
         previewInterval = setInterval(async () => {
-          if (!isPreviewOpen) return;
-          const frame = await cameraStore.getLiveviewFrame();
-          if (frame) previewFrameSrc = frame;
+          if (isDestroyed || !isPreviewOpen || previewRunSeq !== seq || isFetching) return;
+          isFetching = true;
+          try {
+            const frame = await cameraStore.getLiveviewFrame();
+            if (!isDestroyed && isPreviewOpen && previewRunSeq === seq && frame) {
+              previewFrameSrc = frame;
+            }
+          } finally {
+            isFetching = false;
+          }
         }, 120);
       }
     } catch (err) {
@@ -301,20 +360,42 @@
   }
 
   async function closePreview() {
-    if (!isPreviewOpen) return;
+    ++previewRunSeq;
+    clearPreviewInterval();
+    if (!isPreviewOpen && activePreviewMode === null) return;
     isPreviewOpen = false;
-    if (previewInterval) {
-      clearInterval(previewInterval);
-      previewInterval = null;
-    }
+    activePreviewMode = null;
     previewFrameSrc = null;
     await cameraStore.stopLiveview();
   }
 
   function togglePreview() {
-    if (isPreviewOpen) void closePreview();
-    else void openPreview();
+    if (isPreviewOpen) {
+      userCollapsedPreview = true;
+      void closePreview();
+    } else {
+      userCollapsedPreview = false;
+      void openPreview();
+    }
   }
+
+  $effect(() => {
+    const connected = cameraStore.status === 'connected';
+    const mode = cameraStore.cameraMode;
+    const currentView = view;
+    const collapsed = userCollapsedPreview;
+
+    if (currentView !== 'main' || !connected) {
+      if (isPreviewOpen) {
+        void closePreview();
+      }
+      return;
+    }
+
+    if (!collapsed && (!isPreviewOpen || activePreviewMode !== mode)) {
+      void openPreview();
+    }
+  });
 
   function openSessionSettings() {
     sessionDraft = {
@@ -366,16 +447,28 @@
     void flushProblemReports().catch(() => 0);
     await cameraStore.checkDevMode();
     void cameraStore.detect();
+
+    // Pastikan kamera terhubung sesuai mode aktif (webcam vs kamera langsung USB/demo) agar live preview langsung terbuka
+    if (cameraStore.status !== 'connected' && cameraStore.status !== 'connecting') {
+      const cfgMode = boothConfig.config.cameraMode;
+      const targetMode: 'usb' | 'webcam' | 'demo' =
+        cfgMode === 'demo' || cameraStore.cameraMode === 'demo'
+          ? 'demo'
+          : isDevWebcamEnabled() || cameraStore.isDevMode || cfgMode === 'webcam'
+            ? 'webcam'
+            : 'usb';
+      await cameraStore.connect(targetMode);
+    }
+
     void printerStore.loadPrinters();
     void updaterStore.checkForUpdates(true);
   });
 
   onDestroy(() => {
+    isDestroyed = true;
+    ++previewRunSeq;
     window.removeEventListener('keydown', handleKeydown);
-    if (previewInterval) {
-      clearInterval(previewInterval);
-      previewInterval = null;
-    }
+    clearPreviewInterval();
     if (isPreviewOpen) {
       void cameraStore.stopLiveview();
     }
@@ -703,7 +796,7 @@
               <div style={iconBoxStyle}><Camera size={18} /></div>
               <div style="flex: 1; min-width: 0;">
                 <p style={titleStyle}>Kamera</p>
-                <p style="{subStyle} white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{cameraName} · {cameraStore.cameraMode === 'webcam' ? 'Webcam' : 'USB'}</p>
+                <p style="{subStyle} white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{cameraName} · {cameraStore.cameraMode === 'webcam' ? 'Webcam' : cameraStore.cameraMode === 'demo' ? 'Demo' : 'USB'}</p>
               </div>
               {#if cameraConnected}
                 <button type="button" style="{btnBaseStyle} min-height: 34px; padding: 0 12px; font-size: 12px;" onclick={togglePreview}>
@@ -723,6 +816,7 @@
                 {#if cameraStore.cameraMode === 'webcam'}
                   <video
                     bind:this={previewVideoEl}
+                    use:bindWebcamPreview={cameraStore.stream}
                     autoplay
                     playsinline
                     muted

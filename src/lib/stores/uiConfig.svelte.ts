@@ -109,10 +109,25 @@ export const DEFAULT_UI_CONFIG: BoothUIConfig = {
   designBlocks: null,
 };
 
+export function isLocalAssetUrl(url: string | null | undefined): boolean {
+  if (!url) return false;
+  return (
+    url.startsWith('data:') ||
+    url.startsWith('blob:') ||
+    url.startsWith('asset:') ||
+    url.startsWith('http://asset.localhost') ||
+    url.startsWith('https://asset.localhost') ||
+    url.startsWith('tauri://')
+  );
+}
+
 class UIConfigStore {
   config = $state<BoothUIConfig>({ ...DEFAULT_UI_CONFIG });
   boothId = $state<string>('default');
   resolvedBackgrounds = $state<Record<string, string>>({});
+  private decodedAssetUrls = new Set<string>();
+  private resolvePromise: Promise<void> | null = null;
+  private resolveNeedsRerun = false;
 
   get templateVariant() {
     return this.config.templateVariant;
@@ -192,8 +207,100 @@ class UIConfigStore {
     return this.tutorialImageUrl;
   }
 
+  private decodedImageRefs = new Map<string, HTMLImageElement>();
+
+  isAssetDecoded(url: string | null | undefined): boolean {
+    if (!url) return false;
+    const resolved = this.resolveAssetUrl(url);
+    return this.decodedAssetUrls.has(url) || this.decodedAssetUrls.has(resolved);
+  }
+
+  private isImageAssetUrl(url: string): boolean {
+    if (!url) return false;
+    const clean = url.split(/[?#]/)[0].toLowerCase();
+    if (
+      clean.endsWith('.mp4') ||
+      clean.endsWith('.webm') ||
+      clean.endsWith('.woff2') ||
+      clean.endsWith('.woff') ||
+      clean.endsWith('.ttf') ||
+      clean.endsWith('.otf')
+    ) {
+      return false;
+    }
+    return true;
+  }
+
+  private async preloadSingleImage(url: string): Promise<void> {
+    if (typeof window === 'undefined' || typeof Image === 'undefined') return;
+    if (!url || !this.isImageAssetUrl(url)) return;
+    if (this.decodedAssetUrls.has(url)) return;
+
+    await new Promise<void>((resolve) => {
+      const img = new Image();
+      img.decoding = 'sync';
+      img.src = url;
+      const done = () => {
+        this.decodedAssetUrls.add(url);
+        if (this.decodedImageRefs.size < 80) {
+          this.decodedImageRefs.set(url, img);
+        }
+        resolve();
+      };
+      if (typeof img.decode === 'function') {
+        img.decode().then(done).catch(() => {
+          if (img.complete) done();
+          else {
+            img.onload = done;
+            img.onerror = () => resolve();
+          }
+        });
+      } else if (img.complete) {
+        done();
+      } else {
+        img.onload = done;
+        img.onerror = () => resolve();
+      }
+    });
+  }
+
+  async preloadImages(urls: Iterable<string>): Promise<void> {
+    const list = [...new Set([...urls].filter((u) => Boolean(u) && this.isImageAssetUrl(u)))];
+    if (list.length === 0) return;
+    await Promise.allSettled(list.map((u) => this.preloadSingleImage(u)));
+  }
+
+  private persistResolvedAssetsMap() {
+    if (typeof localStorage === 'undefined') return;
+    try {
+      const compact: Record<string, string> = {};
+      for (const [k, v] of Object.entries(this.resolvedBackgrounds)) {
+        if (v && (v.startsWith('asset:') || v.startsWith('http://asset.localhost') || v.startsWith('https://asset.localhost'))) {
+          compact[k] = v;
+        }
+      }
+      localStorage.setItem(`potohub_resolved_assets_${this.boothId}`, JSON.stringify(compact));
+    } catch {}
+  }
+
+  private loadResolvedAssetsMap() {
+    if (typeof localStorage === 'undefined') return;
+    try {
+      const raw = localStorage.getItem(`potohub_resolved_assets_${this.boothId}`);
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object') {
+        this.resolvedBackgrounds = { ...parsed, ...this.resolvedBackgrounds };
+      }
+    } catch {}
+  }
+
   setResolvedBackground(url: string, resolvedUrl: string) {
     this.resolvedBackgrounds[url] = resolvedUrl;
+    this.persistResolvedAssetsMap();
+    if (resolvedUrl && isLocalAssetUrl(resolvedUrl)) {
+      void this.preloadSingleImage(resolvedUrl);
+    }
   }
 
   resolveAssetUrl(url: string | null | undefined): string {
@@ -201,56 +308,132 @@ class UIConfigStore {
     return this.resolvedBackgrounds[url] || url;
   }
 
-  async resolveCachedAssets() {
-    const urlsToResolve = new Set<string>();
-    for (const s of this.config.stepStyles ?? []) {
-      if (s.bgType === 'image' && s.bgValue) urlsToResolve.add(s.bgValue);
+  private collectStartAssetUrls(): string[] {
+    const urls = new Set<string>();
+    const startImg = this.getStepImageSrc('start');
+    if (startImg) urls.add(startImg);
+    const startScreen = this.resolvedDesignBlocks.screens?.start;
+    if (startScreen?.background?.value) {
+      const val = startScreen.background.value;
+      if (startScreen.background.type === 'image' || val.startsWith('http://') || val.startsWith('https://') || isLocalAssetUrl(val)) {
+        urls.add(this.resolveAssetUrl(val));
+      }
     }
-    if (this.config.tutorialImageUrl) {
-      urlsToResolve.add(this.config.tutorialImageUrl);
+    for (const blk of startScreen?.blocks ?? []) {
+      const imgUrl = blk.props?.imageUrl;
+      if (typeof imgUrl === 'string' && imgUrl) {
+        urls.add(this.resolveAssetUrl(imgUrl));
+      }
     }
-    for (const u of collectDesignBlockAssetUrls(this.resolvedDesignBlocks)) {
-      urlsToResolve.add(u);
+    return [...urls];
+  }
+
+  async preloadStartAssets(): Promise<void> {
+    const localUrls = this.collectStartAssetUrls().filter((u) => isLocalAssetUrl(u));
+    await this.preloadImages(localUrls);
+  }
+
+  async resolveCachedAssets(): Promise<void> {
+    if (this.resolvePromise) {
+      this.resolveNeedsRerun = true;
+      return this.resolvePromise;
     }
 
-    for (const rawUrl of urlsToResolve) {
-      if (
-        !rawUrl ||
-        rawUrl.startsWith('data:') ||
-        rawUrl.startsWith('asset:') ||
-        rawUrl.startsWith('http://asset.localhost')
-      ) {
-        continue;
-      }
-      try {
-        const meta = await getAssetCacheMeta(rawUrl);
-        if (meta) {
-          const filePath = await invoke<string | null>('get_cached_asset_path', {
-            cacheKey: meta.cache_key,
-          });
-          if (filePath) {
-            this.resolvedBackgrounds[rawUrl] = convertFileSrc(filePath);
-          } else {
-            const dataUrl = await invoke<string | null>('read_cached_asset', {
-              cacheKey: meta.cache_key,
-            });
-            if (dataUrl) {
-              this.resolvedBackgrounds[rawUrl] = dataUrl;
-            }
-          }
+    this.resolvePromise = (async () => {
+      do {
+        this.resolveNeedsRerun = false;
+        const urlsToResolve = new Set<string>();
+        for (const s of this.config.stepStyles ?? []) {
+          if (s.bgType === 'image' && s.bgValue) urlsToResolve.add(s.bgValue);
         }
-      } catch (e) {
-        console.warn('[uiConfig] Gagal resolve asset cache:', e);
-      }
-    }
+        if (this.config.tutorialImageUrl) {
+          urlsToResolve.add(this.config.tutorialImageUrl);
+        }
+        for (const p of this.config.paymentMethods ?? []) {
+          if (p.logoUrl) urlsToResolve.add(p.logoUrl);
+        }
+        for (const u of collectDesignBlockAssetUrls(this.resolvedDesignBlocks)) {
+          urlsToResolve.add(u);
+        }
 
-    const customFonts = this.resolvedDesignBlocks.theme?.custom_fonts;
-    if (customFonts && customFonts.length > 0) {
-      await loadCustomFonts(customFonts, (u) => this.resolveAssetUrl(u));
+        const targets = [...urlsToResolve].filter((rawUrl) => rawUrl && !isLocalAssetUrl(rawUrl));
+        let changed = false;
+
+        await Promise.allSettled(
+          targets.map(async (rawUrl) => {
+            try {
+              const meta = await getAssetCacheMeta(rawUrl);
+              if (meta) {
+                const filePath = await invoke<string | null>('get_cached_asset_path', {
+                  cacheKey: meta.cache_key,
+                });
+                if (filePath) {
+                  const localUrl = convertFileSrc(filePath);
+                  if (this.resolvedBackgrounds[rawUrl] !== localUrl) {
+                    this.resolvedBackgrounds[rawUrl] = localUrl;
+                    changed = true;
+                  }
+                } else {
+                  const dataUrl = await invoke<string | null>('read_cached_asset', {
+                    cacheKey: meta.cache_key,
+                  });
+                  if (dataUrl && this.resolvedBackgrounds[rawUrl] !== dataUrl) {
+                    this.resolvedBackgrounds[rawUrl] = dataUrl;
+                    changed = true;
+                  } else if (!dataUrl && this.resolvedBackgrounds[rawUrl]) {
+                    delete this.resolvedBackgrounds[rawUrl];
+                    changed = true;
+                  }
+                }
+              } else if (this.resolvedBackgrounds[rawUrl]) {
+                delete this.resolvedBackgrounds[rawUrl];
+                changed = true;
+              }
+            } catch (e) {
+              console.warn('[uiConfig] Gagal resolve asset cache:', e);
+            }
+          }),
+        );
+
+        if (changed) {
+          this.persistResolvedAssetsMap();
+        }
+
+        // Pre-decode seluruh background/aset lokal di background agar perpindahan halaman Svelte instan 0ms tanpa blur/loading
+        const resolvedUrlsToDecode = [...urlsToResolve]
+          .map((u) => this.resolveAssetUrl(u))
+          .filter((u) => Boolean(u) && isLocalAssetUrl(u));
+        void this.preloadImages(resolvedUrlsToDecode);
+
+        const customFonts = this.resolvedDesignBlocks.theme?.custom_fonts;
+        if (customFonts && customFonts.length > 0) {
+          void loadCustomFonts(customFonts, (u) => this.resolveAssetUrl(u));
+        }
+      } while (this.resolveNeedsRerun);
+    })().finally(() => {
+      this.resolvePromise = null;
+    });
+
+    return this.resolvePromise;
+  }
+
+  private resolveDesignScreenBg(step: string): { type: string; value: string | null; blur?: string | null } | null {
+    const key =
+      step === 'download'
+        ? 'softfile'
+        : step === 'package'
+          ? 'payment'
+          : step;
+    const screen = (this.resolvedDesignBlocks?.screens as Record<string, { background?: { type: string; value: string | null; blur?: string | null } }> | undefined)?.[key];
+    if (screen?.background && screen.background.type !== 'none' && screen.background.value) {
+      return screen.background;
     }
+    return null;
   }
 
   getStepBlur(step: string): string | null {
+    const screenBg = this.resolveDesignScreenBg(step);
+    if (screenBg?.blur) return screenBg.blur;
     const s = this.config.stepStyles?.find(
       (x) =>
         x.step === step ||
@@ -263,6 +446,15 @@ class UIConfigStore {
   }
 
   getStepImageSrc(step: string): string | null {
+    const screenBg = this.resolveDesignScreenBg(step);
+    if (screenBg && (screenBg.type === 'image' || screenBg.value?.startsWith('http://') || screenBg.value?.startsWith('https://') || screenBg.value?.startsWith('data:') || screenBg.value?.startsWith('asset:') || screenBg.value?.startsWith('tauri://'))) {
+      const val = this.resolvedBackgrounds[screenBg.value!] || screenBg.value!;
+      if (val.startsWith('url(')) {
+        const match = val.match(/url\(['"]?(.*?)['"]?\)/);
+        return match ? match[1] : val;
+      }
+      return val;
+    }
     const s = this.config.stepStyles?.find(
       (x) =>
         x.step === step ||
@@ -281,6 +473,25 @@ class UIConfigStore {
   }
 
   getStepStyle(step: string): { background: string | null } {
+    const screenBg = this.resolveDesignScreenBg(step);
+    if (screenBg && screenBg.value) {
+      if (screenBg.value.startsWith('url(')) {
+        return { background: screenBg.value };
+      }
+      const val = this.resolvedBackgrounds[screenBg.value] || screenBg.value;
+      if (
+        screenBg.type === 'image' ||
+        val.startsWith('http://') ||
+        val.startsWith('https://') ||
+        val.startsWith('data:') ||
+        val.startsWith('blob:') ||
+        val.startsWith('asset:') ||
+        val.startsWith('tauri://')
+      ) {
+        return { background: `url("${val}") center / cover no-repeat` };
+      }
+      return { background: val };
+    }
     const s = this.config.stepStyles?.find(
       (x) =>
         x.step === step ||
@@ -376,11 +587,29 @@ class UIConfigStore {
 
   init(boothId: string = 'default') {
     this.boothId = boothId;
-    this.load();
+    this.load(false);
     void this.resolveCachedAssets();
   }
 
-  load() {
+  async initAsync(boothId: string = 'default'): Promise<void> {
+    this.boothId = boothId;
+    this.load(false);
+
+    const startUrls = this.collectStartAssetUrls();
+    const allStartLocal = startUrls.every((u) => isLocalAssetUrl(u));
+
+    if (allStartLocal) {
+      // Cache lokal sudah tersedia sinkron dari localStorage -> decode gambar start screen,
+      // lalu verifikasi & pre-decode aset halaman journey lain secara paralel di latar belakang.
+      await this.preloadStartAssets();
+      void this.resolveCachedAssets();
+    } else {
+      await this.resolveCachedAssets();
+      await this.preloadStartAssets();
+    }
+  }
+
+  load(triggerResolve = true) {
     try {
       const storedVariant = localStorage.getItem('ui_template_variant') as 'v1' | 'v2' | 'v3' | 'custom' | null;
       const raw = localStorage.getItem(`potohub_ui_config_${this.boothId}`);
@@ -422,7 +651,10 @@ class UIConfigStore {
     } catch {
       this.config = { ...DEFAULT_UI_CONFIG };
     }
-    void this.resolveCachedAssets();
+    this.loadResolvedAssetsMap();
+    if (triggerResolve) {
+      void this.resolveCachedAssets();
+    }
   }
 
   save(newCfg?: Partial<BoothUIConfig>) {

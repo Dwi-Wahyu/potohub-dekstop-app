@@ -20,12 +20,15 @@
   import KioskFrameWrapper from '$lib/components/shared/KioskFrameWrapper.svelte';
   import KioskPaymentWrapper from '$lib/components/shared/KioskPaymentWrapper.svelte';
   import KioskQrisWrapper from '$lib/components/shared/KioskQrisWrapper.svelte';
-  import V3Ticket from './V3Ticket.svelte';
+  import KioskSessionWrapper from '$lib/components/shared/KioskSessionWrapper.svelte';
+  import KioskTicketWrapper from '$lib/components/shared/KioskTicketWrapper.svelte';
+  import KioskSoftfileWrapper from '$lib/components/shared/KioskSoftfileWrapper.svelte';
   import V3Session from './V3Session.svelte';
   import V3Filter from './V3Filter.svelte';
   import V3Loading from './V3Loading.svelte';
   import V3Download from './V3Download.svelte';
   import V3Timer from './V3Timer.svelte';
+  import V1PrintQty from '../v1/V1PrintQty.svelte';
   import ProgressiveBackground from '$lib/components/shared/ProgressiveBackground.svelte';
 
   interface Props {
@@ -38,6 +41,7 @@
     | 'start'
     | 'tutorial'
     | 'package'
+    | 'print_qty'
     | 'payment'
     | 'ticket'
     | 'frame'
@@ -256,6 +260,7 @@
     start: 'start',
     tutorial: 'tutorial',
     package: 'payment',
+    print_qty: 'frame',
     payment: 'qris',
     ticket: 'ticket',
     frame: 'frame',
@@ -295,9 +300,12 @@
     <KioskPaymentWrapper
       doc={uiConfig.resolvedDesignBlocks}
       basePrice={v3BasePrice}
+      enableQtyModal={true}
       onSelect={(method) => {
         if (method === 'ticket') {
           handlePaymentSelectMethod('ticket');
+        } else if (uiConfig.resolvedDesignBlocks?.screens?.payment?.printQtyDialog?.mode === 'page') {
+          step = 'print_qty';
         } else {
           step = 'payment';
         }
@@ -310,6 +318,16 @@
         }
       }}
     />
+  {:else if step === 'print_qty'}
+    <V1PrintQty
+      background={getV3Bg('frame')}
+      basePrice={v3BasePrice}
+      onNext={(qty) => {
+        boothFlow.printQty = qty;
+        step = 'payment';
+      }}
+      onBack={() => (step = 'package')}
+    />
   {:else if step === 'payment'}
     <KioskQrisWrapper
       doc={uiConfig.resolvedDesignBlocks}
@@ -318,7 +336,11 @@
       onBack={() => (step = 'package')}
     />
   {:else if step === 'ticket'}
-    <V3Ticket background={getV3Bg('ticket')} onConfirm={handleTicketConfirm} onBack={() => (step = 'payment')} />
+    <KioskTicketWrapper
+      doc={uiConfig.resolvedDesignBlocks}
+      onSuccess={handleTicketConfirm}
+      onBack={() => (step = 'package')}
+    />
   {:else if step === 'frame'}
     <KioskFrameWrapper
       doc={uiConfig.resolvedDesignBlocks}
@@ -332,13 +354,31 @@
       }}
     />
   {:else if step === 'session'}
-    <V3Session background={getV3Bg('session')} selectedFrame={selectedFrameId} onComplete={handleSessionComplete} />
+    {#if uiConfig.config.designBlocks?.screens?.session}
+      <KioskSessionWrapper
+        doc={uiConfig.resolvedDesignBlocks}
+        frameConfigId={selectedFrameId}
+        onComplete={handleSessionComplete}
+        onBack={() => (step = 'frame')}
+      />
+    {:else}
+      <V3Session background={getV3Bg('session')} selectedFrame={selectedFrameId} onComplete={handleSessionComplete} />
+    {/if}
   {:else if step === 'filter'}
     <V3Filter background={getV3Bg('filter')} selectedFrame={selectedFrameId} onNext={handleFilterNext} />
   {:else if step === 'loading'}
     <V3Loading background={getV3Bg('loading')} onDone={handleLoadingDone} />
   {:else if step === 'download'}
-    <V3Download background={getV3Bg('download')} selectedFrame={selectedFrameId} onDone={handleDone} />
+    {#if uiConfig.resolvedDesignBlocks?.screens?.softfile}
+      <KioskSoftfileWrapper
+        doc={uiConfig.resolvedDesignBlocks}
+        photos={boothFlow.photosTaken}
+        frameConfigId={selectedFrameId}
+        onDone={handleDone}
+      />
+    {:else}
+      <V3Download background={getV3Bg('download')} selectedFrame={selectedFrameId} onDone={handleDone} />
+    {/if}
   {/if}
 
   <V3Timer {step} onTimeout={handleStepTimeout} />

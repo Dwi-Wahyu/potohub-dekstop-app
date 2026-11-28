@@ -73,6 +73,8 @@ class CameraStore {
 
   isDevMode = $state<boolean>(isDevWebcamEnabled());
   private connectingPromise: Promise<void> | null = null;
+  private liveviewChain: Promise<void> = Promise.resolve();
+  private liveviewSeq = 0;
 
   private recorder: MediaRecorder | null = null;
   private clipChunks: { blob: Blob; timestamp: number }[] = [];
@@ -205,10 +207,30 @@ class CameraStore {
     }
   }
 
+  private clearWebcamResources() {
+    this.stopWebcamRecordingPipeline();
+    if (this.stream) {
+      this.stream.getTracks().forEach((t) => t.stop());
+      this.stream = null;
+    }
+    if (this.offscreenVideo) {
+      this.offscreenVideo.srcObject = null;
+      if (this.offscreenVideo.parentNode) {
+        this.offscreenVideo.parentNode.removeChild(this.offscreenVideo);
+      }
+      this.offscreenVideo = null;
+    }
+    this.videoElement = null;
+  }
+
   private async internalConnect(mode: "usb" | "webcam" | "demo"): Promise<void> {
     await this.checkDevMode();
 
     const targetMode = mode;
+
+    if (targetMode !== "webcam") {
+      this.clearWebcamResources();
+    }
 
     if (targetMode === "usb") {
       try {
@@ -385,70 +407,87 @@ class CameraStore {
   }
 
   async startLiveview(videoEl?: HTMLVideoElement | null) {
-    if (this.status === "idle" || this.status === "error") {
-      await this.connect(this.cameraMode);
-    } else if (this.status === "connecting" && this.connectingPromise) {
-      await this.connectingPromise;
-    }
-    if (this.status !== "connected") return;
-    this.errorMessage = null;
-    if (videoEl) {
-      this.videoElement = videoEl;
-    }
-    if (this.cameraMode === "usb") {
-      this.isLiveviewActive = true;
-      try {
-        await invoke("start_liveview");
-      } catch (err) {
-        const msg = this.formatError(err);
-        console.warn("[startLiveview] warning:", msg);
-        this.errorMessage = msg;
+    const seq = ++this.liveviewSeq;
+    const run = async () => {
+      if (seq !== this.liveviewSeq) return;
+      if (this.status === "idle" || this.status === "error") {
+        await this.connect(this.cameraMode);
+      } else if (this.status === "connecting" && this.connectingPromise) {
+        await this.connectingPromise;
       }
-    } else if (this.cameraMode === "webcam") {
-      try {
-        if (
-          !this.stream ||
-          !this.stream.active ||
-          this.stream.getVideoTracks().every((t) => t.readyState === "ended")
-        ) {
-          this.stream = await this.getWebcamStream();
-        }
-        this.initOffscreenVideo(this.stream);
-        this.startWebcamRecordingPipeline(this.stream);
+      if (seq !== this.liveviewSeq) return;
+      if (this.status !== "connected") return;
+      this.errorMessage = null;
+      if (videoEl) {
+        this.videoElement = videoEl;
+      }
+      if (this.cameraMode === "usb") {
         this.isLiveviewActive = true;
-
-        if (videoEl) {
-          videoEl.srcObject = this.stream;
-          videoEl.muted = true;
-          videoEl.playsInline = true;
-          await videoEl.play().catch(() => {});
-          this.videoElement = videoEl;
+        try {
+          await invoke("start_liveview");
+        } catch (err) {
+          const msg = this.formatError(err);
+          console.warn("[startLiveview] warning:", msg);
+          this.errorMessage = msg;
         }
-      } catch (err) {
-        this.errorMessage = "Gagal memulai liveview kamera laptop: " + String(err);
+      } else if (this.cameraMode === "webcam") {
+        try {
+          if (
+            !this.stream ||
+            !this.stream.active ||
+            this.stream.getVideoTracks().every((t) => t.readyState === "ended")
+          ) {
+            this.stream = await this.getWebcamStream();
+          }
+          if (seq !== this.liveviewSeq) return;
+          this.initOffscreenVideo(this.stream);
+          this.startWebcamRecordingPipeline(this.stream);
+          this.isLiveviewActive = true;
+
+          if (videoEl) {
+            videoEl.srcObject = this.stream;
+            videoEl.muted = true;
+            videoEl.playsInline = true;
+            await videoEl.play().catch(() => {});
+            this.videoElement = videoEl;
+          }
+        } catch (err) {
+          this.errorMessage = "Gagal memulai liveview kamera laptop: " + String(err);
+        }
+      } else if (this.cameraMode === "demo") {
+        this.isLiveviewActive = true;
       }
-    } else if (this.cameraMode === "demo") {
-      this.isLiveviewActive = true;
-    }
+    };
+    const next = this.liveviewChain.then(run, run);
+    this.liveviewChain = next.catch(() => {});
+    return next;
   }
 
   async stopLiveview() {
-    this.errorMessage = null;
-    this.stopWebcamRecordingPipeline();
-    if (this.cameraMode === "usb") {
-      try {
-        await invoke("stop_liveview");
-      } catch {}
-    } else {
-      // Pada mode webcam, jangan matikan tracks MediaStream agar transisi dari Frame -> Session
-      // langsung aktif 0ms tanpa menutup/membuka ulang device kamera OS.
-      if (this.videoElement) {
-        this.videoElement = null;
+    const seq = ++this.liveviewSeq;
+    const run = async () => {
+      if (seq !== this.liveviewSeq) return;
+      this.errorMessage = null;
+      this.stopWebcamRecordingPipeline();
+      if (this.cameraMode === "usb") {
+        try {
+          await invoke("stop_liveview");
+        } catch {}
+      } else {
+        // Pada mode webcam, jangan matikan tracks MediaStream agar transisi dari Frame -> Session
+        // langsung aktif 0ms tanpa menutup/membuka ulang device kamera OS.
+        if (this.videoElement) {
+          this.videoElement = null;
+        }
       }
-    }
-    this.isLiveviewActive = false;
-    this.setPreparingCapture(false);
-    this.cleanupLiveviewUrl();
+      if (seq !== this.liveviewSeq) return;
+      this.isLiveviewActive = false;
+      this.setPreparingCapture(false);
+      this.cleanupLiveviewUrl();
+    };
+    const next = this.liveviewChain.then(run, run);
+    this.liveviewChain = next.catch(() => {});
+    return next;
   }
 
   async getLiveviewFrame(): Promise<string | null> {

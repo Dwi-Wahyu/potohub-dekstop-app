@@ -20,11 +20,12 @@
   import KioskPaymentWrapper from '$lib/components/shared/KioskPaymentWrapper.svelte';
   import KioskQrisWrapper from '$lib/components/shared/KioskQrisWrapper.svelte';
   import KioskSessionWrapper from '$lib/components/shared/KioskSessionWrapper.svelte';
+  import KioskTicketWrapper from '$lib/components/shared/KioskTicketWrapper.svelte';
+  import KioskSoftfileWrapper from '$lib/components/shared/KioskSoftfileWrapper.svelte';
   import V1PrintQty from '$lib/components/v1/V1PrintQty.svelte';
   import V1Camera from '$lib/components/v1/V1Camera.svelte';
   import V1Customize from '$lib/components/v1/V1Customize.svelte';
   import V1Complete from '$lib/components/v1/V1Complete.svelte';
-  import V1TicketScan from '$lib/components/v1/V1TicketScan.svelte';
   import ProgressiveBackground from '$lib/components/shared/ProgressiveBackground.svelte';
 
   interface Props {
@@ -119,6 +120,13 @@
     boothFlow.selectedFrameId = frameId;
     if (boothConfig.config.earlyPaymentPage) {
       void updateCheckpointSelection({ selectedFrameId: frameId });
+    }
+    if (
+      !boothConfig.config.earlyPaymentPage &&
+      uiConfig.resolvedDesignBlocks?.screens?.payment?.printQtyDialog?.mode === 'dialog'
+    ) {
+      currentSubStep = 'method_select';
+      return;
     }
     currentSubStep = 'print_qty';
   }
@@ -258,8 +266,8 @@
       }}
     />
   {:else if currentSubStep === 'ticket'}
-    <V1TicketScan
-      background={getCustomBg('ticket')}
+    <KioskTicketWrapper
+      doc={uiConfig.resolvedDesignBlocks}
       onSuccess={() => {
         boothFlow.paymentMethod = 'Ticket';
         const isEarly = boothConfig.config.earlyPaymentPage;
@@ -303,7 +311,16 @@
       onNext={handleCustomizeNext}
     />
   {:else if currentSubStep === 'complete'}
-    <V1Complete background={getCustomBg('download')} photos={boothFlow.photosTaken} frameConfigId={selectedFrameConfigId} onNewSession={handleNewSession} />
+    {#if uiConfig.resolvedDesignBlocks?.screens?.softfile}
+      <KioskSoftfileWrapper
+        doc={uiConfig.resolvedDesignBlocks}
+        photos={boothFlow.photosTaken}
+        frameConfigId={selectedFrameConfigId}
+        onDone={handleNewSession}
+      />
+    {:else}
+      <V1Complete background={getCustomBg('download')} photos={boothFlow.photosTaken} frameConfigId={selectedFrameConfigId} onNewSession={handleNewSession} />
+    {/if}
   {/if}
 </ProgressiveBackground>
 

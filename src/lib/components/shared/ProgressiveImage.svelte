@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { uiConfig } from '$lib/stores/uiConfig.svelte';
+  import { uiConfig, isLocalAssetUrl } from '$lib/stores/uiConfig.svelte';
 
   interface Props {
     src?: string | null;
@@ -20,22 +20,28 @@
   }: Props = $props();
 
   let resolvedSrc = $derived(src ? uiConfig.resolveAssetUrl(src) : null);
-  let isLoaded = $state(false);
+  let isInstantSource = $derived(
+    !resolvedSrc || isLocalAssetUrl(resolvedSrc) || uiConfig.isAssetDecoded(resolvedSrc),
+  );
+  let isLoaded = $state(true);
 
   function handleLoad() {
     isLoaded = true;
   }
 
   $effect(() => {
-    if (resolvedSrc) {
+    const target = resolvedSrc;
+    if (!target || isLocalAssetUrl(target) || uiConfig.isAssetDecoded(target) || !blurSrc) {
+      isLoaded = true;
+    } else {
       isLoaded = false;
     }
   });
 </script>
 
 <div class="relative overflow-hidden {aspectRatio} {className}">
-  <!-- Layer 1: Blur Placeholder -->
-  {#if blurSrc && !isLoaded}
+  <!-- Layer 1: Blur Placeholder (hanya untuk aset remote yang belum tercache lokal) -->
+  {#if blurSrc && !isInstantSource && !isLoaded}
     <div
       class="absolute inset-0 bg-cover bg-center filter blur-md scale-105 transform pointer-events-none"
       style="background-image: url('{blurSrc}');"
@@ -47,11 +53,11 @@
     <img
       src={resolvedSrc}
       {alt}
-      loading="lazy"
-      decoding="async"
+      loading="eager"
+      decoding={isInstantSource ? 'sync' : 'async'}
       draggable="false"
       onload={handleLoad}
-      class="w-full h-full object-{objectFit} pointer-events-none select-none {isLoaded || !blurSrc ? 'opacity-100' : 'opacity-0'}"
+      class="w-full h-full object-{objectFit} pointer-events-none select-none {isInstantSource || isLoaded || !blurSrc ? 'opacity-100' : 'opacity-0'}"
     />
   {/if}
 </div>

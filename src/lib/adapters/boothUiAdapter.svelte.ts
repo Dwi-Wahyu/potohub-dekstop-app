@@ -8,6 +8,8 @@ import type {
   BoothRuntimeAdapter,
   PaymentRuntimeState,
   SessionRuntimeState,
+  SoftfileRuntimeState,
+  TicketRuntimeState,
 } from '@potohub/booth-ui';
 
 export function createDesktopUiAdapter(params: {
@@ -17,6 +19,8 @@ export function createDesktopUiAdapter(params: {
   customTutorialImg?: string;
   payment?: PaymentRuntimeState;
   session?: SessionRuntimeState;
+  ticket?: TicketRuntimeState;
+  softfile?: SoftfileRuntimeState;
   callbacks?: BoothRuntimeAdapter['callbacks'];
 }): BoothRuntimeAdapter {
   return {
@@ -37,11 +41,15 @@ export function createDesktopUiAdapter(params: {
     resolveAssetUrl: (url) => uiConfig.resolveAssetUrl(url),
     payment: params.payment,
     session: params.session,
+    ticket: params.ticket,
+    softfile: params.softfile,
     liveview: {
       isActive: cameraStore.isLiveviewActive,
       cameraMode: cameraStore.cameraMode,
+      status: cameraStore.status,
+      errorMessage: cameraStore.errorMessage,
       frameSrc: params.frameSrc || '',
-      stream: cameraStore.stream,
+      stream: cameraStore.cameraMode === 'webcam' ? cameraStore.stream : null,
       transformCss: getLiveviewTransformStyle(boothConfig.config, cameraStore.cameraMode),
       attachVideo: (node, stream) => {
         const activeStream = stream ?? cameraStore.stream;
